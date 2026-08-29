@@ -49,6 +49,38 @@ def fetch_matchups(league_id: str, week: int) -> list[dict]:
     return _get(f"league/{league_id}/matchups/{week}")
 
 
+def fetch_transactions(league_id: str, week: int) -> list[dict]:
+    """Trades, waiver claims, and free-agent moves processed in a given
+    week. Each item's "type" field is "trade", "waiver", or "free_agent"."""
+    return _get(f"league/{league_id}/transactions/{week}")
+
+
+def build_teams(rosters: list[dict], users: list[dict]) -> list[dict]:
+    """Join rosters with users by owner_id into one record per team.
+
+    Sleeper's league-level endpoints already return every roster and every
+    user for the whole league in a single call each — there's no separate
+    per-team or per-user ID needed to look up a specific team's roster or
+    owner. This just merges the two responses client-side for convenience.
+    """
+    users_by_id = {user["user_id"]: user for user in users}
+    teams = []
+    for roster in rosters:
+        owner = users_by_id.get(roster.get("owner_id"), {})
+        teams.append(
+            {
+                "roster_id": roster.get("roster_id"),
+                "owner_id": roster.get("owner_id"),
+                "display_name": owner.get("display_name"),
+                "team_name": (owner.get("metadata") or {}).get("team_name") or owner.get("display_name"),
+                "players": roster.get("players"),
+                "starters": roster.get("starters"),
+                "settings": roster.get("settings"),
+            }
+        )
+    return teams
+
+
 def fetch_players(cache_path: Path, force_refresh: bool = False) -> dict:
     """Fetch the full NFL player pool, using a local cache since Sleeper
     asks clients not to hit this endpoint more than once per day. The
@@ -81,6 +113,8 @@ def run(league_id: str = DEFAULT_LEAGUE_ID, week: int | None = None, out_dir: Pa
     rosters = fetch_rosters(league_id)
     users = fetch_users(league_id)
     matchups = fetch_matchups(league_id, week)
+    transactions = fetch_transactions(league_id, week)
+    teams = build_teams(rosters, users)
 
     players_cache_path = out_dir / "players_cache.json"
     players = fetch_players(players_cache_path)
@@ -90,7 +124,9 @@ def run(league_id: str = DEFAULT_LEAGUE_ID, week: int | None = None, out_dir: Pa
         "league.json": league,
         "rosters.json": rosters,
         "users.json": users,
+        "teams.json": teams,
         f"matchups_week_{week}.json": matchups,
+        f"transactions_week_{week}.json": transactions,
         "players.json": players,
     }
     for filename, data in payloads.items():
