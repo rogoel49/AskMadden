@@ -25,9 +25,11 @@ def _load(raw_dir: Path, filename: str) -> Any:
     return payload["data"]
 
 
-def _player_name(players: dict, player_id: str) -> str:
+def _player_label(players: dict, player_id: str) -> str:
     player = players.get(player_id) or {}
-    return player.get("full_name") or f"player {player_id}"
+    name = player.get("full_name") or f"player {player_id}"
+    tag = ", ".join(x for x in [player.get("position"), player.get("team")] if x)
+    return f"{name} ({tag})" if tag else name
 
 
 def build_chunks(raw_dir: Path = RAW_DIR) -> list[dict]:
@@ -54,8 +56,8 @@ def build_chunks(raw_dir: Path = RAW_DIR) -> list[dict]:
     )
 
     for team in teams:
-        player_names = [_player_name(players, pid) for pid in (team.get("players") or [])]
-        starter_names = [_player_name(players, pid) for pid in (team.get("starters") or [])]
+        player_names = [_player_label(players, pid) for pid in (team.get("players") or [])]
+        starter_names = [_player_label(players, pid) for pid in (team.get("starters") or [])]
         chunks.append(
             {
                 "id": f"team:{team.get('roster_id')}",
@@ -88,8 +90,8 @@ def build_chunks(raw_dir: Path = RAW_DIR) -> list[dict]:
         week = int(path.stem.rsplit("_", 1)[-1])
         transactions = json.loads(path.read_text())["data"]
         for i, txn in enumerate(transactions):
-            adds = ", ".join(_player_name(players, pid) for pid in (txn.get("adds") or {}))
-            drops = ", ".join(_player_name(players, pid) for pid in (txn.get("drops") or {}))
+            adds = ", ".join(_player_label(players, pid) for pid in (txn.get("adds") or {}))
+            drops = ", ".join(_player_label(players, pid) for pid in (txn.get("drops") or {}))
             text = f"Week {week} {txn.get('type')} transaction"
             if adds:
                 text += f", added: {adds}"

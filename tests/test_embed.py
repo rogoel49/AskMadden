@@ -31,10 +31,29 @@ def _seed_raw_dir(raw_dir: Path) -> None:
                 "players": ["4046", "5850"],
                 "starters": ["4046"],
                 "settings": {"wins": 2},
-            }
+            },
+            {
+                "roster_id": 2,
+                "owner_id": "u2",
+                "display_name": "otheruser",
+                "team_name": "Team Two",
+                "players": ["4029", "5945", "4217"],
+                "starters": ["5945"],
+                "settings": {"wins": 1},
+            },
         ],
     )
-    _write(raw_dir, "players.json", {"4046": {"full_name": "Patrick Mahomes"}, "5850": {"full_name": "Cooper Kupp"}})
+    _write(
+        raw_dir,
+        "players.json",
+        {
+            "4046": {"full_name": "Patrick Mahomes", "position": "QB", "team": "KC"},
+            "5850": {"full_name": "Cooper Kupp", "position": "WR", "team": "LAR"},
+            "4029": {"full_name": "Christian McCaffrey", "position": "RB", "team": "SF"},
+            "5945": {"full_name": "Brock Purdy", "position": "QB", "team": "SF"},
+            "4217": {"full_name": "George Kittle", "position": "TE", "team": "SF"},
+        },
+    )
     _write(raw_dir, "matchups_week_3.json", [{"roster_id": 1, "matchup_id": 1, "points": 110.5}, {"roster_id": 2, "matchup_id": 1, "points": 98.2}])
     _write(raw_dir, "transactions_week_3.json", [{"type": "waiver", "adds": {"5850": 1}, "drops": {"4046": 1}}])
 
@@ -52,13 +71,13 @@ def test_build_chunks_covers_league_teams_matchups_and_transactions(tmp_path):
     assert "transaction:week3:0" in ids
 
     team_chunk = next(c for c in chunks if c["id"] == "team:1")
-    assert "Patrick Mahomes" in team_chunk["text"]
-    assert "Cooper Kupp" in team_chunk["text"]
+    assert "Patrick Mahomes (QB, KC)" in team_chunk["text"]
+    assert "Cooper Kupp (WR, LAR)" in team_chunk["text"]
     assert team_chunk["metadata"] == {"type": "team_roster", "roster_id": 1}
 
     txn_chunk = next(c for c in chunks if c["id"] == "transaction:week3:0")
-    assert "added: Cooper Kupp" in txn_chunk["text"]
-    assert "dropped: Patrick Mahomes" in txn_chunk["text"]
+    assert "added: Cooper Kupp (WR, LAR)" in txn_chunk["text"]
+    assert "dropped: Patrick Mahomes (QB, KC)" in txn_chunk["text"]
 
 
 def test_embed_and_query_roundtrip(tmp_path):
