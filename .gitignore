@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.pytest_cache/
+
+# raw pulls are reproducible from source APIs and too large to commit
+data/raw/*
+!data/raw/.gitkeep
