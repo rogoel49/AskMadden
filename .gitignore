@@ -8,3 +8,6 @@ venv/
 # raw pulls are reproducible from source APIs and too large to commit
 data/raw/*
 !data/raw/.gitkeep
+
+# the chroma db is rebuilt from data/raw/ on every embed run
+data/chroma/

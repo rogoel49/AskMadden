@@ -35,9 +35,20 @@ cp .env.example .env
 
 ## Usage
 Pull the latest Sleeper league data (league, rosters, users, matchups,
-player pool) to `data/raw/sleeper/`:
+transactions, player pool) to `data/raw/sleeper/`:
 ```
 python -m src.ingest.sleeper
+```
+
+Chunk that data (team rosters, league settings, matchups, transactions)
+and embed it into a local ChromaDB collection at `data/chroma/`:
+```
+python -m src.rag.embed
+```
+
+Query the collection directly:
+```
+python -c "from src.rag.retrieve import query; print(query('who is on my roster'))"
 ```
 
 ## Tests

@@ -5,7 +5,7 @@ See `PROJECT_SPEC.md` for the full phased plan and signals table.
 ## Phase 1: Foundation (RAG basics)
 - [x] Sleeper ingest: league, rosters, matchups, player pool
 - [x] Store as structured JSON (`data/raw/sleeper/`)
-- [ ] Chunk + embed into ChromaDB
+- [x] Chunk + embed into ChromaDB (`data/chroma/`)
 - [ ] CLI loop: question → retrieve → answer
 - [ ] Pull exact box scores via nflverse for chosen eval weeks
 - [ ] Auto-generate ground_truth.jsonl from nflverse weekly stats
