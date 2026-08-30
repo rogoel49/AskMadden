@@ -46,10 +46,32 @@ and embed it into a local ChromaDB collection at `data/chroma/`:
 python -m src.rag.embed
 ```
 
-Query the collection directly:
+Ask questions interactively:
 ```
-python -c "from src.rag.retrieve import query; print(query('who is on my roster'))"
+python -m src.cli
 ```
+
+## Evals
+Pull real weekly box scores from nflverse and turn them into ground truth
+(fantasy points computed using this league's actual scoring settings):
+```
+python -m src.ingest.nflverse --season 2024
+python -m evals.build_ground_truth --season 2024 --weeks 1 2 3 4 5
+```
+
+Generate retrieval eval questions from the current Sleeper pull, and run
+the backtest harness (as-of-week filtered — a question about week N is
+never graded using week N+1 data):
+```
+python -m evals.build_eval_questions
+python -m evals.run_eval
+```
+This currently scores **retrieval accuracy** only (did the RAG pipeline
+surface the right facts). **Decision accuracy** (did it recommend the
+higher-scoring player) needs a reasoning agent to grade against
+`evals/ground_truth.jsonl` — that's Phase 3's `recommend.py`, not yet
+built. See `PROJECT_SPEC.md`'s eval methodology for why these are scored
+separately.
 
 ## Tests
 ```

@@ -42,3 +42,26 @@ jobs:
           assert results, 'expected at least one retrieved chunk'
           print(results[0])
           "
+      - name: Generate eval questions from the real pull and run the retrieval-accuracy harness
+        run: |
+          python -m evals.build_eval_questions
+          python -m evals.run_eval
+
+  nflverse-live-smoke-test:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Pull real nflverse weekly stats and confirm the file is non-empty
+        run: |
+          python -m src.ingest.nflverse --season 2024
+          python -c "
+          import pandas as pd
+          df = pd.read_parquet('data/raw/nflverse/weekly_2024.parquet')
+          assert len(df) > 0, 'expected at least one row of weekly stats'
+          print(f'{len(df)} rows')
+          "
