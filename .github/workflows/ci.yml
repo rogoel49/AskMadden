@@ -32,3 +32,13 @@ jobs:
           for f in league.json rosters.json users.json teams.json players.json; do
             python -c "import json,sys; json.load(open('data/raw/sleeper/$f')) and sys.exit(0)"
           done
+      - name: Chunk and embed the real pull into ChromaDB
+        run: python -m src.rag.embed
+      - name: Verify retrieval returns a real team roster chunk
+        run: |
+          python -c "
+          from src.rag.retrieve import query
+          results = query('team roster', n_results=1)
+          assert results, 'expected at least one retrieved chunk'
+          print(results[0])
+          "
