@@ -6,10 +6,11 @@ See `PROJECT_SPEC.md` for the full phased plan and signals table.
 - [x] Sleeper ingest: league, rosters, matchups, player pool
 - [x] Store as structured JSON (`data/raw/sleeper/`)
 - [x] Chunk + embed into ChromaDB (`data/chroma/`)
-- [ ] CLI loop: question → retrieve → answer
-- [ ] Pull exact box scores via nflverse for chosen eval weeks
-- [ ] Auto-generate ground_truth.jsonl from nflverse weekly stats
-- [ ] Build evals/run_eval.py backtest harness (as-of-date filtering)
+- [x] CLI loop: question → retrieve → answer (`src/cli.py`)
+- [x] Pull exact box scores via nflverse for chosen eval weeks (`src/ingest/nflverse.py`)
+- [x] Auto-generate ground_truth.jsonl from nflverse weekly stats (`evals/build_ground_truth.py`)
+- [x] Build evals/run_eval.py backtest harness (as-of-date filtering) — retrieval accuracy only; decision accuracy needs Phase 3's recommend.py
+- [ ] **Deferred, tracked, not started:** qualitative eval seed set — hand-researched, verified (not invented) real pregame dilemmas (e.g. Week 5 2025 Dobbins/Harvey flex split, Addison vs. Jeudy), per `PROJECT_SPEC.md`'s eval methodology. `evals/build_eval_questions.py` currently produces neither this nor the spec's nflverse box-score "systematic set" — see its docstring. Needs actual research to source verified dilemmas; do not fabricate. Revisit once Phase 3's decision-accuracy grading exists to make these gradeable.
 
 ## Phase 2: Signals layer
 - [ ] nflverse ingest: play-by-play, EPA/WPA, personnel/formation
