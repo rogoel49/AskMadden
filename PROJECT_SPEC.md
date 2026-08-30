@@ -96,10 +96,18 @@ gaps. Scope as a stretch phase, not a v1 blocker.
 ## Eval methodology
 - **Qualitative seed set**: real, researched pregame dilemmas (e.g. Week 5 2025
   Dobbins/Harvey flex split, Addison vs. Jeudy) — verified, not invented,
-  used for narrative variety and hard test cases.
+  used for narrative variety and hard test cases. **Status: deferred, tracked
+  in `TODO.md`, not started.** Needs actual research per dilemma (can't be
+  generated), so it's scoped for whenever Phase 3's decision-accuracy
+  grading makes these gradeable rather than built speculatively now.
 - **Systematic set**: generated programmatically via nflverse — pull real
   box scores for chosen weeks, auto-build `ground_truth.jsonl`. Far more
-  reliable and scalable than manual research.
+  reliable and scalable than manual research. **Note:** `evals/build_eval_questions.py`
+  today generates a related but distinct thing — plain fact-retrieval
+  questions from our own Sleeper data (rosters, matchup scores), not the
+  nflverse box-score comparison dilemmas described here. Don't conflate the
+  two when building Phase 3's decision-accuracy grading against this
+  systematic set.
 - **As-of-date filtering is mandatory**: retrieval/signals must only use
   data available before kickoff for the eval week, or the eval leaks
   the answer.

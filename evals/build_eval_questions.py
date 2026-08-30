@@ -1,13 +1,17 @@
-"""Generate evals/eval_questions.jsonl: systematic retrieval questions
+"""Generate evals/eval_questions.jsonl: plain fact-retrieval questions
 derived directly from this league's own ingested Sleeper data (team
-rosters, matchups). Not hand-authored -- see PROJECT_SPEC.md's eval
-methodology for why generated questions are preferred over invented ones.
+rosters, matchup scores).
 
-These test retrieval accuracy only: can the RAG pipeline surface facts
-we already know are true from our own source data. Decision-accuracy
-questions ("which player should you start") need a reasoning agent to
-grade against evals/ground_truth.jsonl -- that's Phase 3's recommend.py,
-not yet wired into run_eval.py.
+NAMING NOTE -- do not confuse this with PROJECT_SPEC.md's "systematic
+set": that term refers to nflverse box-score *comparison dilemmas*
+("should you have started Player A or Player B") used for Phase 3
+decision-accuracy grading against evals/ground_truth.jsonl. What this
+module builds is narrower and Sleeper-sourced, not nflverse-sourced: it
+only checks "can the RAG pipeline surface facts we already know are true
+from our own source data" (retrieval accuracy), and has no connection to
+ground_truth.jsonl at all. The real "systematic set" (and the qualitative
+hand-researched dilemma set alongside it) is tracked as deferred in
+TODO.md, not built here.
 """
 from __future__ import annotations
 
