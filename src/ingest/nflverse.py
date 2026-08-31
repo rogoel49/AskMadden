@@ -1,4 +1,4 @@
-"""nflverse ingest: real weekly player box-score stats via nfl_data_py
+"""nflverse ingest: real weekly player box-score stats via nflreadpy
 (free, pulls from nflverse's public GitHub data releases, no API key).
 
 Used to build evals/ground_truth.jsonl -- the actual, measured outcomes
@@ -11,22 +11,22 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import nfl_data_py as nfl
-import pandas as pd
+import nflreadpy as nfl
+import polars as pl
 
 RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "nflverse"
 
 
-def fetch_weekly_stats(season: int) -> pd.DataFrame:
+def fetch_weekly_stats(season: int) -> pl.DataFrame:
     """Real, measured weekly player stats for `season` (reg + postseason)."""
-    return nfl.import_weekly_data([season])
+    return nfl.load_player_stats(seasons=[season], summary_level="week")
 
 
 def save_weekly_stats(season: int, out_dir: Path = RAW_DIR) -> Path:
     df = fetch_weekly_stats(season)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"weekly_{season}.parquet"
-    df.to_parquet(path)
+    df.write_parquet(path)
     return path
 
 

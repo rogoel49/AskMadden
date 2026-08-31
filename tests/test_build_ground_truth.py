@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-import pandas as pd
+import polars as pl
 
 from evals import build_ground_truth as bgt
 
@@ -17,13 +17,13 @@ SCORING = {
     "fum_lost": -2.0,
 }
 
-FAKE_WEEKLY = pd.DataFrame(
+FAKE_WEEKLY = pl.DataFrame(
     [
         {
             "week": 5,
             "position": "RB",
             "player_display_name": "Christian McCaffrey",
-            "recent_team": "SF",
+            "team": "SF",
             "rushing_yards": 100,
             "rushing_tds": 1,
             "receptions": 3,
@@ -34,14 +34,14 @@ FAKE_WEEKLY = pd.DataFrame(
             "sack_fumbles_lost": 0,
             "passing_yards": 0,
             "passing_tds": 0,
-            "interceptions": 0,
+            "passing_interceptions": 0,
         },
         {
             # different week, should be excluded when weeks=[5]
             "week": 6,
             "position": "RB",
             "player_display_name": "Someone Else",
-            "recent_team": "KC",
+            "team": "KC",
             "rushing_yards": 50,
             "rushing_tds": 0,
             "receptions": 0,
@@ -52,14 +52,14 @@ FAKE_WEEKLY = pd.DataFrame(
             "sack_fumbles_lost": 0,
             "passing_yards": 0,
             "passing_tds": 0,
-            "interceptions": 0,
+            "passing_interceptions": 0,
         },
         {
             # non-skill position, should be excluded
             "week": 5,
             "position": "DEF",
             "player_display_name": "49ers D/ST",
-            "recent_team": "SF",
+            "team": "SF",
             "rushing_yards": 0,
             "rushing_tds": 0,
             "receptions": 0,
@@ -70,14 +70,14 @@ FAKE_WEEKLY = pd.DataFrame(
             "sack_fumbles_lost": 0,
             "passing_yards": 0,
             "passing_tds": 0,
-            "interceptions": 0,
+            "passing_interceptions": 0,
         },
     ]
 )
 
 
 def test_compute_points_matches_league_scoring():
-    row = FAKE_WEEKLY.iloc[0].to_dict()
+    row = FAKE_WEEKLY.row(0, named=True)
 
     points = bgt.compute_points(row, SCORING)
 
