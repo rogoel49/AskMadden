@@ -209,6 +209,17 @@ can honestly say "built for one league, then shipped as a product."
 - [ ] Build evals/run_eval.py backtest harness (as-of-date filtering)
 
 ### Phase 2: Signals layer
+**Chunk granularity (locked in, not up for re-litigation when this phase starts):**
+signal/analysis content (NGS writeups, matchup-fit commentary, injury
+notes, etc.) is chunked **per player** (or per player-per-week for
+time-varying content like a weekly matchup writeup) — never bundled
+into a team-sized blob. A whole-team chunk dilutes semantic search: a
+question about one player's efficiency trend would retrieve a chunk
+padded with 15 other players' irrelevant text instead of the specific
+fact needed for a recommendation. The existing Phase 1 `team:{roster_id}`
+whole-roster chunk (`src/rag/embed.py`) stays exactly as it is for its
+own use case ("who's on this roster") — it is not replaced or forced
+into this pattern, just not the model for anything new.
 - [ ] nflverse ingest: play-by-play, EPA/WPA, personnel/formation
 - [ ] NGS ingest: CROE, aDOT, RYOE
 - [ ] Odds ingest: game script / implied totals
