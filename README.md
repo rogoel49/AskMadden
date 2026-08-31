@@ -10,22 +10,37 @@ not just "start Player A," but "start Player A — this defense allows
 the 4th-most rush yards to RBs and Player A's efficiency trend is up
 over his last 3 games."
 
-Built for the Victorious Secret 3.0 Sleeper league (12 teams, half-PPR).
+Built and validated first against Victorious Secret 3.0 (Sleeper league
+ID 1389341490030862336, 12 teams, half-PPR); the end goal (Phase 5,
+below) is a small hosted product where anyone can paste in their own
+Sleeper league ID and get the same recommendations for their own roster.
+**Current status: still in Phase 1 (single-league foundation) —
+multi-league productization hasn't started.**
 
 ## Architecture
+Target end-state (Phase 5):
 ```
 Sleeper / nflverse / NGS / odds / realtime
-    → signals layer (derived matchup features)
-    → RAG corpus (chunked, embedded, retrievable)
+    → signals layer (derived matchup features, league-agnostic)
+    → RAG corpus (chunked, embedded, retrievable, league-agnostic)
+    → per-league join (roster, scoring settings, matchup schedule)
     → Claude (tool-use agent)
     → recommendation + explanation
+    → web UI (hosted, multi-league)
 ```
 The agent is the Claude API with tool use (function calling) calling
 retrieval/signals functions directly as tools — no LangChain or similar
-framework.
+framework. Key property that makes productization cheap later: signals
+and the RAG corpus are computed from NFL-wide sources, not tied to any
+one league — only roster ownership, scoring settings, and matchup
+schedule are league-specific. Today, this repo only implements the
+Sleeper ingest → RAG pipeline for one league (see Usage below); the
+signals layer, reasoning agent, and multi-league API/web layers are
+all still ahead — see `TODO.md`.
 
 See `PROJECT_SPEC.md` for the full architecture, signals table, eval
-methodology, and phased plan. See `TODO.md` for current progress.
+methodology, and phased plan (including Phase 5). See `TODO.md` for
+current progress.
 
 ## Setup
 ```
