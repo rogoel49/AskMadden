@@ -1,10 +1,10 @@
 from unittest.mock import patch
 
-import pandas as pd
+import polars as pl
 
 from src.ingest import nflverse
 
-FAKE_DF = pd.DataFrame(
+FAKE_DF = pl.DataFrame(
     [{"player_display_name": "Patrick Mahomes", "position": "QB", "week": 1, "passing_yards": 300}]
 )
 
@@ -17,5 +17,5 @@ def test_save_weekly_stats_writes_parquet(tmp_path):
     assert path == tmp_path / "weekly_2024.parquet"
     assert path.exists()
 
-    loaded = pd.read_parquet(path)
-    assert loaded.iloc[0]["player_display_name"] == "Patrick Mahomes"
+    loaded = pl.read_parquet(path)
+    assert loaded.row(0, named=True)["player_display_name"] == "Patrick Mahomes"

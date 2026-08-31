@@ -60,8 +60,8 @@ jobs:
         run: |
           python -m src.ingest.nflverse --season 2024
           python -c "
-          import pandas as pd
-          df = pd.read_parquet('data/raw/nflverse/weekly_2024.parquet')
+          import polars as pl
+          df = pl.read_parquet('data/raw/nflverse/weekly_2024.parquet')
           assert len(df) > 0, 'expected at least one row of weekly stats'
           print(f'{len(df)} rows')
           "

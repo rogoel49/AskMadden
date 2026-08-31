@@ -13,6 +13,8 @@ import argparse
 import json
 from pathlib import Path
 
+import polars as pl
+
 from src.ingest import nflverse
 
 LEAGUE_JSON = Path(__file__).resolve().parents[1] / "data" / "raw" / "sleeper" / "league.json"
@@ -22,7 +24,7 @@ GROUND_TRUTH_PATH = Path(__file__).resolve().parent / "ground_truth.jsonl"
 STAT_TO_SCORING_KEY = {
     "passing_yards": "pass_yd",
     "passing_tds": "pass_td",
-    "interceptions": "pass_int",
+    "passing_interceptions": "pass_int",
     "passing_2pt_conversions": "pass_2pt",
     "rushing_yards": "rush_yd",
     "rushing_tds": "rush_td",
@@ -55,17 +57,17 @@ def build(season: int, weeks: list[int], scoring: dict | None = None) -> list[di
         scoring = load_scoring_settings()
 
     df = nflverse.fetch_weekly_stats(season)
-    df = df[df["week"].isin(weeks) & df["position"].isin(SKILL_POSITIONS)]
+    df = df.filter(pl.col("week").is_in(weeks) & pl.col("position").is_in(SKILL_POSITIONS))
 
     entries = []
-    for _, row in df.iterrows():
+    for row in df.iter_rows(named=True):
         entries.append(
             {
                 "season": season,
                 "week": int(row["week"]),
                 "player_name": row["player_display_name"],
                 "position": row["position"],
-                "nfl_team": row["recent_team"],
+                "nfl_team": row["team"],
                 "fantasy_points": compute_points(row, scoring),
                 "scoring_format": "league_actual",
                 "source": "nflverse",
