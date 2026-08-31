@@ -10,6 +10,7 @@ against teams.json/players.json instead of going through embeddings.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -38,20 +39,51 @@ def find_team_by_player(player_name: str, raw_dir: Path = RAW_DIR) -> dict | Non
     return None
 
 
+def _players_at_position(team: dict, players: dict, position: str) -> list[dict]:
+    return [
+        {"player_id": pid, **(players.get(pid) or {})}
+        for pid in (team.get("players") or [])
+        if (players.get(pid) or {}).get("position", "").upper() == position.upper()
+    ]
+
+
 def players_by_position_for_owner(owner_display_name: str, position: str, raw_dir: Path = RAW_DIR) -> list[dict]:
     """Return the rostered players at `position` (e.g. "QB") for the team
     owned by owner_display_name (case-insensitive exact match)."""
     teams, players = _load_teams_and_players(raw_dir)
     needle = owner_display_name.lower()
-    matches = []
     for team in teams:
-        if (team.get("display_name") or "").lower() != needle:
-            continue
-        for pid in team.get("players") or []:
-            player = players.get(pid) or {}
-            if (player.get("position") or "").upper() == position.upper():
-                matches.append({"player_id": pid, **player})
-    return matches
+        if (team.get("display_name") or "").lower() == needle:
+            return _players_at_position(team, players, position)
+    return []
+
+
+def current_roster(raw_dir: Path = RAW_DIR) -> dict:
+    """Resolve the team configured as "mine" via the MY_ROSTER_ID env var.
+
+    Single source of truth for "my"-flavored questions (my roster, my
+    quarterbacks, etc.) -- callers read this instead of each hardcoding
+    or re-parsing which roster_id belongs to the current user.
+    """
+    my_roster_id = os.environ.get("MY_ROSTER_ID")
+    if not my_roster_id:
+        raise RuntimeError(
+            "MY_ROSTER_ID is not set. Copy .env.example to .env and set it to "
+            "your roster_id from data/raw/sleeper/teams.json."
+        )
+    teams, _ = _load_teams_and_players(raw_dir)
+    for team in teams:
+        if str(team.get("roster_id")) == str(my_roster_id):
+            return team
+    raise RuntimeError(f"No team found with roster_id={my_roster_id!r} in teams.json.")
+
+
+def my_players_by_position(position: str, raw_dir: Path = RAW_DIR) -> list[dict]:
+    """Rostered players at `position` for the team configured as "mine"
+    (see current_roster())."""
+    team = current_roster(raw_dir)
+    _, players = _load_teams_and_players(raw_dir)
+    return _players_at_position(team, players, position)
 
 
 def teams_by_nfl_team_count(nfl_team: str, raw_dir: Path = RAW_DIR) -> list[tuple[dict, int]]:

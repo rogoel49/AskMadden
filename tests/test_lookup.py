@@ -1,3 +1,5 @@
+import pytest
+
 from src.rag import lookup
 from tests.test_embed import _seed_raw_dir
 
@@ -39,3 +41,43 @@ def test_teams_by_nfl_team_count_ranks_descending(tmp_path):
     # team 2's whole roster (McCaffrey, Purdy, Kittle) is SF; team 1 has none
     assert [team["roster_id"] for team, _count in ranked] == [2]
     assert ranked[0][1] == 3
+
+
+def test_current_roster_resolves_from_env(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+    monkeypatch.setenv("MY_ROSTER_ID", "2")
+
+    team = lookup.current_roster(raw_dir)
+
+    assert team["roster_id"] == 2
+    assert team["display_name"] == "otheruser"
+
+
+def test_current_roster_missing_env_raises(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+    monkeypatch.delenv("MY_ROSTER_ID", raising=False)
+
+    with pytest.raises(RuntimeError, match="MY_ROSTER_ID is not set"):
+        lookup.current_roster(raw_dir)
+
+
+def test_current_roster_unknown_id_raises(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+    monkeypatch.setenv("MY_ROSTER_ID", "999")
+
+    with pytest.raises(RuntimeError, match="No team found"):
+        lookup.current_roster(raw_dir)
+
+
+def test_my_players_by_position_uses_current_roster(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    qbs = lookup.my_players_by_position("QB", raw_dir)
+
+    assert len(qbs) == 1
+    assert qbs[0]["full_name"] == "Patrick Mahomes"
