@@ -63,6 +63,21 @@ def _sample_pbp() -> pl.DataFrame:
         # Week 3 (future reg season week): must never leak into as_of_week=3 history
         _play(week=3, posteam="A", defteam="B", rush=1, rusher_player_id="RB1", rusher_player_name="RB One",
               yards_gained=-999, yardline_100=99, epa=-99),
+        # Traded player: TR1 played for A in week 1, then for C in week 2
+        # (simulates a mid-season trade, e.g. Davante Adams' LV->NYJ move).
+        # Kept out of the red zone (yardline_100=50) so it doesn't perturb
+        # the red-zone-share assertions above.
+        _play(week=1, posteam="A", defteam="B", rush=1, rusher_player_id="TR1", rusher_player_name="Traded One",
+              yards_gained=4, yardline_100=50, epa=0.1),
+        _play(week=2, posteam="C", defteam="D", rush=1, rusher_player_id="TR1", rusher_player_name="Traded One",
+              yards_gained=6, yardline_100=50, epa=0.2),
+        # Name-formatting inconsistency: same player, same team, two
+        # different name spellings across weeks in nflverse's raw pbp
+        # (e.g. "Di.Johnson" vs "Dio.Johnson" for Diontae Johnson).
+        _play(week=1, posteam="A", defteam="B", rush=1, rusher_player_id="NM1", rusher_player_name="N.Mixed",
+              yards_gained=2, yardline_100=50, epa=0.05),
+        _play(week=2, posteam="A", defteam="B", rush=1, rusher_player_id="NM1", rusher_player_name="Na.Mixed",
+              yards_gained=3, yardline_100=50, epa=0.15),
     ]
     return pl.DataFrame(rows)
 
@@ -146,3 +161,58 @@ def test_build_signals_table_combines_all_signals_per_player():
     wr3 = by_player["WR3"]
     assert wr3["opponent"] is None
     assert wr3["implied_total"] is None
+
+
+def test_current_player_reference_resolves_trade_and_name_variants():
+    hist = ms._history(_sample_pbp(), as_of_week=3)
+    canonical = ms._current_player_reference(hist)
+    by_id = {row["player_id"]: row for row in canonical.to_dicts()}
+
+    # TR1's most recent (week 2) team is C, even though he played for A in week 1.
+    assert by_id["TR1"]["team"] == "C"
+    assert canonical.filter(pl.col("player_id") == "TR1").height == 1
+
+    # NM1's most recent (week 2) name spelling wins, and there's exactly one row.
+    assert by_id["NM1"]["player_name"] == "Na.Mixed"
+    assert by_id["NM1"]["team"] == "A"
+    assert canonical.filter(pl.col("player_id") == "NM1").height == 1
+
+
+def test_recent_efficiency_trend_dedupes_traded_and_renamed_players():
+    result = ms.recent_efficiency_trend(_sample_pbp(), as_of_week=3, trailing_games=1)
+    ids = result["player_id"].to_list()
+
+    # Exactly one row each, not one per team/name variant.
+    assert ids.count("TR1") == 1
+    assert ids.count("NM1") == 1
+
+    by_player = {row["player_id"]: row for row in result.to_dicts()}
+    # TR1 is attributed to his current team (C); his week-1 A-team play is
+    # excluded from his own stats, which is why season_plays == 1.
+    assert by_player["TR1"]["team"] == "C"
+    assert by_player["TR1"]["season_plays"] == 1
+    assert by_player["NM1"]["player_name"] == "Na.Mixed"
+    assert by_player["NM1"]["season_plays"] == 2
+
+
+def test_build_signals_table_has_one_row_per_player_despite_trades_and_renames():
+    rows = ms.build_signals_table(2024, as_of_week=3, pbp=_sample_pbp(), schedules=_sample_schedules())
+    player_ids = [row["player_id"] for row in rows]
+
+    # This is the regression this test guards: duplicate player_id rows
+    # here previously fanned out through build_signals_table's joins and
+    # crashed embed.py's chromadb.add() with DuplicateIDError downstream.
+    assert len(player_ids) == len(set(player_ids))
+
+    by_player = {row["player_id"]: row for row in rows}
+    assert by_player["TR1"]["team"] == "C"
+    assert by_player["NM1"]["player_name"] == "Na.Mixed"
+
+
+def test_build_signal_chunks_produces_unique_ids_for_traded_and_renamed_players():
+    from src.rag import embed
+
+    rows = ms.build_signals_table(2024, as_of_week=3, pbp=_sample_pbp(), schedules=_sample_schedules())
+    chunk_ids = [c["id"] for c in embed.build_signal_chunks(rows)]
+
+    assert len(chunk_ids) == len(set(chunk_ids))

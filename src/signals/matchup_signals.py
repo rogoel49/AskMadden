@@ -65,7 +65,9 @@ def defense_run_funnel_rate(pbp: pl.DataFrame, as_of_week: int) -> pl.DataFrame:
 def red_zone_role_share(pbp: pl.DataFrame, as_of_week: int) -> pl.DataFrame:
     """Per player, share of their team's red zone (yardline_100 <= 20)
     rush attempts + targets through as_of_week -- a TD-equity proxy."""
-    rz = _history(pbp, as_of_week).filter(pl.col("yardline_100") <= 20)
+    hist = _history(pbp, as_of_week)
+    canonical = _current_player_reference(hist)
+    rz = hist.filter(pl.col("yardline_100") <= 20)
     rushes = rz.filter((pl.col("rush") == 1) & pl.col("rusher_player_id").is_not_null()).select(
         pl.col("posteam").alias("team"),
         pl.col("rusher_player_id").alias("player_id"),
@@ -84,13 +86,71 @@ def red_zone_role_share(pbp: pl.DataFrame, as_of_week: int) -> pl.DataFrame:
             pl.lit(None, dtype=pl.Float64).alias("red_zone_share"),
         )
 
-    per_player = touches.group_by(["player_id", "player_name", "team"]).agg(
+    # team_red_zone_plays is every red zone touch for that team this
+    # season, by whoever was on the field for it -- computed from the
+    # full, unrestricted touches so a traded player's pre-trade plays
+    # still count toward their old team's total. Only the player-level
+    # numerator is restricted to each player's current-team identity.
+    per_team = touches.group_by("team").agg(team_red_zone_plays=pl.len())
+    player_touches = _restrict_to_current_team(touches, canonical)
+    per_player = player_touches.group_by(["player_id", "player_name", "team"]).agg(
         red_zone_touches=pl.len()
     )
-    per_team = touches.group_by("team").agg(team_red_zone_plays=pl.len())
     return per_player.join(per_team, on="team").with_columns(
         (pl.col("red_zone_touches") / pl.col("team_red_zone_plays")).alias("red_zone_share")
     )
+
+
+def _current_player_reference(hist: pl.DataFrame) -> pl.DataFrame:
+    """Each player's most-recently-used team and name in hist, as
+    [player_id, team, player_name]. Resolves two real-world quirks in
+    nflverse pbp that would otherwise multiply a player's rows in every
+    downstream group_by(player_id, ...): mid-season trades (the same
+    player_id appears under multiple teams, e.g. Davante Adams' LV->NYJ
+    move) and inconsistent name formatting for the same player within a
+    season (e.g. "Di.Johnson" vs "Dio.Johnson" for Diontae Johnson).
+    Ties within the same week keep an arbitrary but deterministic pick;
+    that only matters for same-week name-variant noise, not team
+    identity. See _restrict_to_current_team."""
+    rush = hist.filter(pl.col("rusher_player_id").is_not_null()).select(
+        pl.col("rusher_player_id").alias("player_id"),
+        pl.col("posteam").alias("team"),
+        pl.col("rusher_player_name").alias("player_name"),
+        pl.col("week"),
+    )
+    targets = hist.filter(pl.col("receiver_player_id").is_not_null()).select(
+        pl.col("receiver_player_id").alias("player_id"),
+        pl.col("posteam").alias("team"),
+        pl.col("receiver_player_name").alias("player_name"),
+        pl.col("week"),
+    )
+    passes = hist.filter(pl.col("passer_player_id").is_not_null()).select(
+        pl.col("passer_player_id").alias("player_id"),
+        pl.col("posteam").alias("team"),
+        pl.col("passer_player_name").alias("player_name"),
+        pl.col("week"),
+    )
+    appearances = pl.concat([rush, targets, passes])
+    if appearances.is_empty():
+        return appearances.drop("week")
+    return (
+        appearances.sort("week")
+        .group_by("player_id", maintain_order=True)
+        .last()
+        .select("player_id", "team", "player_name")
+    )
+
+
+def _restrict_to_current_team(rows: pl.DataFrame, canonical: pl.DataFrame) -> pl.DataFrame:
+    """Keep only the rows that happened on each player's current (most
+    recent) team, and replace whatever name variant appears on that row
+    with the canonical one. This intentionally *drops* a traded player's
+    pre-trade rows rather than relabeling them onto their new team --
+    relabeling would silently pollute the new team's own totals (e.g. a
+    red-zone-play or target denominator) with plays that never actually
+    happened there. `rows` must have [player_id, team, player_name, ...];
+    any other columns pass through unchanged."""
+    return rows.drop("player_name").join(canonical, on=["player_id", "team"], how="inner")
 
 
 def _role_epa_plays(hist: pl.DataFrame) -> pl.DataFrame:
@@ -127,7 +187,13 @@ def recent_efficiency_trend(pbp: pl.DataFrame, as_of_week: int, trailing_games: 
     season-to-date average (both strictly before as_of_week). Positive
     epa_trend = trending up; null when a player has no plays in the
     trailing window (e.g. they only played early in the season)."""
-    role_plays = _role_epa_plays(_history(pbp, as_of_week))
+    hist = _history(pbp, as_of_week)
+    canonical = _current_player_reference(hist)
+    # Restricting to each player's current-team stint here is also the
+    # semantically right call, not just a dedup fix: a player's efficiency
+    # trend should reflect his current offense, not averaged in with
+    # whatever he did for a team he's no longer on.
+    role_plays = _restrict_to_current_team(_role_epa_plays(hist), canonical)
     season = role_plays.group_by(["player_id", "player_name", "team"]).agg(
         season_epa_per_play=pl.col("epa").mean(), season_plays=pl.len()
     )
@@ -167,13 +233,23 @@ def opponent_adjusted_target_share(pbp: pl.DataFrame, schedules: pl.DataFrame, a
     opponent and null adjusted share (there's no matchup to adjust for).
     """
     hist = _history(pbp, as_of_week)
+    canonical = _current_player_reference(hist)
     targets = hist.filter((pl.col("pass") == 1) & pl.col("receiver_player_id").is_not_null())
-    per_player = targets.group_by(
-        ["receiver_player_id", "receiver_player_name", "posteam"]
-    ).agg(targets=pl.len()).rename(
-        {"receiver_player_id": "player_id", "receiver_player_name": "player_name", "posteam": "team"}
-    )
+
+    # team_targets is every target thrown by that team this season,
+    # regardless of who caught it -- computed from the full, unrestricted
+    # targets so a traded player's pre-trade targets still count toward
+    # their old team's total. Only the player-level numerator below is
+    # restricted to each player's current-team identity.
     per_team = targets.group_by("posteam").agg(team_targets=pl.len()).rename({"posteam": "team"})
+
+    player_targets = targets.select(
+        pl.col("receiver_player_id").alias("player_id"),
+        pl.col("posteam").alias("team"),
+        pl.col("receiver_player_name").alias("player_name"),
+    )
+    player_targets = _restrict_to_current_team(player_targets, canonical)
+    per_player = player_targets.group_by(["player_id", "player_name", "team"]).agg(targets=pl.len())
     per_player = per_player.join(per_team, on="team").with_columns(
         (pl.col("targets") / pl.col("team_targets")).alias("target_share")
     )
