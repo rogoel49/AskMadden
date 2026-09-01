@@ -25,7 +25,16 @@ or monetized, it needs to genuinely work for more than one league.
   nflverse-driven but not yet consumed by anything — reserved for Phase 3
   decision-accuracy grading. Qualitative hand-curated dilemma seed set
   still deferred, tracked separately.
-- Phase 2 (signals layer): not started
+- Phase 2 (signals layer): implemented — nflverse pbp/schedules and NGS
+  ingest, odds/game-script derivation, `matchup_signals.py`'s core
+  signals (all as-of-week filtered, validated against real 2024 data),
+  and signal chunks wired into the RAG corpus. Two documented gaps: line
+  movement (needs a live odds API this project doesn't have) and
+  matchup-fit score (still Phase 4, needs coverage classification). See
+  TODO.md's Phase 2 section for the full checklist and design deviations
+  (game script sourced from nflverse schedules rather than a separate
+  odds API; CROE approximated via NGS's YAC-over-expectation/separation
+  since NGS doesn't publish a literal catch-rate-over-expected stat).
 - Phase 3 (reasoning/recommend.py): not started
 - Phase 4 (coverage classification stretch): optional, not started
 - Phase 5 (productization — final deliverable): not started
