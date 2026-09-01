@@ -22,9 +22,9 @@ def test_answer_formats_retrieved_chunks():
         {"id": "team:1", "text": "Victorious Secret roster: ...", "metadata": {"type": "team_roster"}, "distance": 0.1},
     ]
     with patch.object(cli.retrieve, "query", return_value=fake_results) as mock_query:
-        result = cli.answer("who is on my roster")
+        result = cli.answer("what happened in the matchups this week")
 
-    mock_query.assert_called_once_with("who is on my roster", n_results=3)
+    mock_query.assert_called_once_with("what happened in the matchups this week", n_results=3)
     assert result == "[team_roster] Victorious Secret roster: ..."
 
 
@@ -60,10 +60,55 @@ def test_answer_my_position_without_my_roster_id_configured():
     assert "MY_ROSTER_ID is not set" in result
 
 
-def test_answer_falls_back_to_retrieve_when_no_position_detected():
+def test_answer_falls_back_to_retrieve_only_when_question_has_no_my():
     with patch.object(cli.retrieve, "query", return_value=[]) as mock_query, \
-         patch.object(cli.lookup, "my_players_by_position") as mock_lookup:
-        cli.answer("who is on my roster")
+         patch.object(cli.lookup, "my_players_by_position") as mock_position, \
+         patch.object(cli.lookup, "my_players") as mock_roster:
+        cli.answer("what happened this week")
 
     mock_query.assert_called_once()
-    mock_lookup.assert_not_called()
+    mock_position.assert_not_called()
+    mock_roster.assert_not_called()
+
+
+def test_answer_my_roster_with_no_position_uses_full_roster_not_retrieve():
+    """'my roster' has no position word -- must resolve via lookup.my_players()
+    (the full roster), never fall through to retrieve.query()."""
+    fake_roster = [
+        {"player_id": "4046", "full_name": "Patrick Mahomes", "position": "QB"},
+        {"player_id": "5850", "full_name": "Cooper Kupp", "position": "WR"},
+    ]
+    with patch.object(cli.lookup, "my_players", return_value=fake_roster) as mock_roster, \
+         patch.object(cli.retrieve, "query") as mock_query:
+        result = cli.answer("who is on my roster")
+
+    mock_roster.assert_called_once()
+    mock_query.assert_not_called()
+    assert result == "Your roster: Patrick Mahomes, Cooper Kupp"
+
+
+def test_answer_my_unrecognized_position_still_never_hits_retrieve():
+    """A brand-new phrasing this code doesn't recognize as a position
+    (e.g. "linebackers") must still resolve to the full roster via
+    lookup, never leak through to retrieve.query() and return some
+    other team's data."""
+    with patch.object(cli.lookup, "my_players", return_value=[]) as mock_roster, \
+         patch.object(cli.retrieve, "query") as mock_query:
+        cli.answer("who are my linebackers")
+
+    mock_roster.assert_called_once()
+    mock_query.assert_not_called()
+
+
+def test_answer_my_runningbacks_no_space_resolves_to_rb():
+    """Regression test for the reported gap: 'runningbacks' (no space)
+    previously fell through to retrieve.query() and returned other
+    teams' rosters. Must resolve to RB via lookup instead."""
+    fake_rbs = [{"player_id": "4029", "full_name": "Christian McCaffrey", "position": "RB"}]
+    with patch.object(cli.lookup, "my_players_by_position", return_value=fake_rbs) as mock_position, \
+         patch.object(cli.retrieve, "query") as mock_query:
+        result = cli.answer("who are my runningbacks")
+
+    mock_position.assert_called_once_with("RB")
+    mock_query.assert_not_called()
+    assert result == "Your RB(s): Christian McCaffrey"

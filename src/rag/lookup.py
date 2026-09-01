@@ -86,6 +86,14 @@ def my_players_by_position(position: str, raw_dir: Path = RAW_DIR) -> list[dict]
     return _players_at_position(team, players, position)
 
 
+def my_players(raw_dir: Path = RAW_DIR) -> list[dict]:
+    """All rostered players for the team configured as "mine" (see
+    current_roster()), unfiltered by position."""
+    team = current_roster(raw_dir)
+    _, players = _load_teams_and_players(raw_dir)
+    return [{"player_id": pid, **(players.get(pid) or {})} for pid in (team.get("players") or [])]
+
+
 def teams_by_nfl_team_count(nfl_team: str, raw_dir: Path = RAW_DIR) -> list[tuple[dict, int]]:
     """Return (team, count) pairs — how many of each fantasy team's
     rostered players currently play for the given real NFL team (e.g.

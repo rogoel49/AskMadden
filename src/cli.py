@@ -4,10 +4,17 @@ This is pre-reasoning: it surfaces the chunks retrieve.query() finds most
 relevant and prints them as-is. Deciding *when* to call semantic
 retrieval vs. a structured lookup (src/rag/lookup.py) vs. future signals
 is a Claude tool-use agent's job — that's recommend.py in Phase 3, not
-this loop. The one exception carved out here is "my"-flavored position
-questions ("who are my quarterbacks"): semantic search has no concept of
-identity, so that resolution has to go through lookup.py's
-current_roster() (MY_ROSTER_ID) instead -- see src/rag/lookup.py.
+this loop. The one exception carved out here is identity ("my ...")
+questions: semantic search has no concept of identity, so ANY question
+containing "my" routes to lookup.py's current_roster() (MY_ROSTER_ID)
+instead of retrieve.query() -- never the reverse. This is a routing
+rule, not a string-matching exercise: getting the specific position
+wrong (or not recognizing one at all) still falls back to the user's
+full roster, never to retrieve.query(), so a new phrasing can never leak
+into semantic search and return some other team's data. This is
+deliberately simple string matching, not real intent understanding --
+cli.py is a Phase 1/2 dev tool per PROJECT_SPEC.md, not the shipped
+interface (that's recommend.py's Claude tool-use agent in Phase 3).
 """
 from __future__ import annotations
 
@@ -24,14 +31,20 @@ _POSITION_WORDS = {
     "qbs": "QB",
     "running back": "RB",
     "running backs": "RB",
+    "runningback": "RB",
+    "runningbacks": "RB",
     "rb": "RB",
     "rbs": "RB",
     "wide receiver": "WR",
     "wide receivers": "WR",
+    "widereceiver": "WR",
+    "widereceivers": "WR",
     "wr": "WR",
     "wrs": "WR",
     "tight end": "TE",
     "tight ends": "TE",
+    "tightend": "TE",
+    "tightends": "TE",
     "te": "TE",
     "tes": "TE",
     "kicker": "K",
@@ -40,29 +53,35 @@ _POSITION_WORDS = {
 }
 
 
-def _detect_my_position(question: str) -> str | None:
-    """Return the position (e.g. "QB") if question is a "my <position>"
-    question, else None."""
+def _detect_position(question: str) -> str | None:
+    """Return the position (e.g. "QB") mentioned in question, if any."""
     q = question.lower()
-    if not re.search(r"\bmy\b", q):
-        return None
     for word, position in _POSITION_WORDS.items():
         if re.search(rf"\b{re.escape(word)}\b", q):
             return position
     return None
 
 
-def answer(question: str, n_results: int = 3) -> str:
-    position = _detect_my_position(question)
-    if position:
-        try:
+def _answer_my_question(question: str) -> str:
+    position = _detect_position(question)
+    try:
+        if position:
             players = lookup.my_players_by_position(position)
-        except RuntimeError as e:
-            return str(e)
-        if not players:
-            return f"No {position} players found on your roster."
-        names = [p.get("full_name") or f"player {p['player_id']}" for p in players]
-        return f"Your {position}(s): {', '.join(names)}"
+        else:
+            players = lookup.my_players()
+    except RuntimeError as e:
+        return str(e)
+
+    label = f"{position}(s)" if position else "roster"
+    if not players:
+        return f"No {position} players found on your roster." if position else "Your roster has no players listed."
+    names = [p.get("full_name") or f"player {p['player_id']}" for p in players]
+    return f"Your {label}: {', '.join(names)}"
+
+
+def answer(question: str, n_results: int = 3) -> str:
+    if re.search(r"\bmy\b", question.lower()):
+        return _answer_my_question(question)
 
     results = retrieve.query(question, n_results=n_results)
     if not results:
