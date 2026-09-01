@@ -12,6 +12,7 @@ check against the real API lives in .github/workflows/ci.yml, which runs
 on GitHub's runners where outbound network isn't restricted.
 """
 import json
+import sys
 from unittest.mock import patch
 
 from src.ingest import sleeper
@@ -88,6 +89,22 @@ def test_build_teams_falls_back_to_display_name_without_team_name():
     teams = sleeper.build_teams(FAKE_ROSTERS, users)
 
     assert teams[0]["team_name"] == "rogoel49"
+
+
+def test_main_loads_dotenv_before_reading_sleeper_league_id(monkeypatch):
+    """Regression test: SLEEPER_LEAGUE_ID had the same bug as MY_ROSTER_ID
+    -- nothing called load_dotenv(), so .env's contents never reached
+    os.environ.get(...). It only "worked" because the hardcoded default
+    happened to match the real league ID. main() must call load_dotenv()
+    before argparse reads the env var."""
+    calls = []
+    monkeypatch.setattr(sleeper, "load_dotenv", lambda: calls.append("load_dotenv"))
+    monkeypatch.setattr(sleeper, "run", lambda **kwargs: {})
+    monkeypatch.setattr(sys, "argv", ["prog"])
+
+    sleeper.main()
+
+    assert calls == ["load_dotenv"]
 
 
 def test_fetch_players_uses_cache_on_second_call(tmp_path):

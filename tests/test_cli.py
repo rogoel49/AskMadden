@@ -3,6 +3,20 @@ from unittest.mock import patch
 from src import cli
 
 
+def test_main_loads_dotenv_before_anything_else(monkeypatch):
+    """Regression test: MY_ROSTER_ID was silently never loaded from .env
+    because nothing called load_dotenv(). main() must call it before the
+    input loop starts, so env-dependent answers (e.g. "my quarterbacks")
+    see .env's contents instead of a bare os.environ."""
+    calls = []
+    monkeypatch.setattr(cli, "load_dotenv", lambda: calls.append("load_dotenv"))
+    monkeypatch.setattr("builtins.input", lambda _: "exit")
+
+    cli.main()
+
+    assert calls == ["load_dotenv"]
+
+
 def test_answer_formats_retrieved_chunks():
     fake_results = [
         {"id": "team:1", "text": "Victorious Secret roster: ...", "metadata": {"type": "team_roster"}, "distance": 0.1},

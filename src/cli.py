@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import re
 
+from dotenv import load_dotenv
+
 from src.rag import lookup, retrieve
 
 _POSITION_WORDS = {
@@ -69,6 +71,7 @@ def answer(question: str, n_results: int = 3) -> str:
 
 
 def main() -> None:
+    load_dotenv()
     print("Ask Madden -- type a question (or 'exit' to quit)")
     while True:
         try:
