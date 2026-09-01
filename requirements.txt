@@ -4,3 +4,4 @@ pytest
 chromadb
 nflreadpy
 polars
+anthropic

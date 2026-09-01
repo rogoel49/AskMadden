@@ -35,7 +35,25 @@ or monetized, it needs to genuinely work for more than one league.
   (game script sourced from nflverse schedules rather than a separate
   odds API; CROE approximated via NGS's YAC-over-expectation/separation
   since NGS doesn't publish a literal catch-rate-over-expected stat).
-- Phase 3 (reasoning/recommend.py): not started
+- Phase 3 (reasoning/recommend.py): implemented — `src/reasoning/recommend.py`'s
+  Claude tool-use agent decides between structured roster lookup, structured
+  name-resolved signal lookup, and semantic search, ending with a terminal
+  `submit_recommendation` tool call so the result is a parseable structure.
+  Fixed a real named-player retrieval bug along the way (confirmed live:
+  "Christian McCaffrey" returned his brother Luke's signal chunk via pure
+  embedding search) by adding `src/rag/player_index.py` (structured
+  exact/fuzzy name → player_id resolution against the real player list) and
+  `retrieve.query_player_signal()` (exact metadata-filtered lookup, never
+  similarity ranking) — the same "structured lookup before semantic search"
+  pattern already used for "my"-flavored questions, generalized to any named
+  player. Eval harness now grades decision accuracy separately from
+  retrieval accuracy (`evals/build_decision_questions.py` +
+  `run_decision_eval.py`, dilemmas generated from `ground_truth.jsonl`, never
+  hand-authored). Known gap: this session couldn't run the live Claude API or
+  fetch the live Sleeper roster (no `ANTHROPIC_API_KEY` / Sleeper blocked in
+  this sandbox) — validated everything else (signal computation, name
+  resolution, structured retrieval, dilemma generation) against real 2024
+  nflverse data instead. See TODO.md's Phase 3 section for full detail.
 - Phase 4 (coverage classification stretch): optional, not started
 - Phase 5 (productization — final deliverable): not started
 

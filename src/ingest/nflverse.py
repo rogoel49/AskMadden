@@ -66,22 +66,46 @@ def save_schedules(season: int, out_dir: Path = RAW_DIR) -> Path:
     return path
 
 
+def fetch_players() -> pl.DataFrame:
+    """nflverse's full player reference table: gsis_id, display_name,
+    position, latest_team, rookie_season/last_season, etc. -- not scoped
+    to a single season (it's the whole historical database). Feeds
+    src/rag/player_index.py's name -> gsis_id resolution, which filters
+    to recent/relevant players itself; this function just wraps the raw
+    pull."""
+    return nfl.load_players()
+
+
+def save_players(out_dir: Path = RAW_DIR) -> Path:
+    df = fetch_players()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "players.parquet"
+    df.write_parquet(path)
+    return path
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Pull nflverse weekly stats, play-by-play, and schedules")
-    parser.add_argument("--season", type=int, required=True)
+    parser = argparse.ArgumentParser(description="Pull nflverse weekly stats, play-by-play, schedules, and players")
+    parser.add_argument("--season", type=int, help="required for weekly/pbp/schedules; ignored for players")
     parser.add_argument(
         "--what",
-        choices=["weekly", "pbp", "schedules", "all"],
+        choices=["weekly", "pbp", "schedules", "players", "all"],
         default="all",
         help="which dataset(s) to pull (default: all)",
     )
     args = parser.parse_args()
 
     savers = {"weekly": save_weekly_stats, "pbp": save_pbp, "schedules": save_schedules}
-    targets = savers if args.what == "all" else {args.what: savers[args.what]}
+    targets = dict(savers) if args.what == "all" else ({} if args.what == "players" else {args.what: savers[args.what]})
+    if targets and args.season is None:
+        raise SystemExit("--season is required for weekly/pbp/schedules")
     for name, saver in targets.items():
         path = saver(args.season)
         print(f"wrote {name} -> {path}")
+
+    if args.what in ("players", "all"):
+        path = save_players()
+        print(f"wrote players -> {path}")
 
 
 if __name__ == "__main__":
