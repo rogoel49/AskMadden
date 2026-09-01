@@ -81,3 +81,13 @@ def test_my_players_by_position_uses_current_roster(tmp_path, monkeypatch):
 
     assert len(qbs) == 1
     assert qbs[0]["full_name"] == "Patrick Mahomes"
+
+
+def test_my_players_returns_full_roster_unfiltered(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    players = lookup.my_players(raw_dir)
+
+    assert {p["full_name"] for p in players} == {"Patrick Mahomes", "Cooper Kupp"}
