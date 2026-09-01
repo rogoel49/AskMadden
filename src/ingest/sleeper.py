@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from dotenv import load_dotenv
 
 API_BASE = "https://api.sleeper.app/v1"
 DEFAULT_LEAGUE_ID = "1389341490030862336"
@@ -138,6 +139,7 @@ def run(league_id: str = DEFAULT_LEAGUE_ID, week: int | None = None, out_dir: Pa
 
 
 def main() -> None:
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Pull Sleeper league data to data/raw/sleeper/")
     parser.add_argument("--league-id", default=os.environ.get("SLEEPER_LEAGUE_ID", DEFAULT_LEAGUE_ID))
     parser.add_argument("--week", type=int, default=None, help="defaults to the current NFL week")
