@@ -3,3 +3,4 @@ python-dotenv
 pytest
 chromadb
 nflreadpy
+polars
