@@ -16,7 +16,29 @@ data (see below). Re-run `python -m src.ingest.sleeper` /
 `python -m src.rag.embed` / `python -m src.cli` on a machine with normal
 network access to confirm the live Sleeper path end-to-end.
 
-Phase 2 (signals layer) is now implemented -- see the checklist below.
+Phase 2 (signals layer) is implemented -- see its checklist below.
+
+Phase 3 validation for this session: full `pytest` suite is 95/95 (84
+before this phase's new tests). Real-data validation was possible for
+everything except the live Claude API call and the live Sleeper roster
+pull -- same two environment blockers as Phase 1/2 (this sandbox's
+network policy allows nflverse's data host but blocks `api.sleeper.app`,
+and no `ANTHROPIC_API_KEY` is configured here). What *was* validated
+against 100% real data: computed real 2024 signals for as-of-week 5
+(417 players) and embedded them into a real local Chroma collection;
+reproduced the exact reported bug live (asking `retrieve.query()` about
+"Christian McCaffrey" returned Luke McCaffrey's chunk as the top hit)
+and confirmed `get_player_signals` resolves both McCaffreys and Caleb
+Williams correctly via the real `nflreadpy.load_players()` reference
+list (1436 real skill-position players); pulled real, grounded signal
+text for real players (Saquon Barkley, James Cook, Rhamondre
+Stevenson) as a stand-in for "real start/sit questions" since the
+actual Victorious Secret 3.0 roster couldn't be fetched here; and
+generated real decision dilemmas from the real (committed)
+`ground_truth.jsonl`. Re-run `python -m src.reasoning.recommend "..."`
+and `python -m evals.run_decision_eval` on a machine with both
+`ANTHROPIC_API_KEY` and live Sleeper access to validate the full
+live agent loop against Victorious Secret 3.0's actual roster.
 
 ## Phase 1: Foundation (RAG basics)
 - [x] Sleeper ingest: league, rosters, matchups, player pool
@@ -83,12 +105,87 @@ take a league_id, roster, or scoring_settings parameter anywhere.
       rather than faked.
 
 ## Phase 3: Reasoning layer
-- [ ] recommend.py: retrieved facts + signals → Claude tool-use call → recommendation + explanation
-- [ ] Expand eval set to grade recommendation quality, not just retrieval
-- [ ] Once decision-accuracy evals exist, check whether
-      `opponent_adjusted_target_share`'s 0.1 reweighting constant
-      (`src/signals/matchup_signals.py`) is actually predictive; refit or
-      drop it rather than leaving it as an unvalidated guess
+**Named-player bug fixed as part of this phase (was blocking correctness,
+not deferred):** `retrieve.py`'s `query()` is pure semantic embedding
+search, which can't reliably tell apart two real NFL players who share a
+surname -- confirmed live: asking about "Christian McCaffrey" returned
+his brother Luke's signal chunk as the top hit. Fixed by generalizing
+`cli.py`'s existing "my"-question routing pattern (structured lookup
+before semantic search) to any named-player mention:
+`src/rag/player_index.py` resolves a name to a specific nflverse
+`player_id` via exact-then-fuzzy structured matching against the real
+player list (never embedding proximity), and
+`retrieve.query_player_signal()` fetches that exact player's chunk via
+a metadata filter, never a similarity ranking. `recommend.py`'s
+`get_player_signals` tool always goes through this path for a named
+player and never calls `search_league_info` (the semantic fallback) for
+that. An ambiguous resolution (e.g. the bare surname "McCaffrey", or two
+real players who share a full name) is returned as an explicit
+candidate list, never silently guessed.
+- [x] `src/rag/player_index.py`: `build_player_index()` (nflverse's full
+      player reference table, filtered to modern gsis_id format,
+      skill positions, and players active in the last two seasons --
+      that recency filter matters, nflverse's `status` field alone
+      doesn't reliably mean "currently rostered") and `resolve_player()`
+      (exact full-name match, then *token-level* fuzzy matching --
+      whole-string fuzzy ratio has a real length bias that reproduces
+      the same bug it's meant to fix, caught by this phase's own tests;
+      see the module for detail). `FUZZY_CUTOFF` tuned against real data
+      to 0.8 after 0.75 let "McCaffrey" alone fuzzy-match an unrelated
+      "Nate McCrary" -- a simple heuristic, not a fitted model, revisit
+      if real usage surfaces more false positives/negatives.
+- [x] `src/rag/retrieve.py`: `query_player_signal()`, an exact metadata
+      filter (`type` + `player_id` [+ `season`/`week`]), never a
+      similarity query.
+- [x] `src/reasoning/recommend.py`: retrieved facts + signals → Claude
+      tool-use agent → recommendation + explanation. Tools:
+      `get_my_roster`/`find_owner` (structured Sleeper-space lookups,
+      `src/rag/lookup.py`), `get_player_signals` (structured
+      name-resolved nflverse-space lookup, the fix above),
+      `search_league_info` (semantic fallback for non-player-named
+      general league questions), and a terminal `submit_recommendation`
+      tool the agent must call to conclude -- makes the result a
+      parseable structure (`recommendation`/`reasoning`/`player_id`)
+      instead of free text callers have to guess at. The model decides
+      which tool(s) to call; no hardcoded routing like `cli.py`'s "my"
+      string match. Per-league join (this league's roster + real
+      `scoring_settings`) happens here, in the system prompt built from
+      `data/raw/sleeper/league.json` -- verified `matchup_signals.py`
+      and `rag/` still take no league_id/roster/scoring parameter
+      anywhere. **Scope note:** `recommend()` operates on whatever
+      league is already ingested (like `lookup.py`/`embed.py`) -- it
+      does not itself take a `league_id`; multi-league parameterization
+      stays Phase 5's job (`src/api/`), not pulled forward here.
+      Injectable `client` param for testability without hitting the
+      real API.
+- [x] Expand eval harness to grade recommendation quality (decision
+      accuracy), scored separately from retrieval accuracy per
+      CLAUDE.md's non-negotiable rule -- `run_eval.py` is untouched and
+      still reports `decision_accuracy: None`, since it doesn't measure
+      it. `evals/build_decision_questions.py` generates PROJECT_SPEC.md's
+      "systematic set": pairwise start/sit dilemmas from
+      `ground_truth.jsonl` (never hand-authored -- every dilemma and its
+      `expected_winner` trace back to a measured nflverse stat line),
+      pairing same-week/same-position players who both cleared a
+      `min_points` floor (symmetric in who wins, so selection can't bias
+      the eval toward whichever side happened to score more), capped and
+      shuffled with a fixed seed to bound eval cost (one live Claude call
+      per dilemma). `evals/run_decision_eval.py` calls `recommend()` for
+      each dilemma as-of-week-filtered to that dilemma's own week and
+      checks whether the recommended `player_id` (falling back to a name
+      check in the recommendation text) matches who actually scored more.
+      Only ran against real ground truth's committed week 5, 2024 data in
+      this sandbox -- see the validation note above.
+- [ ] Once decision-accuracy evals have actually been run at volume,
+      check whether `opponent_adjusted_target_share`'s 0.1 reweighting
+      constant (`src/signals/matchup_signals.py`) is predictive; refit or
+      drop it rather than leaving it as an unvalidated guess. Still not
+      done -- this session generated the harness but couldn't run it live
+      (no `ANTHROPIC_API_KEY` in this sandbox).
+- [ ] Qualitative hand-curated dilemma seed set (deferred since Phase 1)
+      is now gradeable (decision-accuracy grading exists) but still not
+      built -- needs actual research to source verified real dilemmas, not
+      fabricated ones. Still tracked, still not started.
 - [ ] README write-up: architecture diagram, eval numbers, example Q&A
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
