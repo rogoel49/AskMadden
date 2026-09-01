@@ -62,6 +62,12 @@ take a league_id, roster, or scoring_settings parameter anywhere.
       nflverse data (e.g. Saquon Barkley week-6 red zone share ≈48%,
       Justin Jefferson's bye week correctly nulls out opponent/implied
       total) — see git history for the ad hoc validation script.
+      **Known magic number to revisit:** `opponent_adjusted_target_share`'s
+      0.1 reweighting constant (how much an opponent's pass-defense z-score
+      moves a player's target share) is a deliberately simple, unfitted
+      guess — not validated against outcomes. Revisit once Phase 3's
+      decision-accuracy evals exist to check whether it's actually
+      predictive; don't let it quietly calcify as load-bearing.
 - [x] Store signals alongside RAG corpus, retrievable by player/matchup
       (`src/rag/embed.py`: `build_signal_chunks`/`load_signal_chunks`,
       one chunk per player per as-of-week per the locked-in chunk
@@ -79,6 +85,10 @@ take a league_id, roster, or scoring_settings parameter anywhere.
 ## Phase 3: Reasoning layer
 - [ ] recommend.py: retrieved facts + signals → Claude tool-use call → recommendation + explanation
 - [ ] Expand eval set to grade recommendation quality, not just retrieval
+- [ ] Once decision-accuracy evals exist, check whether
+      `opponent_adjusted_target_share`'s 0.1 reweighting constant
+      (`src/signals/matchup_signals.py`) is actually predictive; refit or
+      drop it rather than leaving it as an unvalidated guess
 - [ ] README write-up: architecture diagram, eval numbers, example Q&A
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
