@@ -54,6 +54,25 @@ or monetized, it needs to genuinely work for more than one league.
   this sandbox) — validated everything else (signal computation, name
   resolution, structured retrieval, dilemma generation) against real 2024
   nflverse data instead. See TODO.md's Phase 3 section for full detail.
+  A follow-up session fixed a real crash in `recommend()`: a question
+  nothing could answer ("what's my team's record and who do i play this
+  week?") burned through `max_turns` and raised an unhandled exception.
+  Fixed both the immediate crash (`recommend()` now returns a graceful
+  "not enough information" result instead of ever raising on
+  non-convergence) and the actual gap (`get_team_record`/
+  `get_current_matchup` tools, backed by new `src/rag/lookup.py`
+  functions — Sleeper's own roster `settings` already carries
+  wins/losses/ties, no new ingest needed).
+- Phase 3.5 (multi-turn conversation + report generation): multi-turn
+  conversation implemented — `recommend()` takes/returns an optional
+  `messages` history, `src/reasoning/recommend.py --interactive` is a
+  CLI REPL exercising it. Single-question callers (the eval harness)
+  are unaffected since they never pass `messages`. Report generation
+  (`generate_report()`, four types: start/sit, drop, waiver pickups,
+  trade suggestions) is scoped in PROJECT_SPEC.md's Phase 3.5 section
+  but **not built** — trade suggestions specifically needs signal work
+  that doesn't exist yet (season-long player value, cross-roster
+  positional need). See TODO.md's Phase 3.5 section for full detail.
 - Phase 4 (coverage classification stretch): optional, not started
 - Phase 5 (productization — final deliverable): not started
 

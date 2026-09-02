@@ -104,6 +104,42 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "get_team_record",
+        "description": (
+            "Structured lookup of a fantasy team's win/loss/tie record in this league (exact -- "
+            "Sleeper computes this itself from completed matchups, this doesn't recompute it). "
+            "Omit owner_display_name for the user's own team; give it to ask about another "
+            "team's record."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "owner_display_name": {
+                    "type": "string",
+                    "description": "Optional -- omit for the user's own team.",
+                }
+            },
+        },
+    },
+    {
+        "name": "get_current_matchup",
+        "description": (
+            "Structured lookup of who a fantasy team plays this week (exact Sleeper data). "
+            "Omit owner_display_name for the user's own team; give it to ask about another "
+            "team's matchup. If this week's matchup data hasn't been ingested locally yet, "
+            "returns a note saying so instead of guessing an opponent."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "owner_display_name": {
+                    "type": "string",
+                    "description": "Optional -- omit for the user's own team.",
+                }
+            },
+        },
+    },
+    {
         "name": "search_league_info",
         "description": (
             "Semantic search over this league's general information -- settings, matchup "
@@ -161,6 +197,8 @@ class RecommendResult:
     reasoning: str | None
     player_id: str | None
     tool_calls: list[dict] = field(default_factory=list)
+    messages: list[dict] = field(default_factory=list)
+    error: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -168,6 +206,8 @@ class RecommendResult:
             "reasoning": self.reasoning,
             "player_id": self.player_id,
             "tool_calls": self.tool_calls,
+            "messages": self.messages,
+            "error": self.error,
         }
 
 
@@ -203,12 +243,15 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "pull their signals before saying anything substantive about them. If get_player_signals reports "
         "the name as ambiguous, name the specific candidates in your reasoning and say which one you need "
         "clarified rather than picking one yourself. Use get_my_roster / find_owner for roster-ownership "
-        "questions (exact Sleeper data) and search_league_info only for general league questions that "
-        "aren't about one named player's performance.\n\n"
+        "questions, get_team_record / get_current_matchup for standings/schedule questions (all exact "
+        "Sleeper data), and search_league_info only for general league questions that aren't about one "
+        "named player's performance or one team's record/matchup.\n\n"
         "Always end by calling submit_recommendation exactly once with a concrete recommendation and the "
         "reasoning that led to it, citing the specific signals you retrieved -- this league's scoring "
         "settings above should inform which stats matter (e.g. reception volume matters more here if "
-        "rec > 0)."
+        "rec > 0). If the tools genuinely don't have what's needed to answer (e.g. a question about data "
+        "that hasn't been ingested), say so plainly in submit_recommendation rather than guessing or "
+        "repeating the same tool call."
     )
 
 
@@ -282,6 +325,37 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
     return base
 
 
+def _tool_get_team_record(tool_input: dict, ctx: RecommendContext) -> dict:
+    owner = tool_input.get("owner_display_name")
+    try:
+        record = lookup.team_record_for_owner(owner, ctx.raw_dir) if owner else lookup.my_team_record(ctx.raw_dir)
+    except RuntimeError as e:
+        return {"error": str(e)}
+    if record is None:
+        return {"error": f"No team found for owner {owner!r} in this league."}
+    return record
+
+
+def _tool_get_current_matchup(tool_input: dict, ctx: RecommendContext) -> dict:
+    owner = tool_input.get("owner_display_name")
+    try:
+        matchup = (
+            lookup.current_matchup_for_owner(owner, ctx.as_of_week, ctx.raw_dir)
+            if owner
+            else lookup.my_current_matchup(ctx.as_of_week, ctx.raw_dir)
+        )
+    except RuntimeError as e:
+        return {"error": str(e)}
+    if matchup is None:
+        return {
+            "note": (
+                f"No matchup data for week {ctx.as_of_week} has been ingested locally yet -- "
+                f"run `python -m src.ingest.sleeper --week {ctx.as_of_week}` first."
+            )
+        }
+    return matchup
+
+
 def _tool_search_league_info(tool_input: dict, ctx: RecommendContext) -> dict:
     results = retrieve.query(tool_input["query"], n_results=5, persist_dir=ctx.persist_dir)
     return {"results": [{"text": r["text"], "type": r["metadata"].get("type")} for r in results]}
@@ -291,6 +365,8 @@ _DISPATCH = {
     "get_my_roster": _tool_get_my_roster,
     "find_owner": _tool_find_owner,
     "get_player_signals": _tool_get_player_signals,
+    "get_team_record": _tool_get_team_record,
+    "get_current_matchup": _tool_get_current_matchup,
     "search_league_info": _tool_search_league_info,
 }
 
@@ -307,6 +383,7 @@ def dispatch_tool(name: str, tool_input: dict, ctx: RecommendContext) -> dict:
 
 def recommend(
     question: str,
+    messages: list[dict] | None = None,
     raw_dir: Path = RAW_DIR,
     persist_dir: Path = CHROMA_DIR,
     season: int | None = None,
@@ -317,12 +394,29 @@ def recommend(
 ) -> dict:
     """Answer question using retrieved facts + computed signals via a
     Claude tool-use agent, returning
-    {"recommendation", "reasoning", "player_id", "tool_calls"}.
+    {"recommendation", "reasoning", "player_id", "tool_calls", "messages", "error"}.
+
+    messages: prior conversation history (as previously returned in a
+    result's "messages"), for a multi-turn conversation -- e.g. the
+    model asks a clarifying question, the caller answers it in the next
+    recommend() call. Leave this None (the default) for a single
+    independent question; this is what evals/run_eval.py and
+    evals/run_decision_eval.py must do, since carrying state across
+    supposedly-independent eval questions would leak context between
+    them -- neither passes messages, so neither is affected by this
+    parameter existing.
 
     client defaults to a real anthropic.Anthropic() (reads
     ANTHROPIC_API_KEY from the environment) but can be injected -- tests
     pass a fake client so the orchestration loop is verified without
     hitting the network.
+
+    Never raises on a question the tools couldn't resolve (e.g. no
+    matching data, or the model can't converge within max_turns) --
+    returns a result explaining that instead, with error set to a short
+    code identifying why, so a caller (the CLI, an eval harness) always
+    gets a well-formed response to work with rather than an unhandled
+    exception.
     """
     league_path = raw_dir / "league.json"
     if not league_path.exists():
@@ -345,7 +439,8 @@ def recommend(
 
     client = client or anthropic.Anthropic()
     system_prompt = _build_system_prompt(league, scoring_settings, season, as_of_week)
-    messages: list[dict] = [{"role": "user", "content": question}]
+    messages = list(messages) if messages else []
+    messages.append({"role": "user", "content": question})
     tool_calls: list[dict] = []
 
     for _ in range(max_turns):
@@ -360,19 +455,41 @@ def recommend(
 
         tool_uses = [block for block in response.content if block.type == "tool_use"]
         if not tool_uses:
-            # The model answered without calling submit_recommendation.
-            # Fall back to whatever text it gave rather than looping
-            # forever waiting for a tool call that will never come.
+            # The model answered without calling submit_recommendation --
+            # e.g. a clarifying question. Fall back to whatever text it
+            # gave rather than looping forever waiting for a tool call
+            # that will never come; messages is still valid to continue
+            # from (the last turn is a plain assistant text turn, no
+            # pending tool_use to resolve).
             text = "".join(block.text for block in response.content if block.type == "text")
-            return RecommendResult(text, None, None, tool_calls).to_dict()
+            return RecommendResult(text, None, None, tool_calls, messages).to_dict()
 
         submit = next((b for b in tool_uses if b.name == "submit_recommendation"), None)
         if submit is not None:
+            # Resolve every tool_use in this turn -- including
+            # submit_recommendation itself, with a synthetic result --
+            # so `messages` stays API-valid if the caller continues the
+            # conversation with another question afterward (the API
+            # rejects a new user turn while a prior tool_use is
+            # unresolved).
+            tool_results = []
+            for block in tool_uses:
+                if block is submit:
+                    tool_results.append(
+                        {"type": "tool_result", "tool_use_id": block.id, "content": "Recommendation recorded."}
+                    )
+                    continue
+                result = dispatch_tool(block.name, block.input, ctx)
+                tool_calls.append({"name": block.name, "input": block.input, "result": result})
+                tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(result)})
+            messages.append({"role": "user", "content": tool_results})
+
             return RecommendResult(
                 recommendation=submit.input["recommendation"],
                 reasoning=submit.input.get("reasoning"),
                 player_id=submit.input.get("player_id"),
                 tool_calls=tool_calls,
+                messages=messages,
             ).to_dict()
 
         tool_results = []
@@ -382,21 +499,65 @@ def recommend(
             tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(result)})
         messages.append({"role": "user", "content": tool_results})
 
-    raise RuntimeError(f"recommend() exceeded max_turns={max_turns} without reaching submit_recommendation")
+    return RecommendResult(
+        recommendation="I don't have enough information to answer that.",
+        reasoning=(
+            f"Tried {max_turns} tool-use turns without reaching a final answer -- the "
+            "available tools didn't have enough data to resolve this question."
+        ),
+        player_id=None,
+        tool_calls=tool_calls,
+        messages=messages,
+        error="max_turns_exceeded",
+    ).to_dict()
+
+
+def _print_result(result: dict) -> None:
+    print(result["recommendation"])
+    if result["reasoning"]:
+        print(f"\nReasoning: {result['reasoning']}")
+
+
+def _run_repl(season: int | None, as_of_week: int | None) -> None:
+    """Multi-turn REPL: each turn's response feeds the next call's
+    `messages`, so a clarifying question the agent asks can be answered
+    in the same conversation instead of starting over."""
+    print("Ask Madden -- interactive mode (type 'exit' to quit)")
+    messages: list[dict] | None = None
+    while True:
+        try:
+            question = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not question or question.lower() in {"exit", "quit"}:
+            break
+        result = recommend(question, messages=messages, season=season, as_of_week=as_of_week)
+        messages = result["messages"]
+        _print_result(result)
+        print()
 
 
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description="Ask Madden: retrieval + signals -> Claude recommendation")
-    parser.add_argument("question")
+    parser.add_argument("question", nargs="?", help="a single question; omit this and pass --interactive instead")
     parser.add_argument("--season", type=int, default=None)
     parser.add_argument("--as-of-week", type=int, default=None)
+    parser.add_argument(
+        "--interactive", action="store_true", help="start a multi-turn REPL instead of asking one question"
+    )
     args = parser.parse_args()
 
+    if args.interactive:
+        _run_repl(season=args.season, as_of_week=args.as_of_week)
+        return
+
+    if not args.question:
+        raise SystemExit("a question is required unless --interactive is given")
+
     result = recommend(args.question, season=args.season, as_of_week=args.as_of_week)
-    print(result["recommendation"])
-    if result["reasoning"]:
-        print(f"\nReasoning: {result['reasoning']}")
+    _print_result(result)
 
 
 if __name__ == "__main__":

@@ -47,15 +47,27 @@ def _players_at_position(team: dict, players: dict, position: str) -> list[dict]
     ]
 
 
+def _team_by_owner(owner_display_name: str, teams: list[dict]) -> dict | None:
+    needle = owner_display_name.lower()
+    for team in teams:
+        if (team.get("display_name") or "").lower() == needle:
+            return team
+    return None
+
+
+def _team_by_roster_id(roster_id: Any, teams: list[dict]) -> dict | None:
+    for team in teams:
+        if str(team.get("roster_id")) == str(roster_id):
+            return team
+    return None
+
+
 def players_by_position_for_owner(owner_display_name: str, position: str, raw_dir: Path = RAW_DIR) -> list[dict]:
     """Return the rostered players at `position` (e.g. "QB") for the team
     owned by owner_display_name (case-insensitive exact match)."""
     teams, players = _load_teams_and_players(raw_dir)
-    needle = owner_display_name.lower()
-    for team in teams:
-        if (team.get("display_name") or "").lower() == needle:
-            return _players_at_position(team, players, position)
-    return []
+    team = _team_by_owner(owner_display_name, teams)
+    return _players_at_position(team, players, position) if team else []
 
 
 def current_roster(raw_dir: Path = RAW_DIR) -> dict:
@@ -92,6 +104,89 @@ def my_players(raw_dir: Path = RAW_DIR) -> list[dict]:
     team = current_roster(raw_dir)
     _, players = _load_teams_and_players(raw_dir)
     return [{"player_id": pid, **(players.get(pid) or {})} for pid in (team.get("players") or [])]
+
+
+def team_record(roster_id: Any, raw_dir: Path = RAW_DIR) -> dict:
+    """This team's win/loss/tie record, read directly from Sleeper's own
+    roster settings (already present in teams.json's "settings" field --
+    Sleeper's API computes wins/losses/ties itself from completed
+    matchups, so there's no need to recompute it here from matchup
+    history)."""
+    teams, _ = _load_teams_and_players(raw_dir)
+    team = _team_by_roster_id(roster_id, teams)
+    if team is None:
+        raise RuntimeError(f"No team found with roster_id={roster_id!r} in teams.json.")
+    settings = team.get("settings") or {}
+    return {
+        "roster_id": team.get("roster_id"),
+        "team_name": team.get("team_name"),
+        "wins": settings.get("wins", 0),
+        "losses": settings.get("losses", 0),
+        "ties": settings.get("ties", 0),
+    }
+
+
+def team_record_for_owner(owner_display_name: str, raw_dir: Path = RAW_DIR) -> dict | None:
+    """team_record() for the team owned by owner_display_name
+    (case-insensitive exact match), or None if no team matches."""
+    teams, _ = _load_teams_and_players(raw_dir)
+    team = _team_by_owner(owner_display_name, teams)
+    return team_record(team["roster_id"], raw_dir) if team else None
+
+
+def my_team_record(raw_dir: Path = RAW_DIR) -> dict:
+    """team_record() for the team configured as "mine" (see current_roster())."""
+    team = current_roster(raw_dir)
+    return team_record(team["roster_id"], raw_dir)
+
+
+def current_matchup(roster_id: Any, week: int, raw_dir: Path = RAW_DIR) -> dict | None:
+    """This roster's opponent for `week`, from that week's locally-
+    ingested matchups_week_{week}.json (see src/ingest/sleeper.py --
+    `--week N` fetches a specific week). Returns None if that week
+    hasn't been ingested locally yet, or if this roster isn't in any
+    matchup that week (e.g. a bye)."""
+    path = raw_dir / f"matchups_week_{week}.json"
+    if not path.exists():
+        return None
+    sides = json.loads(path.read_text())["data"]
+    by_matchup: dict[Any, list[dict]] = {}
+    for side in sides:
+        by_matchup.setdefault(side.get("matchup_id"), []).append(side)
+
+    teams, _ = _load_teams_and_players(raw_dir)
+    for pair in by_matchup.values():
+        if not any(str(s.get("roster_id")) == str(roster_id) for s in pair):
+            continue
+        others = [s for s in pair if str(s.get("roster_id")) != str(roster_id)]
+        if not others:
+            return {
+                "week": week,
+                "opponent_roster_id": None,
+                "note": "No opponent found in this matchup -- possible bye week.",
+            }
+        opponent_team = _team_by_roster_id(others[0].get("roster_id"), teams)
+        return {
+            "week": week,
+            "opponent_roster_id": others[0].get("roster_id"),
+            "opponent_team_name": opponent_team.get("team_name") if opponent_team else None,
+            "opponent_display_name": opponent_team.get("display_name") if opponent_team else None,
+        }
+    return None
+
+
+def current_matchup_for_owner(owner_display_name: str, week: int, raw_dir: Path = RAW_DIR) -> dict | None:
+    """current_matchup() for the team owned by owner_display_name
+    (case-insensitive exact match), or None if no team matches."""
+    teams, _ = _load_teams_and_players(raw_dir)
+    team = _team_by_owner(owner_display_name, teams)
+    return current_matchup(team["roster_id"], week, raw_dir) if team else None
+
+
+def my_current_matchup(week: int, raw_dir: Path = RAW_DIR) -> dict | None:
+    """current_matchup() for the team configured as "mine" (see current_roster())."""
+    team = current_roster(raw_dir)
+    return current_matchup(team["roster_id"], week, raw_dir)
 
 
 def teams_by_nfl_team_count(nfl_team: str, raw_dir: Path = RAW_DIR) -> list[tuple[dict, int]]:

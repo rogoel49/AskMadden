@@ -99,6 +99,59 @@ ask-madden/
 
 All signals above are league-agnostic — computed once, shared across every registered league.
 
+## Phase 3.5: Multi-turn conversation + report generation
+Two extensions to Phase 3's `recommend.py`, both backend work that
+doesn't need Phase 5's web UI to exist first — validated now via
+`recommend.py --interactive`'s CLI REPL; Phase 5 later wires the same
+conversation object to a UI instead of a terminal.
+
+**Multi-turn conversation.** `recommend()` accepts an optional prior
+`messages` history and returns the updated history, so a clarifying
+question the agent asks (e.g. "which of your flex-eligible players do
+you mean?") can be answered in the same conversation instead of forcing
+a fresh, context-free question. Single-question callers (the CLI's
+non-interactive mode, the eval harness) simply never pass `messages` —
+each of those stays a genuinely independent conversation, which matters
+for `evals/run_eval.py` and `evals/run_decision_eval.py`: carrying
+state across supposedly-independent eval questions would leak context
+between them and invalidate the eval.
+
+**Report generation.** A standalone `generate_report(report_type,
+raw_dir, ...)` function, reusing `recommend()`'s existing tools
+(`get_my_roster`, `get_player_signals`, `get_team_record`, etc.) rather
+than bolting report logic onto the single-question chat path — these
+are genuinely different orchestration patterns (iterate over a whole
+roster or league, not resolve one question) sharing the same
+underlying tools and per-league context, not different prompts wedged
+into the same code path. All four report types live in the same web
+chat UX as the Q&A flow per Phase 5's original pitch, not a separate
+bot wrapper (that's explicitly out of scope — see Phase 4's Discord
+bot bullet, which stays a *stretch*, not a requirement).
+
+Four report types, sequenced by **data readiness**, not implementation
+difficulty:
+1. **Start/sit** — generalizes Phase 4's "weekly auto-generated lineup
+   recommendations" bullet into every roster spot, not just one
+   question. Fully buildable now with the existing matchup signals.
+2. **Drop** — identify the weakest roster contributors using existing
+   signals (recent efficiency trend, role share). Buildable now.
+3. **Waiver-wire pickups** — rank unrostered players (the full NFL
+   player pool minus every league roster, both already ingested) by
+   the same existing opportunity signals (rising target share, red
+   zone role, etc.). Buildable now, no new signal work needed.
+4. **Trade suggestions** — deliberately sequenced last, and **not
+   attempted yet**. Needs signal work this project hasn't built:
+   season-long/rest-of-season player value (every existing signal is
+   this-week's-matchup-scoped, not a value-over-a-longer-horizon
+   measure) and positional need assessment relative to both the user's
+   own roster construction and other teams' rosters (a genuinely new
+   kind of computation — nothing today compares roster composition
+   across teams). Scope and flag the specific new signals this needs
+   as a follow-up; do not build the report itself until that signal
+   work exists — a trade suggestion grounded in the wrong kind of
+   signal (single-week matchup context standing in for value) would be
+   actively misleading, worse than not having the feature at all.
+
 ## Phase 4 stretch: derived coverage classification
 Real man/zone or coverage-shell labels aren't free (PFF/SIS charting is
 paywalled), but they can be *derived* from NFL Big Data Bowl tracking
@@ -231,6 +284,15 @@ into this pattern, just not the model for anything new.
 - [ ] recommend.py: retrieved facts + signals → Claude tool-use call → recommendation + explanation
 - [ ] Expand eval set to grade recommendation quality, not just retrieval
 - [ ] README write-up: architecture diagram, eval numbers, example Q&A
+
+### Phase 3.5: Multi-turn conversation + report generation
+- [ ] Multi-turn conversation support in `recommend()` (optional `messages` in/out)
+- [ ] CLI REPL (`recommend.py --interactive`) to validate multi-turn without Phase 5's UI
+- [ ] `generate_report()`: start/sit report (reuses existing tools/signals)
+- [ ] `generate_report()`: drop report (reuses existing tools/signals)
+- [ ] `generate_report()`: waiver-wire pickup report (reuses existing tools/signals)
+- [ ] Scope (don't build yet): the season-long value + positional-need
+      signals trade suggestions need, as a named follow-up
 
 ### Phase 4: Stretch (optional)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

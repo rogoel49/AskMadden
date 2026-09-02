@@ -40,6 +40,16 @@ and `python -m evals.run_decision_eval` on a machine with both
 `ANTHROPIC_API_KEY` and live Sleeper access to validate the full
 live agent loop against Victorious Secret 3.0's actual roster.
 
+This session (crash fix + multi-turn conversation): full `pytest` suite
+is 113/113 (104 before this session). Same two sandbox blockers as
+every prior session -- no `ANTHROPIC_API_KEY`, Sleeper API blocked.
+`get_team_record`/`get_current_matchup` needed no new real-data
+validation (they're pure structured reads of already-ingested/already-
+tested JSON shapes); the multi-turn conversation wiring was validated
+mechanically with a scripted fake client (proves message-history
+threading is correct) but not against the real model -- see Phase 3.5's
+checklist below for the specific re-run command.
+
 ## Phase 1: Foundation (RAG basics)
 - [x] Sleeper ingest: league, rosters, matchups, player pool
 - [x] Store as structured JSON (`data/raw/sleeper/`)
@@ -187,6 +197,83 @@ candidate list, never silently guessed.
       built -- needs actual research to source verified real dilemmas, not
       fabricated ones. Still tracked, still not started.
 - [ ] README write-up: architecture diagram, eval numbers, example Q&A
+
+**Bug fixed this session (not deferred): `recommend()` crashed on a
+question nothing could answer.** Repro: `python -m src.reasoning.recommend
+"what's my team's record and who do i play this week?"` burned through
+`max_turns` (nothing computed a win/loss record or resolved the current
+opponent) and raised an unhandled `RuntimeError`, which crashed the CLI
+process ungracefully on exit. Two real gaps, both closed:
+- [x] `src/rag/lookup.py`: `team_record()`/`my_team_record()` (and
+      `team_record_for_owner()` for asking about another team) --
+      **no new ingest work needed**, Sleeper's own `/rosters` endpoint
+      already computes wins/losses/ties and `teams.json` already
+      carries it in each team's `settings` field; this just reads it
+      structurally instead of leaving it uncomputed.
+      `current_matchup()`/`my_current_matchup()`/
+      `current_matchup_for_owner()` resolve this week's opponent from
+      the already-ingested `matchups_week_{week}.json` -- returns
+      `None` (never a guess) if that week hasn't been ingested locally.
+      `recommend.py` gained matching `get_team_record`/
+      `get_current_matchup` tools.
+- [x] `recommend()` no longer raises when the agent can't converge
+      within `max_turns` for *any* reason -- returns a
+      `{"recommendation": "I don't have enough information to answer
+      that.", "error": "max_turns_exceeded", ...}` result instead. This
+      is the general safety net; the two new tools above are the actual
+      fix for this specific question (a model with those tools should
+      converge well before hitting the limit).
+- [ ] Not done: `sleeper.py`'s ingest still only ever fetches one
+      week's matchups per run (whichever week is current or requested).
+      `team_record()` doesn't need this (Sleeper's roster `settings`
+      already carries the season record), but a from-scratch matchup-
+      history recomputation would. Not needed for this fix; flagging in
+      case a future feature wants full weekly matchup history locally.
+
+## Phase 3.5: Multi-turn conversation + report generation
+See `PROJECT_SPEC.md`'s Phase 3.5 section for the full writeup
+(sequencing rationale for the four report types, why report generation
+is its own function rather than folded into the chat path).
+- [x] Multi-turn conversation: `recommend()` takes an optional prior
+      `messages` list and returns the updated history
+      (`RecommendResult.messages`) so a clarifying question can be
+      answered in the same conversation. The `submit_recommendation`
+      tool_use is resolved with a synthetic `tool_result` before
+      returning, so the returned history is always valid to continue
+      from (the Messages API rejects a new user turn while a prior
+      `tool_use` is unresolved). `evals/run_eval.py` and
+      `evals/run_decision_eval.py` never pass `messages` -- confirmed
+      by test that each of their calls is independent, with the fake
+      client's own call log as proof (see
+      `test_eval_style_calls_never_carry_state_between_independent_questions`
+      in `tests/test_recommend.py`).
+- [x] CLI REPL: `python -m src.reasoning.recommend --interactive`
+      loops, threading `messages` through each turn. The single-question
+      invocation (`recommend.py "question"`) is unchanged and still the
+      default (`question` is now an optional positional arg, required
+      unless `--interactive` is given).
+- [ ] **Not built, scoped only:** `generate_report()` and its three
+      buildable report types (start/sit, drop, waiver-wire pickups) --
+      the task for this session was to add Phase 3.5 to the spec, not
+      implement report generation. All three are real, buildable now
+      with existing signals per the spec; none attempted yet.
+- [ ] **Not built, deliberately deferred:** trade suggestions. Needs
+      signal work that doesn't exist yet -- season-long/rest-of-season
+      player value (every current signal is single-week-matchup-scoped)
+      and positional-need assessment across rosters (nothing today
+      compares roster composition between teams). Do not build the
+      report before that signal work exists.
+- [ ] Live validation gap (same two sandbox blockers as every phase so
+      far): multi-turn conversation was validated mechanically with a
+      scripted fake client in this sandbox (proves the message-history
+      threading and control flow are correct -- see
+      `test_recommend_second_call_sends_the_full_prior_history_to_the_client`)
+      but never against the real model, since no `ANTHROPIC_API_KEY` is
+      configured here. Re-run `python -m src.reasoning.recommend
+      --interactive` for real, asking something ambiguous enough to
+      trigger an actual clarifying question (e.g. "who should I start
+      at flex" without naming anyone), to confirm the real model's own
+      conversational behavior, not just the plumbing.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
