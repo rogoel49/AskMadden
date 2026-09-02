@@ -63,16 +63,34 @@ or monetized, it needs to genuinely work for more than one league.
   `get_current_matchup` tools, backed by new `src/rag/lookup.py`
   functions — Sleeper's own roster `settings` already carries
   wins/losses/ties, no new ingest needed).
-- Phase 3.5 (multi-turn conversation + report generation): multi-turn
-  conversation implemented — `recommend()` takes/returns an optional
-  `messages` history, `src/reasoning/recommend.py --interactive` is a
-  CLI REPL exercising it. Single-question callers (the eval harness)
-  are unaffected since they never pass `messages`. Report generation
-  (`generate_report()`, four types: start/sit, drop, waiver pickups,
-  trade suggestions) is scoped in PROJECT_SPEC.md's Phase 3.5 section
-  but **not built** — trade suggestions specifically needs signal work
-  that doesn't exist yet (season-long player value, cross-roster
-  positional need). See TODO.md's Phase 3.5 section for full detail.
+- Phase 3.5 (multi-turn conversation + report generation): implemented,
+  except trade suggestions (deliberately deferred). Multi-turn
+  conversation — `recommend()` takes/returns an optional `messages`
+  history, `src/reasoning/recommend.py --interactive` is a CLI REPL
+  exercising it. Single-question callers (the eval harness) are
+  unaffected since they never pass `messages`. Report generation is
+  `src/reasoning/report.py`'s `generate_report()`, reusing
+  `recommend.py`'s tools (`get_my_roster`/`get_player_signals`/
+  `get_team_record`/`get_current_matchup`) rather than duplicating their
+  logic; CLI entry point `recommend.py --report {start_sit,drop,
+  waiver_pickups}`. Three of the spec's four report types are built —
+  start/sit, drop, waiver pickups, all reasoning grounded in the actual
+  numeric signals table (never a Claude API call; see `report.py`'s
+  docstring for why). Trade suggestions is **not built**, deliberately —
+  it needs signal work that doesn't exist yet (season-long player value,
+  cross-roster positional need); PROJECT_SPEC.md is explicit that a
+  trade report grounded in this-week's-matchup-scoped signals standing in
+  for season-long value would be actively misleading. See TODO.md's
+  Phase 3.5 section for full detail, including the specific real-2024-data
+  validation run and two documented scoping simplifications (start_sit
+  groups by position rather than a league's full Sleeper roster-slot
+  structure; waiver_pickups' "rising" target share is a point-in-time
+  value, not an actual week-over-week delta the project doesn't compute
+  yet). **Known gap, flagged not built:** `src/scheduler/refresh.py`
+  doesn't exist — every report and `recommend()` call is only as current
+  as the last manual ingest/signals/embed run. See TODO.md's Phase 3.5
+  section for detail; deliberately left for its own scoped session
+  (scheduling/infra, not reasoning-layer work).
 - Phase 4 (coverage classification stretch): optional, not started
 - Phase 5 (productization — final deliverable): not started
 

@@ -189,6 +189,20 @@ def my_current_matchup(week: int, raw_dir: Path = RAW_DIR) -> dict | None:
     return current_matchup(team["roster_id"], week, raw_dir)
 
 
+def all_rostered_players(raw_dir: Path = RAW_DIR) -> list[dict]:
+    """Every player (deduped by Sleeper player_id) rostered by ANY team in
+    this league, across the whole league -- not just "mine". Used by
+    src/reasoning/report.py's waiver_pickups report as the set to subtract
+    from the full NFL player pool to find who's actually unrostered."""
+    teams, players = _load_teams_and_players(raw_dir)
+    seen: dict[str, dict] = {}
+    for team in teams:
+        for pid in team.get("players") or []:
+            if pid not in seen:
+                seen[pid] = {"player_id": pid, **(players.get(pid) or {})}
+    return list(seen.values())
+
+
 def teams_by_nfl_team_count(nfl_team: str, raw_dir: Path = RAW_DIR) -> list[tuple[dict, int]]:
     """Return (team, count) pairs — how many of each fantasy team's
     rostered players currently play for the given real NFL team (e.g.
