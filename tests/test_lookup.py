@@ -91,3 +91,87 @@ def test_my_players_returns_full_roster_unfiltered(tmp_path, monkeypatch):
     players = lookup.my_players(raw_dir)
 
     assert {p["full_name"] for p in players} == {"Patrick Mahomes", "Cooper Kupp"}
+
+
+def test_team_record_reads_wins_losses_ties_from_sleeper_roster_settings(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    record = lookup.team_record(1, raw_dir)
+
+    # _seed_raw_dir's team 1 has settings={"wins": 2} -- losses/ties absent,
+    # so they should default to 0 rather than KeyError.
+    assert record == {"roster_id": 1, "team_name": "Victorious Secret", "wins": 2, "losses": 0, "ties": 0}
+
+
+def test_team_record_unknown_roster_id_raises(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    with pytest.raises(RuntimeError, match="No team found"):
+        lookup.team_record(999, raw_dir)
+
+
+def test_team_record_for_owner_resolves_by_display_name(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    record = lookup.team_record_for_owner("otheruser", raw_dir)
+
+    assert record["roster_id"] == 2
+    assert record["wins"] == 1
+
+
+def test_team_record_for_owner_unknown_owner_returns_none(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    assert lookup.team_record_for_owner("nobody", raw_dir) is None
+
+
+def test_my_team_record_uses_current_roster(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    record = lookup.my_team_record(raw_dir)
+
+    assert record["wins"] == 2
+
+
+def test_current_matchup_finds_the_opponent(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    matchup = lookup.current_matchup(1, week=3, raw_dir=raw_dir)
+
+    assert matchup["opponent_roster_id"] == 2
+    assert matchup["opponent_team_name"] == "Team Two"
+
+
+def test_current_matchup_returns_none_when_week_not_ingested(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    # week 99 was never fetched (_seed_raw_dir only writes week 3) -- this
+    # must come back None, never crash or fabricate an opponent.
+    assert lookup.current_matchup(1, week=99, raw_dir=raw_dir) is None
+
+
+def test_current_matchup_for_owner_resolves_by_display_name(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    matchup = lookup.current_matchup_for_owner("rogoel49", week=3, raw_dir=raw_dir)
+
+    assert matchup["opponent_roster_id"] == 2
+
+
+def test_my_current_matchup_uses_current_roster(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    matchup = lookup.my_current_matchup(week=3, raw_dir=raw_dir)
+
+    assert matchup["opponent_roster_id"] == 2

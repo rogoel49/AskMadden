@@ -166,6 +166,87 @@ def test_search_league_info_falls_back_to_semantic_query(tmp_path):
     assert isinstance(result["results"], list)
 
 
+def _make_ctx_with_record_and_matchup(tmp_path, players_df) -> recommend.RecommendContext:
+    """Like _make_ctx, but with a second team and a real matchup so
+    get_team_record / get_current_matchup have something to find."""
+    ctx = _make_ctx(tmp_path, players_df)
+    _write(
+        ctx.raw_dir,
+        "teams.json",
+        [
+            {
+                "roster_id": 1,
+                "owner_id": "u1",
+                "display_name": "rogoel49",
+                "team_name": "Victorious Secret",
+                "players": ["sleeper_cmc"],
+                "starters": ["sleeper_cmc"],
+                "settings": {"wins": 5, "losses": 2, "ties": 0},
+            },
+            {
+                "roster_id": 2,
+                "owner_id": "u2",
+                "display_name": "rival",
+                "team_name": "Rival Team",
+                "players": [],
+                "starters": [],
+                "settings": {"wins": 3, "losses": 4, "ties": 0},
+            },
+        ],
+    )
+    _write(
+        ctx.raw_dir,
+        "matchups_week_8.json",
+        [
+            {"roster_id": 1, "matchup_id": 1, "points": 0},
+            {"roster_id": 2, "matchup_id": 1, "points": 0},
+        ],
+    )
+    return ctx
+
+
+def test_get_team_record_reports_my_record(tmp_path, monkeypatch):
+    players = pl.DataFrame([_CHRISTIAN_ROW])
+    ctx = _make_ctx_with_record_and_matchup(tmp_path, players)
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    result = recommend.dispatch_tool("get_team_record", {}, ctx)
+
+    assert result == {"roster_id": 1, "team_name": "Victorious Secret", "wins": 5, "losses": 2, "ties": 0}
+
+
+def test_get_team_record_for_another_owner(tmp_path, monkeypatch):
+    players = pl.DataFrame([_CHRISTIAN_ROW])
+    ctx = _make_ctx_with_record_and_matchup(tmp_path, players)
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    result = recommend.dispatch_tool("get_team_record", {"owner_display_name": "rival"}, ctx)
+
+    assert result["wins"] == 3
+
+
+def test_get_current_matchup_reports_this_weeks_opponent(tmp_path, monkeypatch):
+    players = pl.DataFrame([_CHRISTIAN_ROW])
+    ctx = _make_ctx_with_record_and_matchup(tmp_path, players)
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    result = recommend.dispatch_tool("get_current_matchup", {}, ctx)
+
+    assert result["opponent_roster_id"] == 2
+    assert result["opponent_team_name"] == "Rival Team"
+
+
+def test_get_current_matchup_reports_a_note_when_week_not_ingested(tmp_path, monkeypatch):
+    players = pl.DataFrame([_CHRISTIAN_ROW])
+    ctx = _make_ctx(tmp_path, players)  # no matchups_week_8.json seeded
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    result = recommend.dispatch_tool("get_current_matchup", {}, ctx)
+
+    assert "note" in result
+    assert "has been ingested" in result["note"]  # "No matchup data ... has been ingested" (not a guess)
+
+
 # ---- orchestration loop, driven by a fake Anthropic client ----
 
 
@@ -183,7 +264,12 @@ class _FakeMessages:
         self.calls = []
 
     def create(self, **kwargs):
-        self.calls.append(kwargs)
+        # Snapshot the messages list at call time -- recommend() keeps
+        # appending to the same list object after this call returns, so
+        # storing the bare reference would make later assertions see the
+        # *final* state of the conversation instead of what was actually
+        # sent for this particular call.
+        self.calls.append({**kwargs, "messages": list(kwargs["messages"])})
         return self._responses.pop(0)
 
 
@@ -258,7 +344,12 @@ def test_recommend_falls_back_to_plain_text_if_model_never_calls_a_tool(tmp_path
     assert result["reasoning"] is None
 
 
-def test_recommend_raises_if_max_turns_exceeded_without_submitting(tmp_path, monkeypatch):
+def test_recommend_returns_gracefully_if_max_turns_exceeded_without_submitting(tmp_path, monkeypatch):
+    """Regression test: this used to raise an unhandled RuntimeError,
+    which crashed the CLI ungracefully. recommend() must never raise on
+    a question the tools couldn't resolve -- it should return a clear
+    "not enough information" result instead, with error set so a caller
+    can detect this specific failure mode."""
     raw_dir = tmp_path / "sleeper"
     persist_dir = tmp_path / "chroma"
     _seed_league(raw_dir)
@@ -274,18 +365,264 @@ def test_recommend_raises_if_max_turns_exceeded_without_submitting(tmp_path, mon
 
     monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
 
-    with pytest.raises(RuntimeError, match="exceeded max_turns"):
-        recommend.recommend(
-            "loop forever",
-            raw_dir=raw_dir,
-            persist_dir=persist_dir,
-            season=2024,
-            as_of_week=8,
-            client=client,
-            max_turns=3,
-        )
+    result = recommend.recommend(
+        "loop forever",
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+        max_turns=3,
+    )
+
+    assert result["error"] == "max_turns_exceeded"
+    assert "don't have enough information" in result["recommendation"]
+    assert result["player_id"] is None
+    assert len(result["tool_calls"]) == 3
+    assert isinstance(result["messages"], list) and result["messages"]
 
 
 def test_recommend_requires_sleeper_ingest_to_have_run(tmp_path):
     with pytest.raises(RuntimeError, match="run `python -m src.ingest.sleeper`"):
         recommend.recommend("anything", raw_dir=tmp_path / "nonexistent", client=_FakeClient([]))
+
+
+def _seed_league_with_record_and_matchup(raw_dir: Path) -> None:
+    """Same shape as _make_ctx_with_record_and_matchup, but for a full
+    recommend() call (raw_dir directly, not a RecommendContext)."""
+    _seed_league(raw_dir)
+    _write(
+        raw_dir,
+        "teams.json",
+        [
+            {
+                "roster_id": 1, "owner_id": "u1", "display_name": "rogoel49", "team_name": "Victorious Secret",
+                "players": ["sleeper_cmc"], "starters": ["sleeper_cmc"], "settings": {"wins": 5, "losses": 2, "ties": 0},
+            },
+            {
+                "roster_id": 2, "owner_id": "u2", "display_name": "rival", "team_name": "Rival Team",
+                "players": [], "starters": [], "settings": {"wins": 3, "losses": 4, "ties": 0},
+            },
+        ],
+    )
+    _write(
+        raw_dir,
+        "matchups_week_8.json",
+        [{"roster_id": 1, "matchup_id": 1, "points": 0}, {"roster_id": 2, "matchup_id": 1, "points": 0}],
+    )
+
+
+# ---- regression test for the reported crash: "what's my team's record
+# and who do i play this week?" used to burn through max_turns (nothing
+# could answer it) and raise an unhandled RuntimeError. ----
+
+_RECORD_AND_MATCHUP_QUESTION = "what's my team's record and who do i play this week?"
+
+
+def test_recommend_answers_record_and_matchup_question_with_the_new_tools(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league_with_record_and_matchup(raw_dir)
+    embed.embed([], persist_dir=persist_dir)
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
+
+    responses = [
+        SimpleNamespace(content=[_tool_use_block("get_team_record", {}, id_="t1")]),
+        SimpleNamespace(content=[_tool_use_block("get_current_matchup", {}, id_="t2")]),
+        SimpleNamespace(
+            content=[
+                _tool_use_block(
+                    "submit_recommendation",
+                    {
+                        "recommendation": "You're 5-2 and play Rival Team this week.",
+                        "reasoning": "get_team_record reported 5 wins/2 losses; get_current_matchup reported Rival Team as this week's opponent.",
+                    },
+                    id_="t3",
+                )
+            ]
+        ),
+    ]
+    client = _FakeClient(responses)
+
+    result = recommend.recommend(
+        _RECORD_AND_MATCHUP_QUESTION, raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client
+    )
+
+    assert result["error"] is None
+    assert "5-2" in result["recommendation"]
+    tool_names = [c["name"] for c in result["tool_calls"]]
+    assert tool_names == ["get_team_record", "get_current_matchup"]
+    assert result["tool_calls"][0]["result"]["wins"] == 5
+    assert result["tool_calls"][1]["result"]["opponent_team_name"] == "Rival Team"
+
+
+def test_recommend_never_crashes_on_the_record_and_matchup_question_even_if_model_stalls(tmp_path, monkeypatch):
+    """Safety net: even if a model somehow never converges on this
+    question, recommend() must return gracefully, never raise or crash
+    the process (the originally reported behavior)."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league_with_record_and_matchup(raw_dir)
+    embed.embed([], persist_dir=persist_dir)
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
+
+    # A model that keeps re-searching instead of using the new tools or submitting.
+    responses = [
+        SimpleNamespace(content=[_tool_use_block("search_league_info", {"query": "record"})]) for _ in range(3)
+    ]
+    client = _FakeClient(responses)
+
+    result = recommend.recommend(
+        _RECORD_AND_MATCHUP_QUESTION,
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+        max_turns=3,
+    )
+
+    assert result["error"] == "max_turns_exceeded"
+    assert result["recommendation"]  # a real string, not an exception
+
+
+# ---- multi-turn conversation ----
+
+
+def test_recommend_returns_messages_that_can_be_continued(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    chunks = embed.build_signal_chunks([_CHRISTIAN_SIGNAL_ROW, _LUKE_SIGNAL_ROW])
+    embed.embed(chunks, persist_dir=persist_dir)
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW, _LUKE_ROW]))
+
+    responses = [
+        SimpleNamespace(content=[_tool_use_block("get_player_signals", {"player_name": "Christian McCaffrey"})]),
+        SimpleNamespace(
+            content=[
+                _tool_use_block(
+                    "submit_recommendation",
+                    {"recommendation": "Start him.", "reasoning": "Good signals.", "player_id": "00-0033280"},
+                    id_="t2",
+                )
+            ]
+        ),
+    ]
+    client = _FakeClient(responses)
+
+    result = recommend.recommend(
+        "Should I start Christian McCaffrey?",
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+    )
+
+    # The last message must be a resolved tool_result turn (not a dangling
+    # tool_use), so a caller can immediately continue the conversation
+    # with a plain follow-up question.
+    last = result["messages"][-1]
+    assert last["role"] == "user"
+    assert all(block["type"] == "tool_result" for block in last["content"])
+
+
+def test_recommend_second_call_sends_the_full_prior_history_to_the_client(tmp_path, monkeypatch):
+    """Mechanical proof that context threads across turns: the second
+    recommend() call's messages= must be exactly the first call's
+    returned history plus the new question -- never a fresh, isolated
+    conversation."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    embed.embed([], persist_dir=persist_dir)
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
+
+    # Turn 1: the agent asks a clarifying question instead of calling a tool.
+    turn1_responses = [SimpleNamespace(content=[_text_block("Which of your flex-eligible players do you mean?")])]
+    client = _FakeClient(turn1_responses)
+    turn1 = recommend.recommend(
+        "Who should I start at flex?", raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client
+    )
+
+    assert turn1["recommendation"] == "Which of your flex-eligible players do you mean?"
+
+    # Turn 2: continue the same conversation with the clarification.
+    turn2_responses = [
+        SimpleNamespace(
+            content=[
+                _tool_use_block(
+                    "submit_recommendation",
+                    {"recommendation": "Start Christian McCaffrey then.", "reasoning": "You clarified it's him."},
+                )
+            ]
+        )
+    ]
+    client2 = _FakeClient(turn2_responses)
+    turn2 = recommend.recommend(
+        "I meant Christian McCaffrey",
+        messages=turn1["messages"],
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client2,
+    )
+
+    sent_messages = client2.messages.calls[0]["messages"]
+    # turn1's user question + turn1's assistant clarification + turn2's new user question
+    assert len(sent_messages) == 3
+    assert sent_messages[0] == {"role": "user", "content": "Who should I start at flex?"}
+    assert sent_messages[1]["role"] == "assistant"
+    assert sent_messages[2] == {"role": "user", "content": "I meant Christian McCaffrey"}
+    assert turn2["recommendation"] == "Start Christian McCaffrey then."
+
+
+def test_eval_style_calls_never_carry_state_between_independent_questions(tmp_path, monkeypatch):
+    """The eval harness (run_eval.py, run_decision_eval.py) never passes
+    messages= -- confirm that omitting it (the default) means each call
+    is a genuinely fresh, independent conversation, never leaking a
+    prior question's context."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    embed.embed([], persist_dir=persist_dir)
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
+
+    def _one_shot_client():
+        return _FakeClient(
+            [SimpleNamespace(content=[_tool_use_block("submit_recommendation", {"recommendation": "ok", "reasoning": "ok"})])]
+        )
+
+    client_a = _one_shot_client()
+    recommend.recommend(
+        "first independent question", raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client_a
+    )
+    client_b = _one_shot_client()
+    recommend.recommend(
+        "second independent question", raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client_b
+    )
+
+    # Each call's client only ever saw its own single question -- no
+    # trace of the other question's text anywhere in what was sent.
+    sent_to_b = client_b.messages.calls[0]["messages"]
+    assert len(sent_to_b) == 1
+    assert sent_to_b[0]["content"] == "second independent question"
