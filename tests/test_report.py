@@ -102,14 +102,19 @@ def _seed_league(raw_dir: Path, roster_players: dict, second_team_players: dict 
     )
 
 
-def _setup(tmp_path, monkeypatch, roster_players, signal_rows, players_df, second_team_players=None):
+def _setup(
+    tmp_path, monkeypatch, roster_players, signal_rows, players_df, second_team_players=None, prior_signal_rows=None
+):
     raw_dir = tmp_path / "sleeper"
     persist_dir = tmp_path / "chroma"
     signals_dir = tmp_path / "signals"
     _seed_league(raw_dir, roster_players, second_team_players)
     embed.embed(embed.build_signal_chunks(signal_rows), persist_dir=persist_dir)
     signals_dir.mkdir()
-    pl.DataFrame(signal_rows).write_parquet(signals_dir / f"signals_{_SEASON}_week{_WEEK}.parquet")
+    if signal_rows:
+        pl.DataFrame(signal_rows).write_parquet(signals_dir / f"signals_{_SEASON}_week{_WEEK}.parquet")
+    if prior_signal_rows:
+        pl.DataFrame(prior_signal_rows).write_parquet(signals_dir / f"signals_{_SEASON - 1}_week19.parquet")
 
     import src.rag.player_index as player_index_module
 
@@ -270,6 +275,127 @@ def test_waiver_pickups_does_not_require_my_roster_id(tmp_path, monkeypatch):
     )
 
     assert result["entries"]
+
+
+# ---- Phase 3.6: prior-season signal fallback ----
+
+# Real 2025 season-end signal values for Saquon Barkley (pulled from the
+# committed data/processed/signals/signals_2025_week19.parquet) -- a
+# distinguishable stand-in "prior season" row, deliberately different
+# from _BARKLEY_SIGNAL_ROW's 2024 numbers so tests can tell which one a
+# report actually used.
+_BARKLEY_PRIOR_SIGNAL_ROW = {
+    "player_id": "00-0034844", "player_name": "S.Barkley", "team": "PHI", "season": _SEASON - 1, "as_of_week": 19,
+    "season_plays": 411, "epa_trend": 0.170673, "red_zone_share": 0.358621, "target_share": 0.109442,
+    "target_share_adjusted": None, "opponent": None, "run_funnel_rate_vs_avg": None, "implied_total": None,
+}
+
+
+def test_drop_falls_back_to_stale_prior_season_when_no_current_season_data(tmp_path, monkeypatch):
+    """A player with ONLY prior-season data on record gets the
+    stale-labeled fallback, never an empty report."""
+    roster = {"sleeper_barkley": {"full_name": "Saquon Barkley", "position": "RB", "team": "PHI"}}
+    players_df = pl.DataFrame([_BARKLEY_ROW])
+    raw_dir, persist_dir, signals_dir = _setup(
+        tmp_path, monkeypatch, roster, [], players_df, prior_signal_rows=[_BARKLEY_PRIOR_SIGNAL_ROW]
+    )
+
+    result = report.generate_report(
+        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    assert len(result["entries"]) == 1
+    entry = result["entries"][0]
+    assert entry["name"] == "Saquon Barkley"
+    assert entry["stale"] is True
+    assert entry["source_season"] == _SEASON - 1
+    assert entry["signals_summary"].startswith("[STALE")
+    assert any("stale" in reason.lower() for reason in entry["weakness_reasons"])
+    assert any(f"{_SEASON - 1} season-end" in note for note in result["notes"])
+
+
+def test_drop_never_falls_back_when_current_season_data_exists(tmp_path, monkeypatch):
+    """A player with enough current-season data must never see the stale
+    fallback, even when prior-season data also exists on record."""
+    roster = {"sleeper_barkley": {"full_name": "Saquon Barkley", "position": "RB", "team": "PHI"}}
+    players_df = pl.DataFrame([_BARKLEY_ROW])
+    raw_dir, persist_dir, signals_dir = _setup(
+        tmp_path,
+        monkeypatch,
+        roster,
+        [_BARKLEY_SIGNAL_ROW],
+        players_df,
+        prior_signal_rows=[_BARKLEY_PRIOR_SIGNAL_ROW],
+    )
+
+    result = report.generate_report(
+        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    entry = result["entries"][0]
+    assert entry["stale"] is False
+    assert entry["source_season"] is None
+    assert "STALE" not in entry["signals_summary"]
+    # _BARKLEY_SIGNAL_ROW's real 2024 red zone share (48%), not the prior
+    # season fixture's 36% -- proves the current-season row won, not a
+    # blend of the two.
+    assert "48%" in entry["signals_summary"]
+    assert not any("stale" in note.lower() for note in result["notes"])
+
+
+def test_drop_handles_a_player_with_no_signal_data_at_all_gracefully(tmp_path, monkeypatch):
+    """Even with a prior-season file present in signals_dir (for a
+    different player), a roster player who appears in NEITHER the
+    current-season nor any prior-season table must degrade to "no
+    signal, excluded" rather than crash."""
+    roster = {
+        "sleeper_barkley": {"full_name": "Saquon Barkley", "position": "RB", "team": "PHI"},
+        "sleeper_cook": {"full_name": "James Cook", "position": "RB", "team": "BUF"},
+    }
+    players_df = pl.DataFrame([_BARKLEY_ROW, _COOK_ROW])
+    raw_dir, persist_dir, signals_dir = _setup(
+        tmp_path,
+        monkeypatch,
+        roster,
+        [_BARKLEY_SIGNAL_ROW],
+        players_df,
+        prior_signal_rows=[_BARKLEY_PRIOR_SIGNAL_ROW],
+    )
+    # Cook has no row in the current-season file above, and none in the
+    # prior-season file either (it only has Barkley).
+
+    result = report.generate_report(
+        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    assert [e["name"] for e in result["entries"]] == ["Saquon Barkley"]
+    assert any("James Cook" in note for note in result["notes"])
+
+
+def test_waiver_pickups_marks_stale_fallback_candidates_too(tmp_path, monkeypatch):
+    """The fallback isn't just a start_sit/drop thing -- waiver_pickups
+    shares the same _signal_row() machinery and must label stale
+    candidates the same way."""
+    my_roster = {"sleeper_cmc": {"full_name": "Christian McCaffrey", "position": "RB", "team": "SF"}}
+    players_df = pl.DataFrame([_CHRISTIAN_ROW, _BARKLEY_ROW])
+    raw_dir, persist_dir, signals_dir = _setup(
+        tmp_path,
+        monkeypatch,
+        my_roster,
+        [_CHRISTIAN_SIGNAL_ROW],
+        players_df,
+        prior_signal_rows=[_BARKLEY_PRIOR_SIGNAL_ROW],
+    )
+
+    result = report.generate_report(
+        "waiver_pickups", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    barkley = next(e for e in result["entries"] if e["name"] == "Saquon Barkley")
+    assert barkley["stale"] is True
+    assert barkley["source_season"] == _SEASON - 1
+    assert "[STALE" in barkley["reasoning"]
+    assert any("stale" in note.lower() for note in result["notes"])
 
 
 # ---- misc ----

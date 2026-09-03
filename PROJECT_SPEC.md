@@ -152,6 +152,55 @@ difficulty:
    signal (single-week matchup context standing in for value) would be
    actively misleading, worse than not having the feature at all.
 
+## Phase 3.6: Prior-season signal fallback
+Discovered during Phase 3.5's real-data validation, not planned ahead of
+time: every signal in the signals table (`matchup_signals.py`) is
+trailing/current-season by construction (EPA trend, red zone share,
+target share, ...). Confirmed live against the real, unstarted 2026
+season: nflreadpy has no 2026 plays published yet (games haven't been
+played), so `generate_report()` and `recommend()` both correctly return
+an empty/near-empty result with an honest "no computed signals" note --
+correct behavior for a genuinely empty table, but a bad first-use
+experience if a friend opens this to set a Week 1 lineup and gets
+nothing useful back, right when a first impression matters most.
+
+**Fix**: when a player has no current-season signal at all, fall back to
+their most recent PRIOR season's final numbers as a reference point --
+but never silently. Every fallback number is explicitly labeled stale
+end-to-end: a `stale: true` / `source_season` / `source_as_of_week`
+marker on the raw row, on every report entry, AND a `[STALE -- ...]`
+text prefix on any prose (`signals_summary`, `reasoning`, and the chat
+path's `get_player_signals` tool output) -- a report or chat answer must
+never present last season's numbers as if they were this season's.
+
+**Where it lives**: the signal-*loading* layer only, not the signals
+*computation* module (`matchup_signals.py` is untouched) --
+`src/reasoning/report.py`'s `_load_signals_table()` /
+`_load_prior_season_fallback_table()` / `_signal_row()` for the report
+path (reads the raw parquet table directly, same reason the rest of that
+module does -- see its docstring), and
+`src/rag/retrieve.py`'s `query_player_signal_with_fallback()` for
+`recommend.py`'s `get_player_signals` chat tool (reads Chroma). These are
+two separate, parallel implementations against two different data
+sources, not one shared function -- consistent with how the rest of the
+report/chat split already works.
+
+**Fallback threshold: N=1.** A player with ANY current-season signal at
+all (even from an earlier week than as_of_week) is used as-is, never
+blended with a stale prior-season number -- only a player with ZERO
+current-season data falls back. A larger N (waiting for 1-2 weeks of
+current-season data before trusting it, to smooth out one noisy early
+game) would need a real "distinct weeks active this season" field that
+`matchup_signals.py` doesn't compute today -- that's signals-computation
+work, explicitly out of scope for this unit. Revisit if
+`matchup_signals.py` ever gains that field.
+
+**Explicitly out of scope for this unit**: trade suggestions (still
+Phase 3.5's own deferred item, unrelated), `src/scheduler/refresh.py`
+(still its own separate, un-started gap, see TODO.md), and the existing
+signal-weight constants in `report.py` (`_EPA_TREND_WEIGHT` etc. --
+unchanged).
+
 ## Phase 4 stretch: derived coverage classification
 Real man/zone or coverage-shell labels aren't free (PFF/SIS charting is
 paywalled), but they can be *derived* from NFL Big Data Bowl tracking
@@ -286,13 +335,21 @@ into this pattern, just not the model for anything new.
 - [ ] README write-up: architecture diagram, eval numbers, example Q&A
 
 ### Phase 3.5: Multi-turn conversation + report generation
-- [ ] Multi-turn conversation support in `recommend()` (optional `messages` in/out)
-- [ ] CLI REPL (`recommend.py --interactive`) to validate multi-turn without Phase 5's UI
-- [ ] `generate_report()`: start/sit report (reuses existing tools/signals)
-- [ ] `generate_report()`: drop report (reuses existing tools/signals)
-- [ ] `generate_report()`: waiver-wire pickup report (reuses existing tools/signals)
-- [ ] Scope (don't build yet): the season-long value + positional-need
-      signals trade suggestions need, as a named follow-up
+- [x] Multi-turn conversation support in `recommend()` (optional `messages` in/out)
+- [x] CLI REPL (`recommend.py --interactive`) to validate multi-turn without Phase 5's UI
+- [x] `generate_report()`: start/sit report (reuses existing tools/signals)
+- [x] `generate_report()`: drop report (reuses existing tools/signals)
+- [x] `generate_report()`: waiver-wire pickup report (reuses existing tools/signals)
+- [x] Scope (don't build yet): the season-long value + positional-need
+      signals trade suggestions need, as a named follow-up -- still not
+      built, see Phase 3.5's writeup above
+
+### Phase 3.6: Prior-season signal fallback
+- [x] `src/rag/retrieve.py`: `query_player_signal_with_fallback()` for the chat path
+- [x] `src/reasoning/report.py`: `_load_prior_season_fallback_table()` / `_signal_row()` for the report path
+- [x] Explicit `stale`/`source_season`/`source_as_of_week` markers on every affected output (raw row, report entries, prose text)
+- [x] Document and justify the N=1 fallback threshold
+- [x] Test coverage: no data at all, prior-season-only data, current-season data present (never stale)
 
 ### Phase 4: Stretch (optional)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
