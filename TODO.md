@@ -234,6 +234,93 @@ process ungracefully on exit. Two real gaps, both closed:
 See `PROJECT_SPEC.md`'s Phase 3.5 section for the full writeup
 (sequencing rationale for the four report types, why report generation
 is its own function rather than folded into the chat path).
+
+This session (report generation): full `pytest` suite is 123/123 (113
+before this session). Built `src/reasoning/report.py`'s `generate_report()`
+and all three buildable report types (start_sit, drop, waiver_pickups) --
+trade suggestions deliberately not attempted, see below. Real-data
+validation: ran all three report types in this sandbox against the real,
+committed `data/processed/signals/signals_2024_week5.parquet` and the
+real live nflverse player reference table (`nflreadpy` -- reachable here,
+same as every prior phase), with a stand-in league roster built from real
+2024 players who actually appear in that signals table (Saquon Barkley,
+Rhamondre Stevenson, Justin Jefferson, George Kittle, Josh Allen, Jeff
+Wilson on "my" team; James Cook and Ja'Marr Chase on a second team, to
+prove waiver_pickups excludes rostered players league-wide, not just
+"my" roster). Confirmed real, grounded output: start_sit correctly
+recommended Stevenson over Barkley/Wilson at RB citing real red-zone-share
+numbers (57%/48%/2%); drop correctly ranked Jeff Wilson weakest (real
+-0.34 EPA/play trend, real 2% target share) ahead of Josh Allen and
+Justin Jefferson; waiver_pickups correctly excluded all 8 real rostered
+player_ids and ranked real unrostered players (Kylen Granson, Christian
+Watson, Kyren Williams, etc.) by real computed signals, out of 397
+unrostered signal-bearing candidates in the 1436-player pool. Same two
+sandbox blockers as every prior phase (no `ANTHROPIC_API_KEY`, live
+Sleeper API blocked) did NOT block this validation, because
+`generate_report()` deliberately never calls the Claude API (see
+`report.py`'s module docstring for why) and the stand-in roster stands in
+only for the real Sleeper roster pull, not for the signals data itself
+(which is real and already committed). Re-run
+`python -m src.reasoning.recommend --report start_sit` (etc.) against the
+real Victorious Secret 3.0 roster on a machine with Sleeper access to
+confirm against the actual league, not the stand-in.
+- [x] `src/reasoning/report.py`: `generate_report(report_type, raw_dir,
+      persist_dir, season, as_of_week, ...)`. Reuses `recommend.py`'s
+      `dispatch_tool()` for `get_my_roster`/`get_player_signals`/
+      `get_team_record`/`get_current_matchup` (identity resolution and
+      roster/record/matchup lookups -- never reimplemented), plus a new
+      `src/rag/lookup.py:all_rostered_players()` (every team's roster
+      league-wide, the same "structured read over the raw Sleeper pull"
+      pattern the rest of that file already uses) for waiver_pickups'
+      set difference. Deliberately does NOT call the Claude API --
+      ranking a bounded set of candidates by already-computed numbers has
+      one auditable answer, computing it directly in code is more
+      reliable than asking a model to eyeball numbers, and it's the only
+      way this session's real-data validation requirement could be met
+      at all without `ANTHROPIC_API_KEY`. Also deliberately does NOT go
+      through `get_player_signals`'s chunk *text* for ranking math (that
+      text has no machine-readable numeric fields -- see `report.py`'s
+      docstring) -- reads the same underlying signals parquet
+      `matchup_signals.py` produces directly via polars instead.
+  - [x] start_sit: groups a roster by position (QB/RB/WR/TE -- the same
+        skill positions signals exist for) and, for every group with 2+
+        signal-bearing players, recommends a starter with alternatives
+        and reasoning citing the specific signal values compared.
+        **Documented simplification:** groups by position, not by a
+        league's actual Sleeper `roster_positions` slot structure
+        (FLEX/superflex/bench counts) -- a full slot-by-slot lineup
+        optimizer is materially more scope than demonstrating "recommend
+        who to start when there's more than one viable option" needs.
+  - [x] drop: ranks roster contributors by the same composite signal
+        score (recent efficiency trend, red zone role share, target
+        share -- deliberately simple, unfitted weights, same
+        documented-not-fitted status as `matchup_signals.py`'s own 0.1
+        reweighting constant) and returns the weakest, each with concrete
+        threshold-based reasons (e.g. "efficiency trending down", "low
+        target share", "minimal season-long usage"), never just a bare
+        score.
+  - [x] waiver_pickups: full skill-position NFL player pool
+        (`player_index.build_player_index()`, the same source
+        `get_player_signals` already uses) minus every roster league-wide
+        (`lookup.all_rostered_players()`, a set difference over
+        already-ingested data, no new ingest), ranked by the same
+        opportunity-score composite. **Documented simplification:**
+        "rising" target share is approximated by the current
+        (opponent-adjusted, where available) target share value, not an
+        actual week-over-week delta -- the signals table is one
+        point-in-time row per player/week, not a rolling series, so a
+        real trend isn't computed yet.
+  - [x] CLI: `python -m src.reasoning.recommend --report
+        {start_sit,drop,waiver_pickups}` -- separate from `--interactive`
+        and the single-question mode, prints the structured report as
+        JSON.
+- [ ] **Not built, deliberately deferred (unchanged from before this
+      session):** trade suggestions. Still needs signal work that doesn't
+      exist yet -- season-long/rest-of-season player value and
+      positional-need assessment across rosters. Did not attempt even a
+      rough version -- PROJECT_SPEC.md is explicit that a trade report
+      grounded in this-week's-matchup-scoped signals standing in for
+      season-long value would be actively misleading.
 - [x] Multi-turn conversation: `recommend()` takes an optional prior
       `messages` list and returns the updated history
       (`RecommendResult.messages`) so a clarifying question can be
@@ -252,17 +339,6 @@ is its own function rather than folded into the chat path).
       invocation (`recommend.py "question"`) is unchanged and still the
       default (`question` is now an optional positional arg, required
       unless `--interactive` is given).
-- [ ] **Not built, scoped only:** `generate_report()` and its three
-      buildable report types (start/sit, drop, waiver-wire pickups) --
-      the task for this session was to add Phase 3.5 to the spec, not
-      implement report generation. All three are real, buildable now
-      with existing signals per the spec; none attempted yet.
-- [ ] **Not built, deliberately deferred:** trade suggestions. Needs
-      signal work that doesn't exist yet -- season-long/rest-of-season
-      player value (every current signal is single-week-matchup-scoped)
-      and positional-need assessment across rosters (nothing today
-      compares roster composition between teams). Do not build the
-      report before that signal work exists.
 - [ ] Live validation gap (same two sandbox blockers as every phase so
       far): multi-turn conversation was validated mechanically with a
       scripted fake client in this sandbox (proves the message-history
@@ -274,6 +350,23 @@ is its own function rather than folded into the chat path).
       trigger an actual clarifying question (e.g. "who should I start
       at flex" without naming anyone), to confirm the real model's own
       conversational behavior, not just the plumbing.
+- [ ] **Known gap, flagged not built:** `src/scheduler/refresh.py` doesn't
+      exist yet -- `src/scheduler/` is an empty `__init__.py` only. Every
+      report from `generate_report()` and every `recommend()` call is
+      only as current as whenever someone last manually ran
+      `matchup_signals.py` + `embed.py` by hand (and `sleeper.py` for the
+      roster side). This is fine for this session's real-data validation
+      (a fixed, already-computed week-5 signals table is exactly what's
+      being validated against) but is a real gap before any of this is
+      useful against a live, in-progress season -- signals would go
+      stale the moment a week passes without someone remembering to
+      re-run the pipeline. Deliberately NOT attempted this session:
+      building a scheduler is an infra/scheduling problem, a different
+      kind of work from this session's reasoning-layer scope, and
+      deserves its own scoped session (deciding a cadence, an
+      idempotent/incremental refresh strategy for `embed.py`'s current
+      full-rebuild-on-every-run design, and where it runs in Phase 5's
+      hosted deployment) rather than being bolted onto this one.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

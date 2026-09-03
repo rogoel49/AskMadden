@@ -547,14 +547,32 @@ def main() -> None:
     parser.add_argument(
         "--interactive", action="store_true", help="start a multi-turn REPL instead of asking one question"
     )
+    parser.add_argument(
+        "--report",
+        choices=["start_sit", "drop", "waiver_pickups"],
+        default=None,
+        help=(
+            "generate a structured report (start/sit, drop, or waiver-wire pickups) instead of "
+            "answering a single question or starting a REPL -- see src/reasoning/report.py"
+        ),
+    )
     args = parser.parse_args()
+
+    if args.report:
+        # Imported here, not at module level: report.py imports this
+        # module (to reuse dispatch_tool/RecommendContext), so importing
+        # it back at the top of this file would be a circular import.
+        from src.reasoning.report import generate_report, _print_report
+
+        _print_report(generate_report(args.report, season=args.season, as_of_week=args.as_of_week))
+        return
 
     if args.interactive:
         _run_repl(season=args.season, as_of_week=args.as_of_week)
         return
 
     if not args.question:
-        raise SystemExit("a question is required unless --interactive is given")
+        raise SystemExit("a question is required unless --interactive or --report is given")
 
     result = recommend(args.question, season=args.season, as_of_week=args.as_of_week)
     _print_result(result)
