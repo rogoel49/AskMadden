@@ -138,6 +138,43 @@ def test_get_player_signals_unknown_player_reports_not_resolved(tmp_path):
     assert "ambiguous" not in result
 
 
+def test_get_player_signals_falls_back_to_stale_prior_season_data(tmp_path, monkeypatch):
+    """Phase 3.6: a new season with no computed signals yet (e.g. before
+    the season starts -- confirmed live, see TODO.md) must not just
+    report "no data" when a prior season's numbers exist -- it falls
+    back to them, explicitly labeled stale so the model never presents
+    them as current."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    # Only 2024 week-8 data is embedded -- nothing at all for 2025.
+    chunks = embed.build_signal_chunks([_CHRISTIAN_SIGNAL_ROW])
+    embed.embed(chunks, persist_dir=persist_dir)
+
+    players = pl.DataFrame([_CHRISTIAN_ROW])
+    from src.rag import player_index
+
+    idx = player_index.build_player_index(2025, players=players)
+    ctx = recommend.RecommendContext(raw_dir=raw_dir, persist_dir=persist_dir, season=2025, as_of_week=1, player_idx=idx)
+
+    result = recommend.dispatch_tool("get_player_signals", {"player_name": "Christian McCaffrey"}, ctx)
+
+    assert result["resolved"] is True
+    assert result["stale"] is True
+    assert result["source_season"] == 2024
+    assert "[STALE" in result["signals"]
+
+
+def test_get_player_signals_no_stale_flag_when_current_season_data_exists(tmp_path):
+    players = pl.DataFrame([_CHRISTIAN_ROW, _LUKE_ROW])
+    ctx = _make_ctx(tmp_path, players)
+
+    result = recommend.dispatch_tool("get_player_signals", {"player_name": "Christian McCaffrey"}, ctx)
+
+    assert result["stale"] is False
+    assert "STALE" not in result["signals"]
+
+
 def test_get_my_roster_uses_structured_sleeper_lookup(tmp_path, monkeypatch):
     players = pl.DataFrame([_CHRISTIAN_ROW])
     ctx = _make_ctx(tmp_path, players)

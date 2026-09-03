@@ -246,6 +246,10 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "questions, get_team_record / get_current_matchup for standings/schedule questions (all exact "
         "Sleeper data), and search_league_info only for general league questions that aren't about one "
         "named player's performance or one team's record/matchup.\n\n"
+        "If get_player_signals returns stale: true, the current season has no computed signals yet (e.g. "
+        "it hasn't started) and you're seeing a prior-season reference instead -- say so explicitly and "
+        "plainly in your reasoning (name which season the numbers are actually from) rather than presenting "
+        "them as this season's performance.\n\n"
         "Always end by calling submit_recommendation exactly once with a concrete recommendation and the "
         "reasoning that led to it, citing the specific signals you retrieved -- this league's scoring "
         "settings above should inform which stats matter (e.g. reception volume matters more here if "
@@ -308,7 +312,7 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
         }
 
     match = result.candidates[0]
-    chunk = retrieve.query_player_signal(
+    chunk, stale = retrieve.query_player_signal_with_fallback(
         match.player_id, season=ctx.season, as_of_week=ctx.as_of_week, persist_dir=ctx.persist_dir
     )
     base = {
@@ -321,7 +325,18 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
     if chunk is None:
         base["note"] = "Resolved the player but no computed signals are embedded yet for this season/week."
         return base
-    base["signals"] = chunk["text"]
+    base["stale"] = stale
+    if stale:
+        source_season = chunk["metadata"].get("season")
+        source_week = chunk["metadata"].get("week")
+        base["source_season"] = source_season
+        base["source_as_of_week"] = source_week
+        base["signals"] = (
+            f"[STALE -- no {ctx.season} signal data yet; showing {source_season} season-end reference "
+            f"instead, do not present this as current] {chunk['text']}"
+        )
+    else:
+        base["signals"] = chunk["text"]
     return base
 
 

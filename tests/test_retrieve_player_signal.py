@@ -89,3 +89,60 @@ def test_query_player_signal_returns_none_when_player_has_no_chunk(tmp_path):
     result = retrieve.query_player_signal("00-0099999", persist_dir=persist_dir)
 
     assert result is None
+
+
+# ---- query_player_signal_with_fallback: prior-season fallback (Phase 3.6) ----
+
+_CHRISTIAN_PRIOR_SEASON = {**_CHRISTIAN, "season": 2023, "as_of_week": 19, "epa_trend": -0.5}
+
+
+def test_fallback_returns_none_not_stale_when_player_has_no_data_at_all(tmp_path):
+    persist_dir = _seeded_collection(tmp_path, [_LUKE])  # some other player, not this one
+
+    chunk, stale = retrieve.query_player_signal_with_fallback(
+        "00-0099999", season=2024, as_of_week=8, persist_dir=persist_dir
+    )
+
+    assert chunk is None
+    assert stale is False
+
+
+def test_fallback_uses_prior_season_when_current_season_has_nothing(tmp_path):
+    persist_dir = _seeded_collection(tmp_path, [_CHRISTIAN_PRIOR_SEASON])  # only 2023 data on record
+
+    chunk, stale = retrieve.query_player_signal_with_fallback(
+        "00-0033280", season=2024, as_of_week=8, persist_dir=persist_dir
+    )
+
+    assert stale is True
+    assert chunk["metadata"]["season"] == 2023
+    assert chunk["metadata"]["player_id"] == "00-0033280"
+
+
+def test_fallback_never_used_when_current_season_data_exists(tmp_path):
+    persist_dir = _seeded_collection(tmp_path, [_CHRISTIAN, _CHRISTIAN_PRIOR_SEASON])
+
+    chunk, stale = retrieve.query_player_signal_with_fallback(
+        "00-0033280", season=2024, as_of_week=8, persist_dir=persist_dir
+    )
+
+    assert stale is False
+    assert chunk["metadata"]["season"] == 2024
+
+
+def test_fallback_never_leaks_a_later_current_season_week(tmp_path):
+    """The same-season check must be bounded to week <= as_of_week -- a
+    later week's chunk existing locally (e.g. computed for a different
+    purpose) must never leak into an as-of-week-filtered lookup."""
+    later_week = {**_CHRISTIAN, "as_of_week": 12}  # later than the as_of_week=8 requested below
+    persist_dir = _seeded_collection(tmp_path, [later_week, _CHRISTIAN_PRIOR_SEASON])
+
+    chunk, stale = retrieve.query_player_signal_with_fallback(
+        "00-0033280", season=2024, as_of_week=8, persist_dir=persist_dir
+    )
+
+    # No week-8-or-earlier chunk for 2024 exists, so this must fall back
+    # to the prior season, never pick up week 12 as if it were valid data
+    # for an as-of-week-8 lookup.
+    assert stale is True
+    assert chunk["metadata"]["season"] == 2023

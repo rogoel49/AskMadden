@@ -91,6 +91,35 @@ or monetized, it needs to genuinely work for more than one league.
   as the last manual ingest/signals/embed run. See TODO.md's Phase 3.5
   section for detail; deliberately left for its own scoped session
   (scheduling/infra, not reasoning-layer work).
+- Phase 3.6 (prior-season signal fallback): implemented. Discovered
+  during Phase 3.5's real-data validation, not planned ahead of time:
+  every signal is trailing/current-season by construction, so a
+  not-yet-started season (confirmed live against the real, unstarted
+  2026 season) means `generate_report()`/`recommend()` correctly return
+  an empty/near-empty result — honest, but a bad first-use experience.
+  Fix: when a player has no current-season signal at all, fall back to
+  their most recent prior season's final numbers, explicitly labeled
+  stale everywhere (`stale`/`source_season`/`source_as_of_week` on the
+  raw row, every report entry, AND a `[STALE -- ...]` prefix on any
+  prose) — never silently presented as current. Two separate, parallel
+  implementations, matching the existing report/chat split:
+  `src/rag/retrieve.py`'s `query_player_signal_with_fallback()` (Chroma,
+  for `recommend.py`'s `get_player_signals` chat tool) and
+  `src/reasoning/report.py`'s `_load_prior_season_fallback_table()` /
+  `_signal_row()` (the raw parquet table, for report ranking).
+  Fallback threshold is N=1 (any current-season signal at all, even one
+  earlier week, wins over a stale fallback) — a larger N would need a
+  new "distinct weeks active" field `matchup_signals.py` doesn't compute
+  today, out of scope for this unit (the signal-*loading* layer, not
+  signal computation). Validated against the real, newly-computed-this-
+  session `data/processed/signals/signals_2025_week19.parquet` (full
+  2025 regular season, computed live from real nflverse data) standing
+  in for "last season's final numbers" against the real, actually-empty
+  2026 season — confirmed real players (Saquon Barkley, Justin
+  Jefferson) with real 2025 numbers surfacing correctly, explicitly
+  labeled stale, in both `generate_report("drop", ...)` and
+  `recommend.py`'s `get_player_signals` tool. See TODO.md's Phase 3.6
+  section for full detail.
 - Phase 4 (coverage classification stretch): optional, not started
 - Phase 5 (productization — final deliverable): not started
 

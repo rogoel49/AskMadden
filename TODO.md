@@ -368,6 +368,108 @@ confirm against the actual league, not the stand-in.
       full-rebuild-on-every-run design, and where it runs in Phase 5's
       hosted deployment) rather than being bolted onto this one.
 
+## Phase 3.6: Prior-season signal fallback
+See `PROJECT_SPEC.md`'s Phase 3.6 section for the full writeup. Not
+planned ahead of time -- discovered live during Phase 3.5's real-data
+validation: every signal this project computes (EPA trend, red zone
+share, target share, ...) is trailing/current-season by construction, so
+running a report or `recommend()` against a season with zero games played
+yet (confirmed live against the real, unstarted 2026 season --
+`nfl_state.json`'s real `season_start_date` is 2026-09-09, and
+`nflreadpy` has no 2026 play-by-play/NGS published yet, so
+`stats_player_week_2026.parquet` 404s and the loaders hard-reject seasons
+past 2025) comes back with an empty/near-empty result and an honest "no
+computed signals" note. Correct given a genuinely empty table, but a bad
+first-use experience for a friend setting a Week 1 lineup right when a
+first impression matters most.
+
+This session: full `pytest` suite is 133/133 (123 before this session; 10
+new tests: 4 in `tests/test_retrieve_player_signal.py`, 4 in
+`tests/test_report.py`, 2 in `tests/test_recommend.py`). Real-data
+validation: computed a real, full 2025-regular-season signals table live
+this session (`python -m src.signals.matchup_signals --season 2025
+--as-of-week 19`, real nflverse data -- reachable in this sandbox, same as
+every prior phase) and committed it as
+`data/processed/signals/signals_2025_week19.parquet` (33KB, same "small
+computed sample, can commit" convention as the existing
+`signals_2024_week5.parquet`). Ran both the report path and the chat-tool
+path against the real, actually-empty 2026 season with this real 2025
+table as the only thing on record to fall back to: `generate_report("drop",
+season=2026, as_of_week=1, ...)` correctly returned real players (Saquon
+Barkley, Justin Jefferson) with their real 2025 season-end numbers (e.g.
+Barkley's real +0.17 EPA/play trend, 36% red zone share), every one
+explicitly marked `"stale": true, "source_season": 2025` and prefixed
+`[STALE -- ...]` in `signals_summary`/`weakness_reasons`/the report-level
+`notes`; `recommend.py`'s `get_player_signals` tool for "Saquon Barkley"
+under the same 2026/week-1 context returned the same real 2025 numbers via
+the Chroma-backed path, same explicit stale labeling. Confirmed the
+opposite too: a player with real current-season data present never picks
+up the stale fallback even when prior-season data also exists on record
+(`test_drop_never_falls_back_when_current_season_data_exists`), and a
+player with neither current- nor prior-season data anywhere degrades to
+"excluded, noted" rather than crashing
+(`test_drop_handles_a_player_with_no_signal_data_at_all_gracefully`).
+- [x] `src/rag/retrieve.py`: `query_player_signal_with_fallback()` --
+      exact current-week match first; if none, the most recent same-
+      season chunk at or before as_of_week (never a later week, so this
+      never leaks future data into an as-of-week-filtered lookup -- a
+      real latent bug caught by
+      `test_fallback_never_leaks_a_later_current_season_week` during this
+      session's own testing, fixed by adding `query_player_signal()`'s
+      new `max_week`/`max_season` bounded-search parameters); if still
+      none, the most recent chunk from strictly before the requested
+      season, explicitly flagged `stale`. `recommend.py`'s
+      `_tool_get_player_signals` uses this instead of the old exact-only
+      `query_player_signal()`, adds `stale`/`source_season`/
+      `source_as_of_week` to its returned dict, and prefixes the
+      `signals` text itself with `[STALE -- ...]` so the model can't miss
+      it even without reading the structured fields. The system prompt
+      (`_build_system_prompt`) also now tells the model explicitly to
+      name the season when `stale: true` rather than presenting the
+      numbers as current.
+- [x] `src/reasoning/report.py`: `_load_signals_table()` now unions every
+      locally-computed `signals_{season}_week*.parquet` file with week <=
+      as_of_week (not just the exact-week file -- a player missing from
+      this week's file but present in an earlier one still counts as
+      having current-season data, mirroring the chat path's same-season
+      check); `_load_prior_season_fallback_table()` loads the highest
+      available `season - 1` file; `_signal_row()` combines the two with
+      the same never-silent stale labeling. Every report entry across all
+      three types (start_sit's `recommended_starter`/
+      `alternatives_considered`, drop's entries, waiver_pickups' entries)
+      now carries explicit `stale`/`source_season`/`source_as_of_week`
+      fields, not just prose -- plus a per-report `notes` summary listing
+      which players fell back.
+- [x] Fallback threshold documented as N=1 (any current-season signal at
+      all beats a stale fallback, even one week's worth) in both
+      `report.py`'s and `retrieve.py`'s docstrings, with the specific
+      reason a larger N isn't implemented (would need a new "distinct
+      weeks active this season" field in `matchup_signals.py`'s output --
+      signals-*computation* work, out of scope for this unit, which stays
+      confined to the signal-*loading* layer per the task's own scoping).
+- [x] Test coverage for the three required cases: no data at all (current
+      or prior) degrades to excluded/None, never a crash; only
+      prior-season data gets the stale-labeled fallback; current-season
+      data present never sees the stale fallback even when prior-season
+      data also exists.
+- [ ] Not touched, deliberately (explicitly out of scope for this unit):
+      trade suggestions (still Phase 3.5's own deferred item), the
+      `src/scheduler/refresh.py` gap below (still not built), and
+      `report.py`'s existing signal-weight constants (`_EPA_TREND_WEIGHT`
+      etc. -- unchanged).
+- [ ] Live validation gap (same two sandbox blockers as every phase so
+      far): no `ANTHROPIC_API_KEY` here, so the system prompt's new
+      stale-handling instruction was never validated against the real
+      model, only mechanically (the fake-client tests confirm
+      `_tool_get_player_signals`'s output shape, not that a real model
+      actually reads and honors the new prompt language). Re-run
+      `python -m src.reasoning.recommend "should I start Saquon Barkley"`
+      for real once the 2026 season is far enough along to have real
+      current-season signals *and* once early enough (or artificially, by
+      pointing `--as-of-week` at week 1) to still exercise the fallback
+      path, to confirm the real model actually says "this is 2025 data"
+      rather than silently treating it as current.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

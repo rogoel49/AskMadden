@@ -84,6 +84,43 @@ share" in waiver_pickups is approximated by the current target_share
 actual week-over-week delta -- that delta isn't a signal this project
 computes yet. Documented here rather than overclaiming a trend that
 isn't actually measured.
+
+**Prior-season signal fallback (Phase 3.6).** Every signal in this
+project is trailing/current-season by construction (EPA trend, red zone
+share, target share, ...) -- confirmed live: with the 2026 season not
+yet started, nflreadpy has no 2026 plays published yet, so every report
+run against the real current week came back with empty `entries` and a
+"no computed signals" note. Correct, honest behavior for a genuinely
+empty signals table, but a bad first-use experience if a friend opens
+this in Week 1 and gets nothing. Fix: when a player has NO current-season
+signal at all (see `_load_signals_table`'s docstring for exactly what
+"current-season" means here), fall back to their most recent PRIOR
+season's final numbers instead of nothing -- but every such number is
+explicitly marked stale (`"stale": True`, `"source_season"`,
+`"source_as_of_week"` on the row, the entry, AND a `[STALE -- ...]`
+prefix on `signals_summary`/`reasoning` text) so a report never presents
+last year's numbers as if they were this year's. The same fallback (and
+the same never-silent labeling) lives in
+`src/rag/retrieve.py:query_player_signal_with_fallback()` for
+`recommend.py`'s `get_player_signals` chat tool -- see that function's
+docstring; this file's version reads the raw parquet table directly for
+the same reason the rest of this module does (see "Where this does and
+doesn't reuse recommend.py's tools" above), so the two are separate,
+parallel implementations against two different data sources, not one
+shared function.
+
+**Fallback threshold: N=1** -- a player with ANY current-season signal
+row at all (even from an earlier week than as_of_week) is used as-is,
+never blended with a stale prior-season number. Only a player with ZERO
+current-season data falls back. A larger N (smoothing out one noisy
+early-season game by requiring 2+ weeks before trusting current data) is
+NOT implemented: that needs a real "distinct weeks active this season"
+field, which doesn't exist in `matchup_signals.py`'s output today --
+adding one is signals-*computation* work, out of scope for this unit,
+which is deliberately confined to the signal-*loading* layer (this
+file's `_load_signals_table`/`_load_prior_season_fallback_table` and
+`retrieve.py`'s `query_player_signal_with_fallback`). Revisit N if
+`matchup_signals.py` ever gains that field.
 """
 from __future__ import annotations
 
@@ -117,15 +154,80 @@ _LOW_SEASON_PLAYS = 10
 
 
 def _load_signals_table(signals_dir: Path, season: int, as_of_week: int) -> dict[str, dict]:
-    """The raw numeric signals row for every player computed for this
-    season/as_of_week, keyed by player_id (nflverse gsis_id) -- the same
-    table src/rag/embed.py's build_signal_chunks() turns into the text
-    get_player_signals returns, read directly here because ranking needs
-    the numbers, not the prose (see module docstring)."""
-    path = signals_dir / f"signals_{season}_week{as_of_week}.parquet"
-    if not path.exists():
-        return {}
-    return {row["player_id"]: row for row in pl.read_parquet(path).to_dicts()}
+    """The raw numeric signals row for every player with CURRENT-season
+    data as of as_of_week, keyed by player_id (nflverse gsis_id) -- the
+    same underlying table src/rag/embed.py's build_signal_chunks() turns
+    into the text get_player_signals returns, read directly here because
+    ranking needs the numbers, not the prose (see module docstring).
+
+    Unions every locally-computed `signals_{season}_week*.parquet` file
+    with week <= as_of_week (never a later week -- that would leak future
+    data into an as-of-week-filtered report, violating CLAUDE.md's
+    as-of-date-filtering rule), keeping each player's highest available
+    week. This is deliberately more lenient than "only the exact
+    as_of_week file": it's what decides whether a player counts as having
+    ANY current-season signal at all for the prior-season fallback
+    threshold (see module docstring's "Prior-season signal fallback"
+    section) -- a player missing from this week's file specifically but
+    present in an earlier one still has real current-season data, and
+    shouldn't be treated the same as a player with nothing this season."""
+    rows: dict[str, dict] = {}
+    best_week: dict[str, int] = {}
+    for path in sorted(signals_dir.glob(f"signals_{season}_week*.parquet")):
+        week = int(path.stem.rsplit("week", 1)[-1])
+        if week > as_of_week:
+            continue
+        for row in pl.read_parquet(path).to_dicts():
+            player_id = row["player_id"]
+            if player_id not in best_week or week > best_week[player_id]:
+                best_week[player_id] = week
+                rows[player_id] = row
+    return rows
+
+
+def _load_prior_season_fallback_table(signals_dir: Path, season: int) -> tuple[int | None, dict[str, dict]]:
+    """The most recent locally-computed `season - 1` signals table (the
+    highest as_of_week file found -- as close to "final, full season"
+    numbers as what's actually on disk), used only as a stale fallback
+    when `season` has no current-season data for a player at all. Returns
+    (prior_season, rows_by_player_id); (None, {}) if no prior-season file
+    exists locally."""
+    prior_season = season - 1
+    candidates = sorted(signals_dir.glob(f"signals_{prior_season}_week*.parquet"))
+    if not candidates:
+        return None, {}
+
+    def _week_num(path: Path) -> int:
+        return int(path.stem.rsplit("week", 1)[-1])
+
+    latest = max(candidates, key=_week_num)
+    rows = {row["player_id"]: row for row in pl.read_parquet(latest).to_dicts()}
+    return prior_season, rows
+
+
+def _signal_row(
+    player_id: str,
+    signals_by_id: dict[str, dict],
+    fallback_season: int | None,
+    fallback_rows: dict[str, dict],
+) -> dict | None:
+    """A player's current-season row if they have one at all (see
+    _load_signals_table's docstring for what counts); otherwise their
+    most recent PRIOR season's row, explicitly marked stale so it's never
+    mistaken for current data downstream (_fmt_signal_row/_weakness_reasons
+    both check row["stale"]). None if neither exists."""
+    row = signals_by_id.get(player_id)
+    if row is not None:
+        return row
+    fallback_row = fallback_rows.get(player_id)
+    if fallback_row is None:
+        return None
+    return {
+        **fallback_row,
+        "stale": True,
+        "source_season": fallback_season,
+        "source_as_of_week": fallback_row.get("as_of_week"),
+    }
 
 
 def _target_share(row: dict) -> float | None:
@@ -156,12 +258,49 @@ def _opportunity_score(row: dict | None) -> float | None:
     return score if has_any_signal else None
 
 
+def _stale_fields(row: dict | None) -> dict:
+    """The explicit staleness marker every output entry carries alongside
+    its prose -- never rely on a reader noticing a season number buried
+    in signals_summary text (see module docstring's "Prior-season signal
+    fallback" section)."""
+    if row is None or not row.get("stale"):
+        return {"stale": False, "source_season": None, "source_as_of_week": None}
+    return {
+        "stale": True,
+        "source_season": row.get("source_season"),
+        "source_as_of_week": row.get("source_as_of_week"),
+    }
+
+
+def _stale_note(candidates: list[dict]) -> str | None:
+    """A summary note when any candidate's row (candidates carrying a
+    "row" key, e.g. from _resolve_roster_with_signals) is a stale
+    prior-season fallback -- surfaced once per report in `notes`, on top
+    of (never instead of) the per-entry stale markers, so the gap is
+    visible even to a caller only skimming `notes`."""
+    stale = [c for c in candidates if c.get("row") and c["row"].get("stale")]
+    if not stale:
+        return None
+    source_season = stale[0]["row"].get("source_season")
+    names = ", ".join(c["name"] for c in stale)
+    return (
+        f"{len(stale)} player(s) had no current-season signal yet and fell back to stale "
+        f"{source_season} season-end data: {names}."
+    )
+
+
 def _fmt_signal_row(row: dict | None) -> str:
     """Human-readable citation of the specific numbers a ranking/reason
     was grounded in -- every number here traces back to a real computed
     signal, never a generic-sounding filler sentence."""
     if row is None:
         return "no computed signals available for this player/week"
+    prefix = ""
+    if row.get("stale"):
+        prefix = (
+            f"[STALE -- no current-season signal yet, showing {row.get('source_season')} "
+            f"season-end reference instead] "
+        )
     parts = []
     if row.get("epa_trend") is not None:
         direction = "up" if row["epa_trend"] > 0 else "down"
@@ -178,13 +317,22 @@ def _fmt_signal_row(row: dict | None) -> str:
     if row.get("run_funnel_rate_vs_avg") is not None:
         lean = "run-funnel" if row["run_funnel_rate_vs_avg"] > 0 else "pass-funnel"
         parts.append(f"opponent defense skews {lean} ({row['run_funnel_rate_vs_avg'] * 100:+.0f}pts vs. avg)")
-    return "; ".join(parts) if parts else "no individual signal values computed"
+    return prefix + ("; ".join(parts) if parts else "no individual signal values computed")
 
 
 def _weakness_reasons(row: dict) -> list[str]:
     """Concrete, threshold-based reasons a player looks weak -- never
-    just "lowest score," per the requirement to explain *why*."""
+    just "lowest score," per the requirement to explain *why*. When row
+    is a stale prior-season fallback, that's named explicitly as the
+    first reason so every downstream reason reads in context (e.g.
+    "efficiency trending down" here means down relative to last season,
+    not this one)."""
     reasons = []
+    if row.get("stale"):
+        reasons.append(
+            f"based on {row.get('source_season')} season-end data (stale -- no current-season "
+            "signal computed yet); treat these as a reference point, not this season's performance"
+        )
     if row.get("epa_trend") is not None and row["epa_trend"] < 0:
         reasons.append(f"efficiency trending down ({row['epa_trend']:+.2f} EPA/play, trailing window)")
     if row.get("red_zone_share") is not None and row["red_zone_share"] < _LOW_RED_ZONE_SHARE:
@@ -203,11 +351,15 @@ def _weakness_reasons(row: dict) -> list[str]:
 
 
 def _resolve_roster_with_signals(
-    ctx: recommend.RecommendContext, signals_by_id: dict[str, dict]
+    ctx: recommend.RecommendContext,
+    signals_by_id: dict[str, dict],
+    fallback_season: int | None,
+    fallback_rows: dict[str, dict],
 ) -> tuple[list[dict], list[str]]:
     """get_my_roster + get_player_signals (via dispatch_tool -- the real
     tools, not a reimplementation) for every rostered player, joined with
-    that player's raw numeric row for ranking. Returns
+    that player's raw numeric row (current-season, or a stale prior-season
+    fallback -- see _signal_row) for ranking. Returns
     (resolved_candidates, unresolved_player_names) -- a player whose name
     can't be identity-resolved is reported, never silently dropped."""
     roster_result = recommend.dispatch_tool("get_my_roster", {}, ctx)
@@ -231,7 +383,7 @@ def _resolve_roster_with_signals(
                 "name": signal_result["player_name"],
                 "position": player.get("position") or signal_result.get("position"),
                 "team": player.get("team") or signal_result.get("team"),
-                "row": signals_by_id.get(player_id),
+                "row": _signal_row(player_id, signals_by_id, fallback_season, fallback_rows),
             }
         )
     return resolved, unresolved
@@ -252,8 +404,13 @@ def _report_header(ctx: recommend.RecommendContext, report_type: str) -> dict:
     }
 
 
-def _start_sit_report(ctx: recommend.RecommendContext, signals_by_id: dict[str, dict]) -> dict:
-    resolved, unresolved = _resolve_roster_with_signals(ctx, signals_by_id)
+def _start_sit_report(
+    ctx: recommend.RecommendContext,
+    signals_by_id: dict[str, dict],
+    fallback_season: int | None,
+    fallback_rows: dict[str, dict],
+) -> dict:
+    resolved, unresolved = _resolve_roster_with_signals(ctx, signals_by_id, fallback_season, fallback_rows)
 
     by_position: dict[str, list[dict]] = {}
     for candidate in resolved:
@@ -263,6 +420,9 @@ def _start_sit_report(ctx: recommend.RecommendContext, signals_by_id: dict[str, 
     notes = []
     if unresolved:
         notes.append(f"Could not identity-resolve {len(unresolved)} rostered player(s): {', '.join(unresolved)}.")
+    stale_note = _stale_note(resolved)
+    if stale_note:
+        notes.append(stale_note)
 
     for position in sorted(by_position):
         candidates = by_position[position]
@@ -288,6 +448,7 @@ def _start_sit_report(ctx: recommend.RecommendContext, signals_by_id: dict[str, 
                     "player_id": starter["player_id"],
                     "name": starter["name"],
                     "team": starter["team"],
+                    **_stale_fields(starter["row"]),
                 },
                 "alternatives_considered": [
                     {
@@ -295,6 +456,7 @@ def _start_sit_report(ctx: recommend.RecommendContext, signals_by_id: dict[str, 
                         "name": alt["name"],
                         "team": alt["team"],
                         "signals_summary": _fmt_signal_row(alt["row"]),
+                        **_stale_fields(alt["row"]),
                     }
                     for alt in alternatives
                 ],
@@ -308,12 +470,21 @@ def _start_sit_report(ctx: recommend.RecommendContext, signals_by_id: dict[str, 
     return header
 
 
-def _drop_report(ctx: recommend.RecommendContext, signals_by_id: dict[str, dict], bottom_n: int = 3) -> dict:
-    resolved, unresolved = _resolve_roster_with_signals(ctx, signals_by_id)
+def _drop_report(
+    ctx: recommend.RecommendContext,
+    signals_by_id: dict[str, dict],
+    fallback_season: int | None,
+    fallback_rows: dict[str, dict],
+    bottom_n: int = 3,
+) -> dict:
+    resolved, unresolved = _resolve_roster_with_signals(ctx, signals_by_id, fallback_season, fallback_rows)
 
     notes = []
     if unresolved:
         notes.append(f"Could not identity-resolve {len(unresolved)} rostered player(s): {', '.join(unresolved)}.")
+    stale_note = _stale_note(resolved)
+    if stale_note:
+        notes.append(stale_note)
 
     scored = [(c, _opportunity_score(c["row"])) for c in resolved]
     grounded = [(c, score) for c, score in scored if score is not None]
@@ -334,6 +505,7 @@ def _drop_report(ctx: recommend.RecommendContext, signals_by_id: dict[str, dict]
             "team": c["team"],
             "weakness_reasons": _weakness_reasons(c["row"]),
             "signals_summary": _fmt_signal_row(c["row"]),
+            **_stale_fields(c["row"]),
         }
         for c, _ in weakest
     ]
@@ -365,6 +537,8 @@ def _waiver_pickups_report(
     raw_dir: Path,
     ctx: recommend.RecommendContext,
     signals_by_id: dict[str, dict],
+    fallback_season: int | None,
+    fallback_rows: dict[str, dict],
     top_n: int = 10,
 ) -> dict:
     rostered_ids = _rostered_nflverse_ids(raw_dir, ctx.player_idx)
@@ -373,9 +547,9 @@ def _waiver_pickups_report(
     for player in ctx.player_idx.to_dicts():
         if player["player_id"] in rostered_ids:
             continue
-        row = signals_by_id.get(player["player_id"])
+        row = _signal_row(player["player_id"], signals_by_id, fallback_season, fallback_rows)
         if row is None:
-            continue  # no measured usage/signals -- nothing to ground a pickup recommendation in
+            continue  # no measured usage/signals, current or prior season -- nothing to ground a pickup in
         candidates.append({**player, "row": row})
 
     scored = [(c, _opportunity_score(c["row"])) for c in candidates]
@@ -391,20 +565,30 @@ def _waiver_pickups_report(
             "team": c["team"],
             "opportunity_score": round(score, 3),
             "reasoning": f"{c['player_name']} ({c['position']}, {c['team']}): {_fmt_signal_row(c['row'])}.",
+            **_stale_fields(c["row"]),
         }
         for c, score in top
     ]
+
+    notes = [
+        f"Considered {len(candidates)} unrostered player(s) with computed signals out of "
+        f"{len(ctx.player_idx)} in the full skill-position player pool "
+        f"({len(rostered_ids)} nflverse player_id(s) excluded as rostered somewhere in the league)."
+    ]
+    stale = [c for c, _ in top if c["row"].get("stale")]
+    if stale:
+        notes.append(
+            f"{len(stale)} of the {len(top)} listed pickup(s) had no current-season signal yet and fell "
+            f"back to stale {stale[0]['row'].get('source_season')} season-end data: "
+            f"{', '.join(c['player_name'] for c in stale)}."
+        )
 
     return {
         "report_type": "waiver_pickups",
         "season": ctx.season,
         "as_of_week": ctx.as_of_week,
         "entries": entries,
-        "notes": [
-            f"Considered {len(candidates)} unrostered player(s) with computed signals out of "
-            f"{len(ctx.player_idx)} in the full skill-position player pool "
-            f"({len(rostered_ids)} nflverse player_id(s) excluded as rostered somewhere in the league)."
-        ],
+        "notes": notes,
     }
 
 
@@ -430,6 +614,11 @@ def generate_report(
     requirement as recommend.py's "my"-flavored tools) since both report
     on your own roster; waiver_pickups doesn't need it since it operates
     over the whole league's rosters minus the full player pool.
+
+    A player with no current-season signal at all falls back to their
+    most recent prior season's data, explicitly marked stale in every
+    output (never silently) -- see module docstring's "Prior-season
+    signal fallback" section.
     """
     if report_type not in REPORT_TYPES:
         raise ValueError(f"Unknown report_type {report_type!r} -- must be one of {REPORT_TYPES}.")
@@ -453,12 +642,13 @@ def generate_report(
         player_idx=player_index.build_player_index(season),
     )
     signals_by_id = _load_signals_table(signals_dir, season, as_of_week)
+    fallback_season, fallback_rows = _load_prior_season_fallback_table(signals_dir, season)
 
     if report_type == "start_sit":
-        return _start_sit_report(ctx, signals_by_id)
+        return _start_sit_report(ctx, signals_by_id, fallback_season, fallback_rows)
     if report_type == "drop":
-        return _drop_report(ctx, signals_by_id, bottom_n=drop_bottom_n)
-    return _waiver_pickups_report(raw_dir, ctx, signals_by_id, top_n=waiver_top_n)
+        return _drop_report(ctx, signals_by_id, fallback_season, fallback_rows, bottom_n=drop_bottom_n)
+    return _waiver_pickups_report(raw_dir, ctx, signals_by_id, fallback_season, fallback_rows, top_n=waiver_top_n)
 
 
 def _print_report(report: dict) -> None:
