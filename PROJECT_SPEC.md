@@ -201,6 +201,66 @@ Phase 3.5's own deferred item, unrelated), `src/scheduler/refresh.py`
 signal-weight constants in `report.py` (`_EPA_TREND_WEIGHT` etc. --
 unchanged).
 
+## Phase 3.7: Compound questions + structured data gaps in the chat path
+Discovered during Phase 3.6's own real-model validation (`recommend.py`
+run for real, against a real roster, with `ANTHROPIC_API_KEY`), not
+planned ahead of time -- two real gaps, both specific to `recommend.py`'s
+chat path (`report.py`'s reports already handle both correctly via their
+`notes` field, see below):
+
+**Gap 1: a compound question fails entirely instead of partially.**
+"What's my weakest position, and who should I trade with to strengthen
+it" burned all `max_turns` tool-use turns and returned a bare "I don't
+have enough information" -- even though the first half (weakest
+position) is fully answerable with `get_my_roster`/`get_player_signals`,
+and only the second half (a trade partner suggestion) is genuinely out
+of scope (needs the same season-long-value + cross-roster
+positional-need signals Phase 3.5's trade-suggestions writeup already
+flags as not built). The fix is a system-prompt instruction: recognize
+when a question has an answerable part and an out-of-scope part, and
+answer the answerable part explicitly instead of letting the
+unanswerable part fail the whole question.
+
+**Gap 2: the chat path doesn't consistently flag a player with NO signal
+data at all, as distinct from stale prior-season data.** Live validation:
+asking "what's my weakest position on my roster right now" for a real
+2026-preseason roster correctly identified TE as the weak spot (Harold
+Fannin, Kenyon Sadiq) but cited zero actual signal numbers for either --
+just generic "rookies/unproven players with uncertain roles," the
+model's own background knowledge, not anything `get_player_signals`
+returned. `get_player_signals` already distinguishes this case internally
+(a chunk truly doesn't exist vs. Phase 3.6's stale fallback), but nothing
+made that distinction an explicit, structured signal the model was told
+to act on -- so it silently papered over the gap with generic reasoning
+instead of saying so.
+
+**The fix, combining both gaps into one structural addition**: a
+`data_gaps` field (list of `{player_name?, reason, detail}`) alongside
+`reasoning` in `submit_recommendation`'s schema (and `RecommendResult`).
+`reason: "no_signal_data"` covers Gap 2 -- `get_player_signals` now
+returns an explicit `has_signals: false/true` field (distinct from
+`stale`/`source_season`, which mean data exists but is old), and the
+system prompt tells the model to record a `data_gaps` entry rather than
+reasoning about that player generically. `reason:
+"out_of_scope_capability"` covers Gap 1 -- a part of the question no
+tool/signal can resolve yet, surfaced structurally instead of failing
+the whole question. `reasoning` (prose) still names the gap in plain
+language for the CLI/human-readable case, same as always --
+`data_gaps` is the structured, UI-renderable version of the same fact
+for Phase 5's web UI to eventually render distinctly, not a replacement.
+Empty case is `[]`, always present, never omitted -- consistent with
+`tool_calls`/`messages` already always being lists.
+
+**`report.py` is explicitly untouched here** -- its `drop`/`start_sit`
+reports already handle a no-signal player correctly (excluded from
+ranking, named in a `notes` string). Whether `report.py`'s `notes`
+strings should eventually migrate to this same structured `data_gaps`
+shape for consistency is a documented open question, not attempted in
+this unit.
+
+**Explicitly out of scope**: building trade suggestions themselves,
+`src/scheduler/refresh.py`, and any change to `report.py`.
+
 ## Phase 4 stretch: derived coverage classification
 Real man/zone or coverage-shell labels aren't free (PFF/SIS charting is
 paywalled), but they can be *derived* from NFL Big Data Bowl tracking
@@ -350,6 +410,14 @@ into this pattern, just not the model for anything new.
 - [x] Explicit `stale`/`source_season`/`source_as_of_week` markers on every affected output (raw row, report entries, prose text)
 - [x] Document and justify the N=1 fallback threshold
 - [x] Test coverage: no data at all, prior-season-only data, current-season data present (never stale)
+
+### Phase 3.7: Compound questions + structured data gaps in the chat path
+- [x] `submit_recommendation` tool schema + `RecommendResult`: new `data_gaps` field
+- [x] `get_player_signals` tool: explicit `has_signals: true/false`, distinct from `stale`
+- [x] System prompt: answer the answerable part of a compound question instead of failing it whole
+- [x] System prompt: record a `no_signal_data` gap instead of reasoning from background knowledge
+- [x] CLI (`--interactive` and single-question) prints `data_gaps` when non-empty
+- [x] Test coverage: partial-answer compound question, zero-signal-data player, no-regression on a fully-grounded question
 
 ### Phase 4: Stretch (optional)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

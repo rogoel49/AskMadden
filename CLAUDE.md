@@ -120,6 +120,41 @@ or monetized, it needs to genuinely work for more than one league.
   labeled stale, in both `generate_report("drop", ...)` and
   `recommend.py`'s `get_player_signals` tool. See TODO.md's Phase 3.6
   section for full detail.
+- Phase 3.7 (compound questions + structured data gaps, chat path only):
+  implemented. Discovered during Phase 3.6's own real-model validation
+  (`recommend.py` run for real against a real roster) — two gaps, both
+  specific to the chat path (`report.py`'s reports already handle both
+  correctly via `notes`). Gap 1: a compound question ("what's my weakest
+  position, and who should I trade with to strengthen it") burned all
+  tool-use turns and failed the *whole* question, even though the first
+  half was fully answerable and only the trade-partner half was
+  genuinely out of scope. Gap 2: a player with zero signal data at all
+  (distinct from Phase 3.6's stale-but-present case) wasn't consistently
+  flagged — confirmed live: asking about weak TE options surfaced two
+  real rookies (Harold Fannin, Kenyon Sadiq) with generic "unproven
+  rookie" reasoning instead of citing (or saying it couldn't cite) any
+  actual signal. Fix: a new `data_gaps` field on `submit_recommendation`
+  / `RecommendResult` (`reason: "no_signal_data"` or
+  `"out_of_scope_capability"`, structured for a future Phase 5 UI to
+  render distinctly, never a replacement for saying it in prose), a new
+  explicit `has_signals: true/false` on `get_player_signals`'s output,
+  and system-prompt instructions telling the model to (a) answer the
+  answerable part of a compound question rather than failing it whole
+  and (b) record a `no_signal_data` gap instead of filling in from its
+  own background knowledge. CLI output (`--interactive` and
+  single-question) prints `data_gaps` when non-empty. Validated
+  `has_signals` against the real Fannin/Sadiq case: with the real,
+  already-committed 2024+2025 signals tables properly re-embedded,
+  Fannin correctly gets Phase 3.6's stale fallback (real 2025 numbers,
+  `has_signals: true, stale: true`) and Sadiq correctly gets
+  `has_signals: false` (genuinely zero 2025 involvement) — strongly
+  suggesting the original live symptom was a stale local Chroma index
+  (missing the 2025 chunks, a `src/scheduler/refresh.py`-shaped gap,
+  deliberately not touched here) rather than a defect in the fallback
+  logic itself; either way, `has_signals: false` is exactly the signal
+  this fix now requires the model to act on explicitly. See TODO.md's
+  Phase 3.7 section for full detail, including the live-model validation
+  gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
 - Phase 4 (coverage classification stretch): optional, not started
 - Phase 5 (productization — final deliverable): not started
 
