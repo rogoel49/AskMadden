@@ -77,7 +77,10 @@ TOOLS: list[dict] = [
         "description": (
             "Structured lookup of which fantasy team in this league rosters a given player "
             "(exact Sleeper data). Use to answer 'who owns Player X' or to check whether a "
-            "player is rostered in this league at all."
+            "player is rostered in this league at all. This does NOT compare rosters, assess "
+            "another team's needs, or evaluate trade value -- there is no tool here that does "
+            "any of that. A question needing it (trade fit, who to target, what to offer) is "
+            "an out-of-scope capability, not something to answer from general knowledge."
         ),
         "input_schema": {
             "type": "object",
@@ -181,10 +184,13 @@ TOOLS: list[dict] = [
                         "Structured record of anything you couldn't fully ground -- a named player "
                         "get_player_signals resolved but had zero signal data for (has_signals: false, not "
                         "just stale), or a part of the question no available tool/signal could answer at all "
-                        "(e.g. trade partner suggestions -- this project doesn't compute season-long value or "
-                        "cross-roster positional need yet). Leave this empty only when the whole answer is "
-                        "fully grounded -- never invent an entry, and never let one part of a compound "
-                        "question you can't answer stop you from answering the part(s) you can."
+                        "(e.g. trade strategy, which assets to package, or who to target -- no tool here "
+                        "compares rosters or values assets across teams). Never fill an out-of-scope part "
+                        "with plausible-sounding advice instead of recording the gap here: every specific "
+                        "claim in recommendation/reasoning must be backed by an actual tool call you made "
+                        "this turn, not general fantasy-football knowledge. Leave this empty only when the "
+                        "whole answer is fully grounded -- never invent an entry, and never let one part of "
+                        "a compound question you can't answer stop you from answering the part(s) you can."
                     ),
                     "items": {
                         "type": "object",
@@ -309,6 +315,18 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "cause you to give up on the whole question: answer every part you can ground, then record a "
         "data_gaps entry (reason: out_of_scope_capability) naming what you couldn't do and why, rather than "
         "submitting 'I don't have enough information' when part of the question was fully answerable.\n\n"
+        "Critical, and stricter than just 'record a gap': never paper over an unanswerable part with "
+        "plausible-sounding advice instead of admitting the gap. Every specific claim in recommendation/"
+        "reasoning -- a trade to make, which assets to package, a player to target from another team, "
+        "anything at all about another team's roster composition, needs, or value -- must be backed by an "
+        "actual tool call you made THIS turn, not by your own general fantasy-football knowledge. "
+        "find_owner only tells you who owns one named player -- it is NOT a roster-comparison or trade-fit "
+        "tool, and no tool here inspects another team's full roster, compares needs across teams, or "
+        "values assets for a trade. If a question calls for that (trade strategy, what to offer, who to "
+        "target), you have no tool that can ground an answer: do not improvise one. Say explicitly that "
+        "you can't recommend a trade strategy because that needs comparing rosters across the league, "
+        "which no tool here supports yet, and record it as a data_gaps entry (reason: "
+        "out_of_scope_capability) -- never as specific trade advice.\n\n"
         "Always end by calling submit_recommendation exactly once with a concrete recommendation and the "
         "reasoning that led to it, citing the specific signals you retrieved -- this league's scoring "
         "settings above should inform which stats matter (e.g. reception volume matters more here if "

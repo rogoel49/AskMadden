@@ -546,19 +546,73 @@ correct behavior for both "genuinely no data" and "stale index" causes.
       not resolved) of whether `report.py`'s existing `notes`-string
       approach should eventually migrate to this same structured
       `data_gaps` shape for consistency.
-- [ ] Live validation gap (same sandbox blocker as every phase so far):
-      no `ANTHROPIC_API_KEY` here, so the new system-prompt instructions
-      (answer-the-answerable-half, record-a-no_signal_data-gap) were only
-      validated mechanically (the fake-client tests prove `data_gaps`
-      plumbing is correct, not that a real model actually follows the new
-      prompt language). Re-run the exact two real questions from Rohan's
-      own report -- "what's my weakest position, and who should I trade
-      with to strengthen it" and "what's my weakest position on my roster
-      right now" (real TE case) -- against the real model once
-      `ANTHROPIC_API_KEY` and a rebuilt Chroma index (see the Fannin/Sadiq
-      note above) are available, to confirm the model actually populates
-      `data_gaps` correctly rather than just the tool/schema plumbing
-      being correct.
+- [x] Live validation, part 1 (Gap 2) -- **closed**: Rohan ran this for
+      real against a real roster and confirmed Gap 2's fix works
+      correctly -- `Jeremiyah Love` and `Kenyon Sadiq` both correctly
+      flagged `has_signals: false`, no fabricated reasoning about them.
+- [ ] Live validation, part 2 (Gap 1) -- **found a deeper problem,
+      addressed below, still needs re-validation**: asking the real
+      compound trade question ("what's my weakest position, and who
+      should I trade with in the league to strengthen it") got back
+      `data_gaps: []` but `reasoning` full of specific, fabricated trade
+      strategy ("package one QB (Herbert) or a mid-tier RB... to upgrade
+      at TE") with zero supporting tool calls -- every call in
+      `tool_calls` was `get_my_roster`/`get_player_signals` on the user's
+      own roster, no `find_owner`, no cross-team lookup anywhere. Worse
+      than the original bug: the model found a way to *sound* responsive
+      to the out-of-scope half without actually engaging it, which slid
+      past the original "record a gap for the part you couldn't do"
+      instruction -- offering plausible asset-packaging advice apparently
+      counted, to the model, as "doing" the trade-partner half. See the
+      addendum below for the fix; re-run the exact same question once
+      `ANTHROPIC_API_KEY` is available to confirm it actually holds this
+      time (this sandbox still can't -- same blocker as every phase).
+
+### Addendum: strengthen the anti-fabrication rule + explicit capability boundary
+Found in this phase's own real-model validation of Gap 1 (above), not a
+new phase -- Phase 3.7 itself wasn't actually done until this held up
+under a real compound question, so this is a correction to the same unit
+of work, not a follow-up phase.
+- [x] System prompt (`_build_system_prompt`): new explicit, stricter rule
+      -- any specific claim in `recommendation`/`reasoning` (a trade to
+      make, assets to package, a player to target from another team,
+      anything about another team's roster/needs/value) must be backed
+      by an actual tool call made that turn; if none exists, say so
+      explicitly and record an `out_of_scope_capability` data_gaps entry
+      instead of improvising. Stricter than the original "record a gap"
+      instruction, which the model found a loophole in.
+- [x] Explicit capability boundary, per the user's suggestion this needed
+      more than prompt wording alone: `find_owner`'s own tool description
+      and the system prompt both now state plainly that `find_owner` only
+      answers "who owns this one named player" and is NOT a
+      roster-comparison or trade-fit tool, and that no tool here inspects
+      another team's full roster or compares needs/value across teams --
+      so the model has an explicit boundary instead of inferring one.
+      `submit_recommendation`'s `data_gaps` schema description reinforces
+      the same rule (defense in depth -- schema descriptions are also
+      part of what the model reads).
+- [x] Test coverage, honestly scoped (see
+      `tests/test_recommend.py`'s new tests' own docstrings for the full
+      caveat): `test_recommend_does_not_reject_ungrounded_trade_advice_at_the_code_level`
+      documents, explicitly, that `recommend()` has NO code-level guard
+      against a model fabricating ungrounded advice -- it's a scripted
+      fake-client response proving the orchestration loop passes through
+      whatever the model says, not a safeguard. This is a genuine
+      limitation, not something a fake client can meaningfully fix: the
+      actual failure is model behavior (choosing to fabricate plausible
+      prose instead of admitting a gap), which no code branch can
+      exercise. `test_system_prompt_explicitly_bars_ungrounded_trade_advice`
+      is a regression guard confirming the new rule's specific language
+      is present in the prompt -- it protects against a future edit
+      silently weakening or deleting the rule, and nothing more; it does
+      not prove a real model follows it.
+- [x] Full `pytest` suite: 138/138 (136 before this addendum; 2 new
+      tests, both in `tests/test_recommend.py`).
+- [ ] Real-model re-validation is the primary check for this addendum,
+      not incidental (see above) -- still outstanding, same
+      `ANTHROPIC_API_KEY` sandbox blocker as every phase.
+- [ ] Not touched, still out of scope: trade suggestions themselves,
+      `src/scheduler/refresh.py`, `report.py`.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

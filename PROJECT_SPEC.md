@@ -261,6 +261,49 @@ this unit.
 **Explicitly out of scope**: building trade suggestions themselves,
 `src/scheduler/refresh.py`, and any change to `report.py`.
 
+**Addendum, found during this phase's own real-model validation of Gap
+1's fix (`ANTHROPIC_API_KEY` configured locally, real roster).** Gap 2's
+fix validated cleanly for real (`Jeremiyah Love` and `Kenyon Sadiq` both
+correctly flagged `has_signals: false`, no fabricated reasoning). Gap 1's
+fix did NOT hold up, and failed in a worse way than the original bug:
+asked the real compound trade question, the model returned `data_gaps:
+[]` but `reasoning` contained concrete, specific trade strategy ("package
+one QB (Herbert) or a mid-tier RB... to upgrade at TE") with zero
+supporting tool calls -- every call in `tool_calls` was
+`get_my_roster`/`get_player_signals` on the user's own roster; no
+`find_owner`, no lookup of any other team's roster anywhere. The model
+found a way to *sound* like it engaged the missing capability without
+actually grounding anything in real cross-team data, which let it slip
+past the original "record a gap for the part you couldn't do" instruction
+entirely -- the model apparently decided offering plausible-sounding
+asset-packaging advice counted as "doing" the trade-partner half.
+
+**The strengthened fix**: the system prompt now states an explicit,
+stricter rule, not just an instruction to record a gap -- any specific
+claim in `recommendation`/`reasoning` (a trade to make, assets to
+package, a player to target from another team, anything about another
+team's roster/needs/value) must be backed by an actual tool call made
+that turn; if none exists, the model must say so and record an
+`out_of_scope_capability` gap rather than improvising. This also closes
+the structural ambiguity the user flagged: the prompt (and `find_owner`'s
+own tool description) now explicitly states that `find_owner` only
+answers "who owns this one named player" and is NOT a roster-comparison
+or trade-fit tool, and that no tool here inspects another team's full
+roster or compares needs/value across teams -- an explicit capability
+boundary instead of leaving the model to infer one.
+
+**Honest limitation on test coverage for this addendum**: the actual
+failure is model behavior (choosing to fabricate plausible prose instead
+of admitting a gap), not a code branch -- a fake-client test can prove
+the orchestration loop faithfully passes through whatever the model
+says (including a deliberately-fabricated "bad" response, which is what
+`tests/test_recommend.py` now has as a documented, explicit
+non-safeguard), and can prove the system prompt string contains the new
+rule, but neither proves a real model actually follows it. Real-model
+validation is the primary check for this addendum, not incidental --
+re-running the exact real compound question is the only thing that can
+confirm the fix.
+
 ## Phase 4 stretch: derived coverage classification
 Real man/zone or coverage-shell labels aren't free (PFF/SIS charting is
 paywalled), but they can be *derived* from NFL Big Data Bowl tracking
@@ -418,6 +461,11 @@ into this pattern, just not the model for anything new.
 - [x] System prompt: record a `no_signal_data` gap instead of reasoning from background knowledge
 - [x] CLI (`--interactive` and single-question) prints `data_gaps` when non-empty
 - [x] Test coverage: partial-answer compound question, zero-signal-data player, no-regression on a fully-grounded question
+- [x] Addendum (found in this phase's own real-model validation): system
+      prompt explicitly bars ungrounded trade advice, not just "record a
+      gap" -- Gap 2 validated clean for real; Gap 1's original fix did
+      not, see Phase 3.7's addendum above. Real-model re-validation still
+      needed (flagged, not done in this sandbox).
 
 ### Phase 4: Stretch (optional)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

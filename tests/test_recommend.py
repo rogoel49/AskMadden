@@ -511,6 +511,87 @@ def test_recommend_answers_the_answerable_half_of_a_compound_question(tmp_path, 
     assert "player_name" not in result["data_gaps"][0]
 
 
+def test_recommend_does_not_reject_ungrounded_trade_advice_at_the_code_level(tmp_path, monkeypatch):
+    """Honest limitation, not a real safeguard: recommend() has no code-
+    level check on what a model puts in `reasoning` -- if a (real) model
+    writes fabricated trade-strategy prose with an empty data_gaps despite
+    having called no cross-team tool, nothing here catches or rejects it.
+    This is exactly the real gap found in live validation (see
+    PROJECT_SPEC.md's Phase 3.7 addendum): a fake client can prove the
+    orchestration loop faithfully returns whatever the model said, but it
+    cannot prove the model *doesn't say* something ungrounded -- that's a
+    model-behavior question a scripted response can't exercise, only real-
+    model validation can. This test documents that boundary explicitly
+    rather than a downstream reader assuming the fake-client suite covers
+    it."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    embed.embed(embed.build_signal_chunks([_CHRISTIAN_SIGNAL_ROW, _LUKE_SIGNAL_ROW]), persist_dir=persist_dir)
+
+    responses = [
+        SimpleNamespace(content=[_tool_use_block("get_my_roster", {})]),
+        SimpleNamespace(
+            content=[
+                _tool_use_block(
+                    "submit_recommendation",
+                    {
+                        "recommendation": "Trade Christian McCaffrey for a top TE to fix your weak spot.",
+                        # Fabricated, uncited trade advice with no supporting
+                        # tool call (no find_owner, nothing cross-team) and
+                        # no data_gaps entry -- exactly the real symptom
+                        # reported. recommend() has no mechanism to detect or
+                        # block this; it is the system prompt's job (see
+                        # _build_system_prompt's anti-fabrication rule), only
+                        # verifiable by actually running the real model.
+                        "reasoning": "You could package McCaffrey with a mid-tier RB to upgrade at TE.",
+                        "data_gaps": [],
+                    },
+                    id_="tool_2",
+                )
+            ]
+        ),
+    ]
+    client = _FakeClient(responses)
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW, _LUKE_ROW]))
+
+    result = recommend.recommend(
+        "What's my weakest position, and who should I trade with to strengthen it?",
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+    )
+
+    # recommend() passes the fabricated advice straight through -- proving
+    # there is no code-level guard, which is the point of this test.
+    assert result["data_gaps"] == []
+    assert "package" in result["reasoning"]
+    assert not any(c["name"] in ("find_owner", "search_league_info") for c in result["tool_calls"])
+
+
+def test_system_prompt_explicitly_bars_ungrounded_trade_advice():
+    """Not a behavioral test -- _build_system_prompt() returns a string,
+    and a model choosing to ignore it is exactly the real failure found in
+    live validation. This only guards against a future edit silently
+    weakening or deleting the anti-fabrication rule; it proves nothing
+    about whether a real model actually follows it (see
+    test_recommend_does_not_reject_ungrounded_trade_advice_at_the_code_level's
+    docstring, and PROJECT_SPEC.md's Phase 3.7 addendum, for why only
+    real-model validation can prove that)."""
+    prompt = recommend._build_system_prompt(
+        {"name": "Test League"}, {"rec": 0.5}, season=2024, as_of_week=8
+    )
+
+    assert "must be backed by an actual tool call you made THIS turn" in prompt
+    assert "find_owner only tells you who owns one named player" in prompt
+    assert "do not improvise one" in prompt
+
+
 def test_recommend_falls_back_to_plain_text_if_model_never_calls_a_tool(tmp_path, monkeypatch):
     raw_dir = tmp_path / "sleeper"
     persist_dir = tmp_path / "chroma"

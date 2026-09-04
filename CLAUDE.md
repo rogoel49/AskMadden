@@ -155,6 +155,29 @@ or monetized, it needs to genuinely work for more than one league.
   this fix now requires the model to act on explicitly. See TODO.md's
   Phase 3.7 section for full detail, including the live-model validation
   gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
+  **Addendum, found during this phase's own real-model validation of Gap
+  1's fix:** Gap 2 validated clean for real (`Jeremiyah Love`, `Kenyon
+  Sadiq` both correctly flagged `has_signals: false`). Gap 1's original
+  fix did not hold up, and failed worse than the original bug: the real
+  model answered the real compound trade question with `data_gaps: []`
+  but `reasoning` containing specific, fabricated trade strategy ("package
+  one QB... to upgrade at TE") backed by zero cross-team tool calls — it
+  found a way to *sound* responsive to the out-of-scope half without
+  actually engaging it, which slipped past the original "record a gap"
+  instruction entirely. Strengthened the system prompt with an explicit,
+  stricter rule (every specific claim in `recommendation`/`reasoning`
+  must be backed by an actual tool call made that turn, or it must become
+  a `data_gaps` entry instead) and an explicit capability boundary
+  (`find_owner` only answers "who owns this named player," is NOT a
+  roster-comparison/trade-fit tool, and no tool here inspects another
+  team's roster or compares needs/value across teams). Honestly, this
+  addendum's test coverage is a documented non-safeguard, not a fix
+  verification: a fake-client test can prove the orchestration loop
+  passes through whatever the model says (including a deliberately
+  fabricated "bad" response) and that the new prompt text exists, but
+  neither proves a real model follows it — only real-model re-validation
+  of the exact same question can confirm the fix, and that's still
+  outstanding (flagged, not done in this sandbox).
 - Phase 4 (coverage classification stretch): optional, not started
 - Phase 5 (productization — final deliverable): not started
 
