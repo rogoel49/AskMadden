@@ -203,6 +203,60 @@ def all_rostered_players(raw_dir: Path = RAW_DIR) -> list[dict]:
     return list(seen.values())
 
 
+def all_team_rosters(raw_dir: Path = RAW_DIR) -> list[dict]:
+    """Every team's full roster, across the whole league -- the
+    league-wide, per-team-grouped counterpart to my_players(). Reads the
+    same already-ingested teams.json/players.json all_rostered_players()
+    already proves is accessible league-wide; this returns it grouped
+    per team (with a per-position count) instead of flattened into one
+    league-wide set, since "which teams are deep/shallow at position X"
+    needs per-team grouping, not a flat list.
+
+    Used by src/reasoning/recommend.py's get_league_rosters tool for
+    roster-COMPOSITION questions only (what a team has) -- this has
+    nothing to do with trade value, and callers must not treat it as
+    one; see recommend.py's docstring for that boundary.
+    """
+    teams, players = _load_teams_and_players(raw_dir)
+    rosters = []
+    for team in teams:
+        roster_players = [
+            {
+                "player_id": pid,
+                "name": (players.get(pid) or {}).get("full_name"),
+                "position": (players.get(pid) or {}).get("position"),
+                "team": (players.get(pid) or {}).get("team"),
+            }
+            for pid in (team.get("players") or [])
+        ]
+        counts_by_position: dict[str, int] = {}
+        for p in roster_players:
+            position = p.get("position") or "UNKNOWN"
+            counts_by_position[position] = counts_by_position.get(position, 0) + 1
+        rosters.append(
+            {
+                "roster_id": team.get("roster_id"),
+                "team_name": team.get("team_name"),
+                "owner_display_name": team.get("display_name"),
+                "players": roster_players,
+                "counts_by_position": counts_by_position,
+            }
+        )
+    return rosters
+
+
+def team_roster_for_owner(owner_display_name: str, raw_dir: Path = RAW_DIR) -> dict | None:
+    """all_team_rosters()'s entry for the team owned by owner_display_name
+    (case-insensitive exact match, same matching rule as
+    team_record_for_owner/current_matchup_for_owner), or None if no team
+    matches."""
+    needle = owner_display_name.lower()
+    for roster in all_team_rosters(raw_dir):
+        if (roster.get("owner_display_name") or "").lower() == needle:
+            return roster
+    return None
+
+
 def teams_by_nfl_team_count(nfl_team: str, raw_dir: Path = RAW_DIR) -> list[tuple[dict, int]]:
     """Return (team, count) pairs — how many of each fantasy team's
     rostered players currently play for the given real NFL team (e.g.

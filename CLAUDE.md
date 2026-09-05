@@ -178,6 +178,31 @@ or monetized, it needs to genuinely work for more than one league.
   neither proves a real model follows it — only real-model re-validation
   of the exact same question can confirm the fix, and that's still
   outstanding (flagged, not done in this sandbox).
+- Phase 3.8 (roster-composition visibility across the league):
+  implemented. Closes the specific gap Phase 3.7's honest decline left
+  behind — "no tool inspects another team's roster" was true then, but
+  closeable: Sleeper's roster data is already ingested league-wide
+  (`lookup.py`'s `all_rostered_players()` already proved that), nothing
+  exposed it *per team* to the reasoning agent. New tool
+  `get_league_rosters`, backed by new `lookup.py` functions
+  `all_team_rosters()`/`team_roster_for_owner()` — every team's roster
+  grouped by position with a per-position count; omit
+  `owner_display_name` to survey the whole league at once, give one to
+  look at a single team. Composition only, deliberately — updated the
+  system prompt carefully (not just additively) so a compound trade
+  question now gets a real, grounded partial answer (which teams have
+  surplus/need at the weak position) plus an honest `data_gaps` entry for
+  the still-missing valuation piece, without reopening Phase 3.7's
+  anti-fabrication fix: `get_league_rosters` tells the agent WHAT a team
+  has, never whether a trade is fair or what to offer, and the prompt
+  says so explicitly. Also corrected `find_owner`'s own tool description,
+  which previously (accurately, at the time) claimed no tool inspects
+  another team's roster at all — now false, and left uncorrected would
+  have had the model believe something false about its own capabilities.
+  Trade valuation itself is Phase 3.9's job, not attempted here. See
+  TODO.md's Phase 3.8 section for full detail, including the live-model
+  validation gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
+- Phase 3.9 (crude, explicitly-labeled trade-value proxy): not started.
 - Phase 4 (coverage classification stretch): optional, not started
 - Phase 5 (productization — final deliverable): not started
 

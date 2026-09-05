@@ -77,15 +77,44 @@ TOOLS: list[dict] = [
         "description": (
             "Structured lookup of which fantasy team in this league rosters a given player "
             "(exact Sleeper data). Use to answer 'who owns Player X' or to check whether a "
-            "player is rostered in this league at all. This does NOT compare rosters, assess "
-            "another team's needs, or evaluate trade value -- there is no tool here that does "
-            "any of that. A question needing it (trade fit, who to target, what to offer) is "
-            "an out-of-scope capability, not something to answer from general knowledge."
+            "player is rostered in this league at all. This only resolves one named player to "
+            "one owning team -- it does NOT compare rosters or evaluate trade value itself (use "
+            "get_league_rosters for roster composition across teams; there is still no tool for "
+            "trade value/fairness -- see get_league_rosters and submit_recommendation's data_gaps "
+            "for that boundary)."
         ),
         "input_schema": {
             "type": "object",
             "properties": {"player_name": {"type": "string"}},
             "required": ["player_name"],
+        },
+    },
+    {
+        "name": "get_league_rosters",
+        "description": (
+            "Structured, league-wide roster-COMPOSITION lookup (exact Sleeper data) -- every "
+            "team's roster grouped by position, with a per-position count for each team. Use this "
+            "to identify which teams are deep or shallow at a given position (e.g. 'Team X rosters "
+            "only 1 TE, Team Y rosters 4 RBs') -- genuine, grounded composition reasoning. Omit "
+            "owner_display_name to get every team in the league at once (the useful shape for "
+            "surveying who might have surplus/need at a position across the whole league); give it "
+            "to look at one specific team instead. This tool tells you WHAT a team has -- it does "
+            "NOT tell you whether a trade is fair, what a player is worth, or what to offer. Never "
+            "use its output alone to suggest a specific trade or claim one side benefits -- that's "
+            "still a data_gaps entry (reason: out_of_scope_capability), not something to conclude "
+            "from roster composition."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "owner_display_name": {
+                    "type": "string",
+                    "description": (
+                        "Optional -- omit to get every team in the league at once; give a specific "
+                        "team's owner display name to look at just that one team's composition."
+                    ),
+                }
+            },
         },
     },
     {
@@ -296,9 +325,10 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "pull their signals before saying anything substantive about them. If get_player_signals reports "
         "the name as ambiguous, name the specific candidates in your reasoning and say which one you need "
         "clarified rather than picking one yourself. Use get_my_roster / find_owner for roster-ownership "
-        "questions, get_team_record / get_current_matchup for standings/schedule questions (all exact "
-        "Sleeper data), and search_league_info only for general league questions that aren't about one "
-        "named player's performance or one team's record/matchup.\n\n"
+        "questions, get_league_rosters for roster-COMPOSITION questions across teams (which teams are "
+        "deep/shallow at a position -- never trade value, see below), get_team_record / get_current_matchup "
+        "for standings/schedule questions (all exact Sleeper data), and search_league_info only for general "
+        "league questions that aren't about one named player's performance or one team's record/matchup.\n\n"
         "If get_player_signals returns stale: true, the current season has no computed signals yet (e.g. "
         "it hasn't started) and you're seeing a prior-season reference instead -- say so explicitly and "
         "plainly in your reasoning (name which season the numbers are actually from) rather than presenting "
@@ -310,23 +340,30 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "player_name set) in submit_recommendation instead of reasoning about them generically.\n\n"
         "A question can have an answerable part and a part nothing here can answer yet -- e.g. 'what's my "
         "weakest position, and who should I trade for to fix it?' is answerable for the weakest-position "
-        "half (get_my_roster + get_player_signals) but not the trade-partner half (this project doesn't "
-        "compute season-long player value or cross-roster positional need). Never let the unanswerable part "
-        "cause you to give up on the whole question: answer every part you can ground, then record a "
-        "data_gaps entry (reason: out_of_scope_capability) naming what you couldn't do and why, rather than "
-        "submitting 'I don't have enough information' when part of the question was fully answerable.\n\n"
-        "Critical, and stricter than just 'record a gap': never paper over an unanswerable part with "
-        "plausible-sounding advice instead of admitting the gap. Every specific claim in recommendation/"
-        "reasoning -- a trade to make, which assets to package, a player to target from another team, "
-        "anything at all about another team's roster composition, needs, or value -- must be backed by an "
-        "actual tool call you made THIS turn, not by your own general fantasy-football knowledge. "
-        "find_owner only tells you who owns one named player -- it is NOT a roster-comparison or trade-fit "
-        "tool, and no tool here inspects another team's full roster, compares needs across teams, or "
-        "values assets for a trade. If a question calls for that (trade strategy, what to offer, who to "
-        "target), you have no tool that can ground an answer: do not improvise one. Say explicitly that "
-        "you can't recommend a trade strategy because that needs comparing rosters across the league, "
-        "which no tool here supports yet, and record it as a data_gaps entry (reason: "
-        "out_of_scope_capability) -- never as specific trade advice.\n\n"
+        "half (get_my_roster + get_player_signals) AND, now, partially answerable for the trade-partner "
+        "half: get_league_rosters can tell you which teams have surplus/depth at that position (real "
+        "roster composition, e.g. 'Team Y rosters 4 RBs to your weak TE need' is a fact you can state if "
+        "get_league_rosters actually shows it). What it still can't tell you is whether a trade is fair, "
+        "what either side's players are worth, or what to actually offer -- this project doesn't compute "
+        "season-long player value or trade valuation yet. Never let the still-unanswerable part (valuation) "
+        "cause you to give up on the whole question, and never let the newly-answerable part (composition) "
+        "go unused just because valuation is missing: answer every part you can ground -- including "
+        "composition, now that get_league_rosters exists -- then record a data_gaps entry (reason: "
+        "out_of_scope_capability) specifically for the valuation/fairness piece, rather than submitting 'I "
+        "don't have enough information' or silently dropping the composition half.\n\n"
+        "Critical, and stricter than just 'record a gap': never paper over the still-missing valuation "
+        "piece with plausible-sounding advice instead of admitting the gap. Every specific claim in "
+        "recommendation/reasoning -- which team has surplus at a position, a player to target from another "
+        "team, anything about another team's roster composition -- must be backed by an actual "
+        "get_league_rosters (or find_owner/get_player_signals) call you made THIS turn, never by your own "
+        "general fantasy-football knowledge. get_league_rosters tells you WHAT a team has, not what it's "
+        "worth or what a fair trade looks like -- there is still no tool for trade value, fairness, or 'what "
+        "should I offer'. If a question calls for that, you have no tool that can ground an answer: do not "
+        "improvise one, and do not dress up a composition fact (e.g. 'they have extra RBs') as if it proves "
+        "a trade would be fair or good. Say explicitly that you can identify composition (and do so, "
+        "concretely, when get_league_rosters supports it) but can't recommend actual trade value or "
+        "strategy, and record that specific gap as a data_gaps entry (reason: out_of_scope_capability) -- "
+        "never as trade advice.\n\n"
         "Always end by calling submit_recommendation exactly once with a concrete recommendation and the "
         "reasoning that led to it, citing the specific signals you retrieved -- this league's scoring "
         "settings above should inform which stats matter (e.g. reception volume matters more here if "
@@ -367,6 +404,16 @@ def _tool_find_owner(tool_input: dict, ctx: RecommendContext) -> dict:
         "owner_display_name": team.get("display_name"),
         "roster_id": team.get("roster_id"),
     }
+
+
+def _tool_get_league_rosters(tool_input: dict, ctx: RecommendContext) -> dict:
+    owner = tool_input.get("owner_display_name")
+    if owner:
+        roster = lookup.team_roster_for_owner(owner, ctx.raw_dir)
+        if roster is None:
+            return {"error": f"No team found for owner {owner!r} in this league."}
+        return {"teams": [roster]}
+    return {"teams": lookup.all_team_rosters(ctx.raw_dir)}
 
 
 def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
@@ -465,6 +512,7 @@ def _tool_search_league_info(tool_input: dict, ctx: RecommendContext) -> dict:
 _DISPATCH = {
     "get_my_roster": _tool_get_my_roster,
     "find_owner": _tool_find_owner,
+    "get_league_rosters": _tool_get_league_rosters,
     "get_player_signals": _tool_get_player_signals,
     "get_team_record": _tool_get_team_record,
     "get_current_matchup": _tool_get_current_matchup,

@@ -175,3 +175,39 @@ def test_my_current_matchup_uses_current_roster(tmp_path, monkeypatch):
     matchup = lookup.my_current_matchup(week=3, raw_dir=raw_dir)
 
     assert matchup["opponent_roster_id"] == 2
+
+
+# ---- Phase 3.8: league-wide roster composition ----
+
+
+def test_all_team_rosters_returns_every_team_grouped_by_position(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    rosters = lookup.all_team_rosters(raw_dir)
+
+    assert {r["roster_id"] for r in rosters} == {1, 2}
+    team1 = next(r for r in rosters if r["roster_id"] == 1)
+    assert team1["owner_display_name"] == "rogoel49"
+    assert {p["name"] for p in team1["players"]} == {"Patrick Mahomes", "Cooper Kupp"}
+    assert team1["counts_by_position"] == {"QB": 1, "WR": 1}
+
+    team2 = next(r for r in rosters if r["roster_id"] == 2)
+    assert team2["counts_by_position"] == {"RB": 1, "QB": 1, "TE": 1}
+
+
+def test_team_roster_for_owner_resolves_by_display_name(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    roster = lookup.team_roster_for_owner("otheruser", raw_dir)
+
+    assert roster["roster_id"] == 2
+    assert roster["counts_by_position"]["TE"] == 1
+
+
+def test_team_roster_for_owner_unknown_owner_returns_none(tmp_path):
+    raw_dir = tmp_path / "sleeper"
+    _seed_raw_dir(raw_dir)
+
+    assert lookup.team_roster_for_owner("nobody", raw_dir) is None

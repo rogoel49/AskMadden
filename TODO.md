@@ -608,11 +608,86 @@ of work, not a follow-up phase.
       not prove a real model follows it.
 - [x] Full `pytest` suite: 138/138 (136 before this addendum; 2 new
       tests, both in `tests/test_recommend.py`).
-- [ ] Real-model re-validation is the primary check for this addendum,
-      not incidental (see above) -- still outstanding, same
-      `ANTHROPIC_API_KEY` sandbox blocker as every phase.
+- [x] Real-model re-validation -- **closed**: Rohan ran the real compound
+      trade question against the real model and confirmed the
+      strengthened rule holds -- no more fabricated trade strategy. PR
+      #15 merged.
 - [ ] Not touched, still out of scope: trade suggestions themselves,
       `src/scheduler/refresh.py`, `report.py`.
+
+## Phase 3.8: Roster-composition visibility across the league
+See `PROJECT_SPEC.md`'s Phase 3.8 section for the full writeup. Closes a
+specific, closeable gap Phase 3.7 left behind: "who should I trade with"
+correctly declined to fabricate an answer and correctly explained why --
+but "no tool inspects another team's roster" was a real, closeable gap,
+not a permanent one. The data already exists and is already ingested
+(Sleeper's roster endpoint returns every team's roster;
+`lookup.py`'s `all_rostered_players()` already proved the data is
+accessible league-wide) -- nothing exposed per-team roster *composition*
+to the reasoning agent. This phase closes exactly that, and only that --
+composition, never valuation (Phase 3.9's job).
+
+This session: full `pytest` suite is 145/145 (138 before this session; 7
+new tests: 3 in `tests/test_lookup.py`, 3 dispatch-level +
+1 orchestration in `tests/test_recommend.py`).
+- [x] `src/rag/lookup.py`: `all_team_rosters()` (every team's roster,
+      grouped by position, with a per-position count -- the league-wide,
+      per-team-grouped counterpart to `my_players()`) and
+      `team_roster_for_owner()` (the same, filtered to one team, same
+      case-insensitive-exact-match convention as
+      `team_record_for_owner()`/`current_matchup_for_owner()`).
+- [x] New `get_league_rosters` tool in `src/reasoning/recommend.py`,
+      wired into `TOOLS`/`_DISPATCH` the same way every other tool is.
+      Takes an optional `owner_display_name`: omit for every team in the
+      league at once (the useful shape for surveying the whole league for
+      surplus/need at a position), give one for a single team. Unknown
+      owner reports a structured error, never a guess.
+- [x] System prompt updated carefully, not just additively -- the
+      compound-question paragraph now says the trade-partner half is
+      *partially* answerable (composition, via `get_league_rosters`)
+      while the valuation half still isn't, and the anti-fabrication
+      paragraph now explicitly permits a composition claim backed by a
+      real `get_league_rosters` call while still blocking any claim about
+      trade value, fairness, or what to offer. Rewriting rather than
+      appending mattered here: the old wording ("no tool here inspects
+      another team's roster") would have flatly contradicted the new
+      tool's existence if left as-is.
+- [x] `find_owner`'s own tool description corrected for the same reason --
+      it previously said outright that no tool inspects another team's
+      full roster, which was true when written and is not true anymore.
+      Left uncorrected, the model would be told something false about its
+      own capabilities.
+- [x] Test coverage: `all_team_rosters()`/`team_roster_for_owner()`
+      (found, and unknown-owner-returns-None) in `tests/test_lookup.py`;
+      `get_league_rosters` dispatch (all teams, one named team, unknown
+      owner reports a structured error) and one orchestration test in
+      `tests/test_recommend.py`
+      (`test_recommend_uses_get_league_rosters_for_composition_but_still_declines_valuation`)
+      -- framed honestly in its own docstring as orchestration-wiring
+      proof (recommend() correctly threads a scripted ideal response
+      through), not proof a real model chooses to call the new tool or
+      phrases the caveat this way.
+- [ ] Live validation gap (same sandbox blocker as every phase so far):
+      no `ANTHROPIC_API_KEY` here, and no real Sleeper league data either
+      (both blocked in this sandbox, same as every prior phase) -- the
+      new tool and prompt wording were only validated mechanically. Real
+      Sleeper roster/team data isn't needed to have proven the code
+      logic correct (that's what `tests/test_lookup.py`'s fixtures did),
+      but only a real model, asked the real question ("what's my weakest
+      position, and which teams in my league might be willing to trade
+      at that position?"), can confirm it actually calls
+      `get_league_rosters`, cites real teams/rosters, and still declines
+      trade fairness/specific offers -- still outstanding.
+- [ ] Not touched, deliberately out of scope: trade valuation itself
+      (Phase 3.9), `src/scheduler/refresh.py`, `report.py`.
+
+## Phase 3.9: A crude, explicitly-labeled trade-value proxy
+Not started. See `PROJECT_SPEC.md`'s Phase 3.9 section for the planned
+scope (a `season_points_so_far_proxy` field on `get_player_signals`,
+computed from real nflverse weekly stats + this league's actual scoring
+settings, as-of-date filtered -- explicitly not a real trade-value model,
+labeled as a proxy everywhere it appears, same pattern as `report.py`'s
+waiver `opportunity_score`).
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
