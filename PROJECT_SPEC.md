@@ -201,6 +201,109 @@ Phase 3.5's own deferred item, unrelated), `src/scheduler/refresh.py`
 signal-weight constants in `report.py` (`_EPA_TREND_WEIGHT` etc. --
 unchanged).
 
+## Phase 3.7: Compound questions + structured data gaps in the chat path
+Discovered during Phase 3.6's own real-model validation (`recommend.py`
+run for real, against a real roster, with `ANTHROPIC_API_KEY`), not
+planned ahead of time -- two real gaps, both specific to `recommend.py`'s
+chat path (`report.py`'s reports already handle both correctly via their
+`notes` field, see below):
+
+**Gap 1: a compound question fails entirely instead of partially.**
+"What's my weakest position, and who should I trade with to strengthen
+it" burned all `max_turns` tool-use turns and returned a bare "I don't
+have enough information" -- even though the first half (weakest
+position) is fully answerable with `get_my_roster`/`get_player_signals`,
+and only the second half (a trade partner suggestion) is genuinely out
+of scope (needs the same season-long-value + cross-roster
+positional-need signals Phase 3.5's trade-suggestions writeup already
+flags as not built). The fix is a system-prompt instruction: recognize
+when a question has an answerable part and an out-of-scope part, and
+answer the answerable part explicitly instead of letting the
+unanswerable part fail the whole question.
+
+**Gap 2: the chat path doesn't consistently flag a player with NO signal
+data at all, as distinct from stale prior-season data.** Live validation:
+asking "what's my weakest position on my roster right now" for a real
+2026-preseason roster correctly identified TE as the weak spot (Harold
+Fannin, Kenyon Sadiq) but cited zero actual signal numbers for either --
+just generic "rookies/unproven players with uncertain roles," the
+model's own background knowledge, not anything `get_player_signals`
+returned. `get_player_signals` already distinguishes this case internally
+(a chunk truly doesn't exist vs. Phase 3.6's stale fallback), but nothing
+made that distinction an explicit, structured signal the model was told
+to act on -- so it silently papered over the gap with generic reasoning
+instead of saying so.
+
+**The fix, combining both gaps into one structural addition**: a
+`data_gaps` field (list of `{player_name?, reason, detail}`) alongside
+`reasoning` in `submit_recommendation`'s schema (and `RecommendResult`).
+`reason: "no_signal_data"` covers Gap 2 -- `get_player_signals` now
+returns an explicit `has_signals: false/true` field (distinct from
+`stale`/`source_season`, which mean data exists but is old), and the
+system prompt tells the model to record a `data_gaps` entry rather than
+reasoning about that player generically. `reason:
+"out_of_scope_capability"` covers Gap 1 -- a part of the question no
+tool/signal can resolve yet, surfaced structurally instead of failing
+the whole question. `reasoning` (prose) still names the gap in plain
+language for the CLI/human-readable case, same as always --
+`data_gaps` is the structured, UI-renderable version of the same fact
+for Phase 5's web UI to eventually render distinctly, not a replacement.
+Empty case is `[]`, always present, never omitted -- consistent with
+`tool_calls`/`messages` already always being lists.
+
+**`report.py` is explicitly untouched here** -- its `drop`/`start_sit`
+reports already handle a no-signal player correctly (excluded from
+ranking, named in a `notes` string). Whether `report.py`'s `notes`
+strings should eventually migrate to this same structured `data_gaps`
+shape for consistency is a documented open question, not attempted in
+this unit.
+
+**Explicitly out of scope**: building trade suggestions themselves,
+`src/scheduler/refresh.py`, and any change to `report.py`.
+
+**Addendum, found during this phase's own real-model validation of Gap
+1's fix (`ANTHROPIC_API_KEY` configured locally, real roster).** Gap 2's
+fix validated cleanly for real (`Jeremiyah Love` and `Kenyon Sadiq` both
+correctly flagged `has_signals: false`, no fabricated reasoning). Gap 1's
+fix did NOT hold up, and failed in a worse way than the original bug:
+asked the real compound trade question, the model returned `data_gaps:
+[]` but `reasoning` contained concrete, specific trade strategy ("package
+one QB (Herbert) or a mid-tier RB... to upgrade at TE") with zero
+supporting tool calls -- every call in `tool_calls` was
+`get_my_roster`/`get_player_signals` on the user's own roster; no
+`find_owner`, no lookup of any other team's roster anywhere. The model
+found a way to *sound* like it engaged the missing capability without
+actually grounding anything in real cross-team data, which let it slip
+past the original "record a gap for the part you couldn't do" instruction
+entirely -- the model apparently decided offering plausible-sounding
+asset-packaging advice counted as "doing" the trade-partner half.
+
+**The strengthened fix**: the system prompt now states an explicit,
+stricter rule, not just an instruction to record a gap -- any specific
+claim in `recommendation`/`reasoning` (a trade to make, assets to
+package, a player to target from another team, anything about another
+team's roster/needs/value) must be backed by an actual tool call made
+that turn; if none exists, the model must say so and record an
+`out_of_scope_capability` gap rather than improvising. This also closes
+the structural ambiguity the user flagged: the prompt (and `find_owner`'s
+own tool description) now explicitly states that `find_owner` only
+answers "who owns this one named player" and is NOT a roster-comparison
+or trade-fit tool, and that no tool here inspects another team's full
+roster or compares needs/value across teams -- an explicit capability
+boundary instead of leaving the model to infer one.
+
+**Honest limitation on test coverage for this addendum**: the actual
+failure is model behavior (choosing to fabricate plausible prose instead
+of admitting a gap), not a code branch -- a fake-client test can prove
+the orchestration loop faithfully passes through whatever the model
+says (including a deliberately-fabricated "bad" response, which is what
+`tests/test_recommend.py` now has as a documented, explicit
+non-safeguard), and can prove the system prompt string contains the new
+rule, but neither proves a real model actually follows it. Real-model
+validation is the primary check for this addendum, not incidental --
+re-running the exact real compound question is the only thing that can
+confirm the fix.
+
 ## Phase 4 stretch: derived coverage classification
 Real man/zone or coverage-shell labels aren't free (PFF/SIS charting is
 paywalled), but they can be *derived* from NFL Big Data Bowl tracking
@@ -350,6 +453,19 @@ into this pattern, just not the model for anything new.
 - [x] Explicit `stale`/`source_season`/`source_as_of_week` markers on every affected output (raw row, report entries, prose text)
 - [x] Document and justify the N=1 fallback threshold
 - [x] Test coverage: no data at all, prior-season-only data, current-season data present (never stale)
+
+### Phase 3.7: Compound questions + structured data gaps in the chat path
+- [x] `submit_recommendation` tool schema + `RecommendResult`: new `data_gaps` field
+- [x] `get_player_signals` tool: explicit `has_signals: true/false`, distinct from `stale`
+- [x] System prompt: answer the answerable part of a compound question instead of failing it whole
+- [x] System prompt: record a `no_signal_data` gap instead of reasoning from background knowledge
+- [x] CLI (`--interactive` and single-question) prints `data_gaps` when non-empty
+- [x] Test coverage: partial-answer compound question, zero-signal-data player, no-regression on a fully-grounded question
+- [x] Addendum (found in this phase's own real-model validation): system
+      prompt explicitly bars ungrounded trade advice, not just "record a
+      gap" -- Gap 2 validated clean for real; Gap 1's original fix did
+      not, see Phase 3.7's addendum above. Real-model re-validation still
+      needed (flagged, not done in this sandbox).
 
 ### Phase 4: Stretch (optional)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

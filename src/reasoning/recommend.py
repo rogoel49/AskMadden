@@ -77,7 +77,10 @@ TOOLS: list[dict] = [
         "description": (
             "Structured lookup of which fantasy team in this league rosters a given player "
             "(exact Sleeper data). Use to answer 'who owns Player X' or to check whether a "
-            "player is rostered in this league at all."
+            "player is rostered in this league at all. This does NOT compare rosters, assess "
+            "another team's needs, or evaluate trade value -- there is no tool here that does "
+            "any of that. A question needing it (trade fit, who to target, what to offer) is "
+            "an out-of-scope capability, not something to answer from general knowledge."
         ),
         "input_schema": {
             "type": "object",
@@ -175,6 +178,46 @@ TOOLS: list[dict] = [
                     "type": "string",
                     "description": "nflverse player_id of the recommended player, if one specific player is being recommended.",
                 },
+                "data_gaps": {
+                    "type": "array",
+                    "description": (
+                        "Structured record of anything you couldn't fully ground -- a named player "
+                        "get_player_signals resolved but had zero signal data for (has_signals: false, not "
+                        "just stale), or a part of the question no available tool/signal could answer at all "
+                        "(e.g. trade strategy, which assets to package, or who to target -- no tool here "
+                        "compares rosters or values assets across teams). Never fill an out-of-scope part "
+                        "with plausible-sounding advice instead of recording the gap here: every specific "
+                        "claim in recommendation/reasoning must be backed by an actual tool call you made "
+                        "this turn, not general fantasy-football knowledge. Leave this empty only when the "
+                        "whole answer is fully grounded -- never invent an entry, and never let one part of "
+                        "a compound question you can't answer stop you from answering the part(s) you can."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "player_name": {
+                                "type": "string",
+                                "description": "The player this gap is about, if any -- omit for a question-level gap.",
+                            },
+                            "reason": {
+                                "type": "string",
+                                "enum": ["no_signal_data", "out_of_scope_capability"],
+                                "description": (
+                                    "no_signal_data: get_player_signals resolved the player's identity but "
+                                    "returned has_signals: false (nothing computed for them at all -- distinct "
+                                    "from stale, which means prior-season data exists). "
+                                    "out_of_scope_capability: no tool/signal exists yet for this part of the "
+                                    "question."
+                                ),
+                            },
+                            "detail": {
+                                "type": "string",
+                                "description": "Plain-language explanation of the specific gap.",
+                            },
+                        },
+                        "required": ["reason", "detail"],
+                    },
+                },
             },
             "required": ["recommendation", "reasoning"],
         },
@@ -199,12 +242,22 @@ class RecommendResult:
     tool_calls: list[dict] = field(default_factory=list)
     messages: list[dict] = field(default_factory=list)
     error: str | None = None
+    # Structured version of any gap named in `reasoning`'s prose (a
+    # no-signal-data player, or a part of the question no tool could
+    # answer) -- see submit_recommendation's tool schema. Always a list,
+    # never omitted/None: [] means "the answer was fully grounded," a
+    # deliberate, present-but-empty shape (matching tool_calls/messages
+    # already always being lists) so a caller can check `if
+    # result["data_gaps"]:` without a None-guard, and a future Phase 5 UI
+    # can render it directly without special-casing "field missing."
+    data_gaps: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "recommendation": self.recommendation,
             "reasoning": self.reasoning,
             "player_id": self.player_id,
+            "data_gaps": self.data_gaps,
             "tool_calls": self.tool_calls,
             "messages": self.messages,
             "error": self.error,
@@ -250,12 +303,37 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "it hasn't started) and you're seeing a prior-season reference instead -- say so explicitly and "
         "plainly in your reasoning (name which season the numbers are actually from) rather than presenting "
         "them as this season's performance.\n\n"
+        "If get_player_signals returns has_signals: false, nothing at all has been computed for that player "
+        "(not even a stale prior-season fallback) -- do not fill that gap with your own general knowledge "
+        "about them (e.g. 'a promising rookie' or 'unproven'). Say explicitly in your reasoning that no "
+        "computed signal data exists for them, and record a data_gaps entry (reason: no_signal_data, "
+        "player_name set) in submit_recommendation instead of reasoning about them generically.\n\n"
+        "A question can have an answerable part and a part nothing here can answer yet -- e.g. 'what's my "
+        "weakest position, and who should I trade for to fix it?' is answerable for the weakest-position "
+        "half (get_my_roster + get_player_signals) but not the trade-partner half (this project doesn't "
+        "compute season-long player value or cross-roster positional need). Never let the unanswerable part "
+        "cause you to give up on the whole question: answer every part you can ground, then record a "
+        "data_gaps entry (reason: out_of_scope_capability) naming what you couldn't do and why, rather than "
+        "submitting 'I don't have enough information' when part of the question was fully answerable.\n\n"
+        "Critical, and stricter than just 'record a gap': never paper over an unanswerable part with "
+        "plausible-sounding advice instead of admitting the gap. Every specific claim in recommendation/"
+        "reasoning -- a trade to make, which assets to package, a player to target from another team, "
+        "anything at all about another team's roster composition, needs, or value -- must be backed by an "
+        "actual tool call you made THIS turn, not by your own general fantasy-football knowledge. "
+        "find_owner only tells you who owns one named player -- it is NOT a roster-comparison or trade-fit "
+        "tool, and no tool here inspects another team's full roster, compares needs across teams, or "
+        "values assets for a trade. If a question calls for that (trade strategy, what to offer, who to "
+        "target), you have no tool that can ground an answer: do not improvise one. Say explicitly that "
+        "you can't recommend a trade strategy because that needs comparing rosters across the league, "
+        "which no tool here supports yet, and record it as a data_gaps entry (reason: "
+        "out_of_scope_capability) -- never as specific trade advice.\n\n"
         "Always end by calling submit_recommendation exactly once with a concrete recommendation and the "
         "reasoning that led to it, citing the specific signals you retrieved -- this league's scoring "
         "settings above should inform which stats matter (e.g. reception volume matters more here if "
-        "rec > 0). If the tools genuinely don't have what's needed to answer (e.g. a question about data "
-        "that hasn't been ingested), say so plainly in submit_recommendation rather than guessing or "
-        "repeating the same tool call."
+        "rec > 0). Include a data_gaps entry for every no_signal_data player and every out_of_scope_capability "
+        "gap per above -- leave data_gaps empty only when the full answer is genuinely grounded. If the tools "
+        "genuinely don't have what's needed to answer any part of the question, say so plainly in "
+        "submit_recommendation rather than guessing or repeating the same tool call."
     )
 
 
@@ -323,8 +401,16 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
         "team": match.team,
     }
     if chunk is None:
+        # Identity resolved but genuinely nothing computed for them, ever
+        # (not even a stale prior-season fallback -- e.g. a rookie with no
+        # snaps yet). has_signals: false is the explicit, structured
+        # signal the system prompt tells the model to turn into a
+        # data_gaps entry (reason: no_signal_data) instead of silently
+        # reasoning about this player from its own background knowledge.
+        base["has_signals"] = False
         base["note"] = "Resolved the player but no computed signals are embedded yet for this season/week."
         return base
+    base["has_signals"] = True
     base["stale"] = stale
     if stale:
         source_season = chunk["metadata"].get("season")
@@ -503,6 +589,7 @@ def recommend(
                 recommendation=submit.input["recommendation"],
                 reasoning=submit.input.get("reasoning"),
                 player_id=submit.input.get("player_id"),
+                data_gaps=submit.input.get("data_gaps") or [],
                 tool_calls=tool_calls,
                 messages=messages,
             ).to_dict()
@@ -531,6 +618,11 @@ def _print_result(result: dict) -> None:
     print(result["recommendation"])
     if result["reasoning"]:
         print(f"\nReasoning: {result['reasoning']}")
+    if result.get("data_gaps"):
+        print("\nData gaps:")
+        for gap in result["data_gaps"]:
+            who = f" ({gap['player_name']})" if gap.get("player_name") else ""
+            print(f"  - [{gap.get('reason', 'unknown')}]{who} {gap.get('detail', '')}")
 
 
 def _run_repl(season: int | None, as_of_week: int | None) -> None:

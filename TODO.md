@@ -457,18 +457,162 @@ player with neither current- nor prior-season data anywhere degrades to
       `src/scheduler/refresh.py` gap below (still not built), and
       `report.py`'s existing signal-weight constants (`_EPA_TREND_WEIGHT`
       etc. -- unchanged).
-- [ ] Live validation gap (same two sandbox blockers as every phase so
-      far): no `ANTHROPIC_API_KEY` here, so the system prompt's new
-      stale-handling instruction was never validated against the real
-      model, only mechanically (the fake-client tests confirm
-      `_tool_get_player_signals`'s output shape, not that a real model
-      actually reads and honors the new prompt language). Re-run
-      `python -m src.reasoning.recommend "should I start Saquon Barkley"`
-      for real once the 2026 season is far enough along to have real
-      current-season signals *and* once early enough (or artificially, by
-      pointing `--as-of-week` at week 1) to still exercise the fallback
-      path, to confirm the real model actually says "this is 2025 data"
-      rather than silently treating it as current.
+- [x] Live validation gap -- **closed**: this sandbox still has no
+      `ANTHROPIC_API_KEY`, but Rohan ran this for real on his own machine
+      against the real Sleeper roster and real 2025 signals data and
+      confirmed it end-to-end, including the model correctly
+      self-identifying stale data and naming the source season without
+      being asked. Real validation surfaced two further real gaps in the
+      chat path, though -- see Phase 3.7 below.
+
+## Phase 3.7: Compound questions + structured data gaps in the chat path
+See `PROJECT_SPEC.md`'s Phase 3.7 section for the full writeup. Not
+planned ahead of time -- discovered during Rohan's own real-model
+validation of Phase 3.6 (`recommend.py` run for real, `ANTHROPIC_API_KEY`
+configured locally, against the real Sleeper roster). Two real gaps, both
+in `recommend.py`'s chat path specifically -- `report.py`'s reports
+already handle both correctly (a zero-signal player is excluded from
+ranking and named in `notes`), so this is scoped as chat-path-only, not a
+`report.py` change.
+
+This session: full `pytest` suite is 136/136 (133 before this session; 3
+new tests in `tests/test_recommend.py`). No new real-data ingest needed --
+this is chat-orchestration/prompt work, not a new signal. Real-data
+validation for `has_signals` specifically: rebuilt a real local Chroma
+collection from the real, already-committed 2024+2025 signals tables and
+ran `get_player_signals` for the real two rookies from Rohan's own report
+(Harold Fannin, gsis `00-0040663`; Kenyon Sadiq, gsis `00-0041032`) under
+season=2026/week=1 (the real, actually-empty current season). Confirmed:
+Fannin actually HAS real 2025 season data (115 real plays) and correctly
+gets Phase 3.6's stale fallback (`has_signals: true, stale: true,
+source_season: 2025`, real cited numbers); Sadiq genuinely has zero 2025
+pbp involvement and correctly gets `has_signals: false`. This strongly
+suggests Rohan's original live symptom (both players getting generic,
+uncited reasoning) was a stale local Chroma index at the time he ran it
+(missing the 2025 chunks -- a `src/scheduler/refresh.py`-shaped gap,
+deliberately not touched in this unit) rather than a defect in the
+fallback logic itself. Either way, `has_signals: false` is exactly the
+structured signal this fix now requires the model to act on explicitly
+instead of silently reasoning from its own background knowledge --
+correct behavior for both "genuinely no data" and "stale index" causes.
+- [x] Gap 1 fix: system prompt (`_build_system_prompt`) now explicitly
+      instructs the model to recognize a compound question with an
+      answerable part and an out-of-scope part, answer the answerable
+      part, and record the unanswerable part as a `data_gaps` entry
+      (`reason: "out_of_scope_capability"`) instead of letting it fail
+      the whole question. This is prompt-only -- no new tool, no new
+      signal; the underlying capability gap (season-long value,
+      cross-roster positional need) is still Phase 3.5's own tracked,
+      deferred trade-suggestions item, unchanged.
+- [x] Gap 2 fix: `_tool_get_player_signals` (`src/reasoning/recommend.py`)
+      now returns an explicit `has_signals: true`/`false` field --
+      `false` when nothing at all has been computed for a player (not
+      even Phase 3.6's stale fallback), distinct from `stale: true`
+      (data exists, just old). The system prompt tells the model that
+      `has_signals: false` means "record a `no_signal_data` data_gaps
+      entry and say so in your reasoning," not "fill the gap with your
+      own knowledge of the player."
+- [x] `submit_recommendation`'s tool schema gains a `data_gaps` array
+      (`player_name?`, `reason` enum
+      [`no_signal_data`,`out_of_scope_capability`], `detail`).
+      `RecommendResult` gains a matching `data_gaps: list[dict]` field
+      (default `[]`, via `field(default_factory=list)`) and `to_dict()`
+      includes it. Decided and documented empty-case shape: always a
+      present list, `[]` when nothing's wrong -- never omitted, never
+      `None` -- matching `tool_calls`/`messages`' existing always-a-list
+      convention, so a caller never needs a None-guard and a future
+      Phase 5 UI can render it directly.
+- [x] CLI: `_print_result()` (shared by both `--interactive` and the
+      single-question path, so both pick this up with one change) prints
+      a "Data gaps:" section listing each entry's reason/player/detail
+      when `data_gaps` is non-empty; prints nothing extra otherwise.
+- [x] Test coverage (`tests/test_recommend.py`, scripted fake-client
+      pattern, same as the rest of the file):
+      `test_recommend_answers_the_answerable_half_of_a_compound_question`
+      (the weakest-position half comes back as a real recommendation, the
+      trade half becomes one `out_of_scope_capability` data_gaps entry,
+      `error` stays `None` -- never `max_turns_exceeded`),
+      `test_recommend_surfaces_no_signal_data_gap_instead_of_generic_reasoning`
+      (a `has_signals: false` player produces a matching `no_signal_data`
+      data_gaps entry), and an added assertion on the existing
+      fully-grounded-answer test confirming `data_gaps == []` there --
+      no regression, a normal answer isn't cluttered with an empty-but-
+      present field turning into noise. Also two `dispatch_tool`-level
+      tests confirming `has_signals` is `True`/`False` in the right
+      cases.
+- [ ] Not touched, deliberately (explicitly out of scope for this unit):
+      trade suggestions themselves, `src/scheduler/refresh.py`, and any
+      change to `report.py` -- including the open question (documented,
+      not resolved) of whether `report.py`'s existing `notes`-string
+      approach should eventually migrate to this same structured
+      `data_gaps` shape for consistency.
+- [x] Live validation, part 1 (Gap 2) -- **closed**: Rohan ran this for
+      real against a real roster and confirmed Gap 2's fix works
+      correctly -- `Jeremiyah Love` and `Kenyon Sadiq` both correctly
+      flagged `has_signals: false`, no fabricated reasoning about them.
+- [ ] Live validation, part 2 (Gap 1) -- **found a deeper problem,
+      addressed below, still needs re-validation**: asking the real
+      compound trade question ("what's my weakest position, and who
+      should I trade with in the league to strengthen it") got back
+      `data_gaps: []` but `reasoning` full of specific, fabricated trade
+      strategy ("package one QB (Herbert) or a mid-tier RB... to upgrade
+      at TE") with zero supporting tool calls -- every call in
+      `tool_calls` was `get_my_roster`/`get_player_signals` on the user's
+      own roster, no `find_owner`, no cross-team lookup anywhere. Worse
+      than the original bug: the model found a way to *sound* responsive
+      to the out-of-scope half without actually engaging it, which slid
+      past the original "record a gap for the part you couldn't do"
+      instruction -- offering plausible asset-packaging advice apparently
+      counted, to the model, as "doing" the trade-partner half. See the
+      addendum below for the fix; re-run the exact same question once
+      `ANTHROPIC_API_KEY` is available to confirm it actually holds this
+      time (this sandbox still can't -- same blocker as every phase).
+
+### Addendum: strengthen the anti-fabrication rule + explicit capability boundary
+Found in this phase's own real-model validation of Gap 1 (above), not a
+new phase -- Phase 3.7 itself wasn't actually done until this held up
+under a real compound question, so this is a correction to the same unit
+of work, not a follow-up phase.
+- [x] System prompt (`_build_system_prompt`): new explicit, stricter rule
+      -- any specific claim in `recommendation`/`reasoning` (a trade to
+      make, assets to package, a player to target from another team,
+      anything about another team's roster/needs/value) must be backed
+      by an actual tool call made that turn; if none exists, say so
+      explicitly and record an `out_of_scope_capability` data_gaps entry
+      instead of improvising. Stricter than the original "record a gap"
+      instruction, which the model found a loophole in.
+- [x] Explicit capability boundary, per the user's suggestion this needed
+      more than prompt wording alone: `find_owner`'s own tool description
+      and the system prompt both now state plainly that `find_owner` only
+      answers "who owns this one named player" and is NOT a
+      roster-comparison or trade-fit tool, and that no tool here inspects
+      another team's full roster or compares needs/value across teams --
+      so the model has an explicit boundary instead of inferring one.
+      `submit_recommendation`'s `data_gaps` schema description reinforces
+      the same rule (defense in depth -- schema descriptions are also
+      part of what the model reads).
+- [x] Test coverage, honestly scoped (see
+      `tests/test_recommend.py`'s new tests' own docstrings for the full
+      caveat): `test_recommend_does_not_reject_ungrounded_trade_advice_at_the_code_level`
+      documents, explicitly, that `recommend()` has NO code-level guard
+      against a model fabricating ungrounded advice -- it's a scripted
+      fake-client response proving the orchestration loop passes through
+      whatever the model says, not a safeguard. This is a genuine
+      limitation, not something a fake client can meaningfully fix: the
+      actual failure is model behavior (choosing to fabricate plausible
+      prose instead of admitting a gap), which no code branch can
+      exercise. `test_system_prompt_explicitly_bars_ungrounded_trade_advice`
+      is a regression guard confirming the new rule's specific language
+      is present in the prompt -- it protects against a future edit
+      silently weakening or deleting the rule, and nothing more; it does
+      not prove a real model follows it.
+- [x] Full `pytest` suite: 138/138 (136 before this addendum; 2 new
+      tests, both in `tests/test_recommend.py`).
+- [ ] Real-model re-validation is the primary check for this addendum,
+      not incidental (see above) -- still outstanding, same
+      `ANTHROPIC_API_KEY` sandbox blocker as every phase.
+- [ ] Not touched, still out of scope: trade suggestions themselves,
+      `src/scheduler/refresh.py`, `report.py`.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

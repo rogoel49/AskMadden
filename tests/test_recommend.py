@@ -102,7 +102,30 @@ def test_get_player_signals_resolves_christian_not_luke(tmp_path):
 
     assert result["resolved"] is True
     assert result["player_id"] == "00-0033280"
+    assert result["has_signals"] is True
     assert "L.McCaffrey" not in result["signals"]
+
+
+# Phase 3.7: a player whose identity resolves but who has genuinely no
+# signal data at all -- not even a stale prior-season fallback (e.g. a
+# rookie with no snaps yet). Synthetic fixture, same as "Nobody Realname"
+# above -- this tests the has_signals: false plumbing, not real data.
+_ROOKIE_NO_DATA_ROW = {
+    "gsis_id": "00-0099999", "display_name": "Rookie Nodata", "position": "WR",
+    "latest_team": "SF", "last_season": 2026,
+}
+
+
+def test_get_player_signals_reports_has_signals_false_when_nothing_computed(tmp_path):
+    players = pl.DataFrame([_CHRISTIAN_ROW, _ROOKIE_NO_DATA_ROW])
+    ctx = _make_ctx(tmp_path, players)  # only Christian/Luke chunks are embedded
+
+    result = recommend.dispatch_tool("get_player_signals", {"player_name": "Rookie Nodata"}, ctx)
+
+    assert result["resolved"] is True
+    assert result["has_signals"] is False
+    assert "signals" not in result
+    assert "stale" not in result
 
 
 def test_get_player_signals_ambiguous_name_reports_all_candidates_not_a_guess(tmp_path):
@@ -359,6 +382,214 @@ def test_recommend_calls_get_player_signals_then_submits(tmp_path, monkeypatch):
     assert len(result["tool_calls"]) == 1
     assert result["tool_calls"][0]["name"] == "get_player_signals"
     assert result["tool_calls"][0]["result"]["player_id"] == "00-0033280"
+    # A fully-grounded answer must not carry any data_gaps clutter -- []
+    # is the deliberate empty shape (never omitted, never None), see
+    # RecommendResult's docstring.
+    assert result["data_gaps"] == []
+
+
+# ---- Phase 3.7: structured data_gaps (compound questions + no-signal-data players) ----
+
+
+def test_recommend_surfaces_no_signal_data_gap_instead_of_generic_reasoning(tmp_path, monkeypatch):
+    """Regression test for the real gap found in Phase 3.6's live
+    validation: asking about a rookie with zero computed signal data
+    (has_signals: false) must surface a structured no_signal_data
+    data_gaps entry, not just prose the model filled in from its own
+    background knowledge."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    embed.embed(embed.build_signal_chunks([_CHRISTIAN_SIGNAL_ROW]), persist_dir=persist_dir)
+
+    responses = [
+        SimpleNamespace(content=[_tool_use_block("get_player_signals", {"player_name": "Rookie Nodata"})]),
+        SimpleNamespace(
+            content=[
+                _tool_use_block(
+                    "submit_recommendation",
+                    {
+                        "recommendation": "I can't ground a recommendation for Rookie Nodata.",
+                        "reasoning": "get_player_signals resolved Rookie Nodata but reported has_signals: false -- no computed signal data exists for them at all.",
+                        "data_gaps": [
+                            {
+                                "player_name": "Rookie Nodata",
+                                "reason": "no_signal_data",
+                                "detail": "get_player_signals returned has_signals: false -- nothing computed for this player yet.",
+                            }
+                        ],
+                    },
+                    id_="tool_2",
+                )
+            ]
+        ),
+    ]
+    client = _FakeClient(responses)
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(
+        player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW, _ROOKIE_NO_DATA_ROW])
+    )
+
+    result = recommend.recommend(
+        "Should I start Rookie Nodata?",
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+    )
+
+    assert result["data_gaps"] == [
+        {
+            "player_name": "Rookie Nodata",
+            "reason": "no_signal_data",
+            "detail": "get_player_signals returned has_signals: false -- nothing computed for this player yet.",
+        }
+    ]
+    assert result["tool_calls"][0]["result"]["has_signals"] is False
+
+
+def test_recommend_answers_the_answerable_half_of_a_compound_question(tmp_path, monkeypatch):
+    """Regression test for the real gap found in Phase 3.6's live
+    validation: a compound question ("what's my weakest position, and
+    who should I trade with to strengthen it") must not burn all turns
+    and fail entirely just because the trade-partner half is out of
+    scope -- the weakest-position half is answerable and must come back
+    as a real recommendation, with the unanswerable half recorded as a
+    structured data_gaps entry instead of failing the whole question."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    embed.embed(embed.build_signal_chunks([_CHRISTIAN_SIGNAL_ROW, _LUKE_SIGNAL_ROW]), persist_dir=persist_dir)
+
+    responses = [
+        SimpleNamespace(content=[_tool_use_block("get_my_roster", {})]),
+        SimpleNamespace(content=[_tool_use_block("get_player_signals", {"player_name": "Christian McCaffrey"})]),
+        SimpleNamespace(
+            content=[
+                _tool_use_block(
+                    "submit_recommendation",
+                    {
+                        "recommendation": "Your weakest position is RB -- Christian McCaffrey is your only rostered RB.",
+                        "reasoning": "get_my_roster shows only one RB; no depth or comparison possible at that position.",
+                        "data_gaps": [
+                            {
+                                "reason": "out_of_scope_capability",
+                                "detail": (
+                                    "Can't suggest a trade partner -- this project doesn't compute season-long "
+                                    "player value or cross-roster positional need yet."
+                                ),
+                            }
+                        ],
+                    },
+                    id_="tool_3",
+                )
+            ]
+        ),
+    ]
+    client = _FakeClient(responses)
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW, _LUKE_ROW]))
+
+    result = recommend.recommend(
+        "What's my weakest position, and who should I trade with to strengthen it?",
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+    )
+
+    assert result["error"] is None
+    assert "RB" in result["recommendation"]
+    assert len(result["data_gaps"]) == 1
+    assert result["data_gaps"][0]["reason"] == "out_of_scope_capability"
+    assert "player_name" not in result["data_gaps"][0]
+
+
+def test_recommend_does_not_reject_ungrounded_trade_advice_at_the_code_level(tmp_path, monkeypatch):
+    """Honest limitation, not a real safeguard: recommend() has no code-
+    level check on what a model puts in `reasoning` -- if a (real) model
+    writes fabricated trade-strategy prose with an empty data_gaps despite
+    having called no cross-team tool, nothing here catches or rejects it.
+    This is exactly the real gap found in live validation (see
+    PROJECT_SPEC.md's Phase 3.7 addendum): a fake client can prove the
+    orchestration loop faithfully returns whatever the model said, but it
+    cannot prove the model *doesn't say* something ungrounded -- that's a
+    model-behavior question a scripted response can't exercise, only real-
+    model validation can. This test documents that boundary explicitly
+    rather than a downstream reader assuming the fake-client suite covers
+    it."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    embed.embed(embed.build_signal_chunks([_CHRISTIAN_SIGNAL_ROW, _LUKE_SIGNAL_ROW]), persist_dir=persist_dir)
+
+    responses = [
+        SimpleNamespace(content=[_tool_use_block("get_my_roster", {})]),
+        SimpleNamespace(
+            content=[
+                _tool_use_block(
+                    "submit_recommendation",
+                    {
+                        "recommendation": "Trade Christian McCaffrey for a top TE to fix your weak spot.",
+                        # Fabricated, uncited trade advice with no supporting
+                        # tool call (no find_owner, nothing cross-team) and
+                        # no data_gaps entry -- exactly the real symptom
+                        # reported. recommend() has no mechanism to detect or
+                        # block this; it is the system prompt's job (see
+                        # _build_system_prompt's anti-fabrication rule), only
+                        # verifiable by actually running the real model.
+                        "reasoning": "You could package McCaffrey with a mid-tier RB to upgrade at TE.",
+                        "data_gaps": [],
+                    },
+                    id_="tool_2",
+                )
+            ]
+        ),
+    ]
+    client = _FakeClient(responses)
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW, _LUKE_ROW]))
+
+    result = recommend.recommend(
+        "What's my weakest position, and who should I trade with to strengthen it?",
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+    )
+
+    # recommend() passes the fabricated advice straight through -- proving
+    # there is no code-level guard, which is the point of this test.
+    assert result["data_gaps"] == []
+    assert "package" in result["reasoning"]
+    assert not any(c["name"] in ("find_owner", "search_league_info") for c in result["tool_calls"])
+
+
+def test_system_prompt_explicitly_bars_ungrounded_trade_advice():
+    """Not a behavioral test -- _build_system_prompt() returns a string,
+    and a model choosing to ignore it is exactly the real failure found in
+    live validation. This only guards against a future edit silently
+    weakening or deleting the anti-fabrication rule; it proves nothing
+    about whether a real model actually follows it (see
+    test_recommend_does_not_reject_ungrounded_trade_advice_at_the_code_level's
+    docstring, and PROJECT_SPEC.md's Phase 3.7 addendum, for why only
+    real-model validation can prove that)."""
+    prompt = recommend._build_system_prompt(
+        {"name": "Test League"}, {"rec": 0.5}, season=2024, as_of_week=8
+    )
+
+    assert "must be backed by an actual tool call you made THIS turn" in prompt
+    assert "find_owner only tells you who owns one named player" in prompt
+    assert "do not improvise one" in prompt
 
 
 def test_recommend_falls_back_to_plain_text_if_model_never_calls_a_tool(tmp_path, monkeypatch):
