@@ -203,7 +203,31 @@ or monetized, it needs to genuinely work for more than one league.
   TODO.md's Phase 3.8 section for full detail, including the live-model
   validation gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
 - Phase 3.9 (crude, explicitly-labeled trade-value proxy): not started.
-- Phase 4 (coverage classification stretch): optional, not started
+  Note: this project still calls it Phase 3.9, not "Phase 6" — a prior
+  session apparently intended to renumber it past Phase 5 but that
+  renumbering was never actually done in PROJECT_SPEC.md/TODO.md/here.
+  Flagging so a future session doesn't assume it happened; not fixed in
+  this session since it was out of scope for Phase 4 work.
+- Phase 4 (coverage classification stretch): optional, attempted and
+  blocked before Stage 1, not abandoned. This session confirmed two
+  things worth recording before the next attempt: (1) contrary to how
+  the phase is sometimes described, there is no existing matchup-fit
+  score in the codebase at all, proxy or otherwise — `matchup_signals.py`
+  explicitly excludes it (see its module docstring) and `matchup_fit`
+  has zero hits anywhere in `src/`/`evals`/`tests`; PROJECT_SPEC.md's
+  signals table only describes what it would be. So finishing this
+  phase adds the signal for the first time, it doesn't refine a proxy.
+  (2) Stage 1 (pull NFL Big Data Bowl tracking data from Kaggle) is
+  blocked in this sandbox: `kaggle.com` is rejected at the network-proxy
+  policy level (403 on CONNECT, confirmed via the proxy status endpoint,
+  not just a missing-credential issue), and no `KAGGLE_USERNAME`/
+  `KAGGLE_KEY` are configured. Consistent with this project's existing
+  pattern of flagging sandbox access gaps (no live Claude API key in
+  earlier phases, Sleeper blocked at times) rather than working around
+  them with synthetic stand-in data. See TODO.md's Phase 4 section for
+  what a future session needs to actually pull the data (either real
+  Kaggle credentials plus a sandbox with kaggle.com allowed, or the data
+  downloaded outside the sandbox and handed in directly).
 - Phase 5 (productization — final deliverable): not started
 
 Always check TODO.md for the up-to-date task list within the active phase.

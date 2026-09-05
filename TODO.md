@@ -691,6 +691,35 @@ waiver `opportunity_score`).
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
+  — **Attempted and blocked at Stage 1, this session.** Before pulling
+  any data, confirmed there is no existing matchup-fit score in the
+  codebase to improve on: `matchup_signals.py`'s own docstring says it
+  implements everything except this Phase 4 stretch, and `matchup_fit`
+  has zero hits in `src/`, `evals/`, or `tests/`. PROJECT_SPEC.md's
+  signals table (line 96) only describes what the signal *would* be —
+  nothing computes it today. So this phase, when done, adds the signal
+  for the first time; it does not refine a proxy.
+  Stage 1 itself (download NFL Big Data Bowl tracking data from Kaggle)
+  is blocked in this sandbox: the network proxy rejects `kaggle.com`
+  outright (403 on CONNECT — a policy denial, confirmed via the proxy
+  status endpoint, not a credentials problem), and no
+  `KAGGLE_USERNAME`/`KAGGLE_KEY` are configured either. No feature
+  engineering, clustering, or backfill was attempted against synthetic
+  or substitute data, per CLAUDE.md's real-data methodology rules.
+  **To actually start this phase, a future session needs one of:**
+  (a) a sandbox/environment where `kaggle.com` is reachable, plus real
+  Kaggle credentials, or (b) the relevant Big Data Bowl season's
+  tracking data (likely one recent season — release history is capped
+  at ~9 weeks/season) downloaded outside the sandbox and handed in
+  directly (e.g. committed to `data/raw/` or attached to the session).
+  Once data is actually loading, resume at PROJECT_SPEC.md's Phase 4
+  checklist: report columns/granularity/size before building on top of
+  it, feature-engineer DB motion (no defender orientation exists in this
+  data — don't invent a feature that assumes it), validate clustering
+  against known man/zone situations before trusting it, and only backfill
+  matchup-fit scores for eval weeks if that validation actually holds up
+  — otherwise stop and report the negative result honestly, per this
+  project's rigor standard.
 - [ ] Discord bot wrapper
 - [ ] Weekly auto-generated lineup recommendations
 
