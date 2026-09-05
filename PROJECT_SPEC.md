@@ -314,7 +314,7 @@ own roster endpoint returns every team's roster; `lookup.py`'s
 `all_rostered_players()` already proves the data is accessible
 league-wide) -- nothing exposed per-team roster *composition* to the
 reasoning agent. This phase closes that, and only that -- composition,
-never valuation (that's Phase 3.9).
+never valuation (that's Phase 6, deferred past Phase 5 -- see below).
 
 **New tool: `get_league_rosters`.** Backed by a new
 `src/rag/lookup.py:all_team_rosters()` (every team's roster, grouped by
@@ -343,55 +343,11 @@ had the model believe a now-false thing about its own capabilities. A
 compound trade question should now get a real, grounded partial answer
 (which teams have surplus at the weak position) plus an honest
 `data_gaps` entry for the still-missing valuation piece -- not a
-fully-resolved trade recommendation (Phase 3.9's job) and not a bare
-decline (the old Phase 3.7 behavior, now an under-answer given the new
-tool).
+fully-resolved trade recommendation (Phase 6's job, deferred past Phase 5
+-- see below) and not a bare decline (the old Phase 3.7 behavior, now an
+under-answer given the new tool).
 
-**Explicitly out of scope**: trade valuation itself (Phase 3.9),
-`src/scheduler/refresh.py`, `report.py`.
-
-## Phase 3.9: A crude, explicitly-labeled trade-value proxy
-The remaining gap after Phase 3.8: the agent can say which teams have
-surplus/need at a position, but still can't reason about whether a
-specific trade is fair -- is your TE worth their spare RB? Real value
-modeling (season-long projections, position-scarcity curves) is
-genuinely hard and not appropriate to build in one pass. This phase
-builds the honest, cheap version instead, clearly labeled as a proxy --
-the same pattern `report.py`'s waiver `opportunity_score` already
-establishes (an explicitly-labeled heuristic, never presented as a real
-valuation model).
-
-**The single new signal**: season-long fantasy points scored so far this
-season, per player, computed from real nflverse weekly stats using this
-league's actual Sleeper scoring settings (the same settings
-`matchup_signals.py`/`report.py` already read), summed as-of the current
-week -- strictly respecting the existing as-of-date-filtering rule, never
-a future week. This is the cheapest, most defensible single-number proxy
-for "how good has this player actually been this season" -- explicitly
-NOT "how good will they be," NOT position-scarcity-adjusted, and NOT a
-real trade-value model. Labeled exactly that everywhere it appears
-(field/variable names, system prompt language, docstrings) -- e.g. a
-field literally named `season_points_so_far_proxy`, never a bare `value`.
-
-**Where it's exposed**: through `get_player_signals`'s existing output
-(one more per-player number, not a new capability category), not a new
-tool.
-
-**The harder half is the prompt wording, not the computation.** With
-`get_league_rosters` (3.8) plus this points-so-far proxy, the agent CAN
-now attempt a rough trade suggestion -- "Team X rosters a
-proxy-comparable RB to your weak-TE need" -- but the system prompt must
-make it describe this as a rough, points-based comparison, never as real
-trade value, and must make it name the proxy's real limitations (no
-position-scarcity weighting, no accounting for the other side's own
-roster needs, no injury/schedule adjustment) as part of its reasoning,
-not silently omit them. Getting this qualification language right is the
-actual point of this phase -- the risk is the model overstating a crude
-proxy's reliability, which would quietly reopen the exact fabrication
-problem Phase 3.7 fixed, just dressed up in a real-looking number instead
-of pure invention.
-
-**Explicitly out of scope**: real position-scarcity modeling,
+**Explicitly out of scope**: trade valuation itself (deferred to Phase 6),
 `src/scheduler/refresh.py`, `report.py`.
 
 ## Phase 4 stretch: derived coverage classification
@@ -456,6 +412,60 @@ can honestly say "built for one league, then shipped as a product."
 - [ ] Deploy to free-tier host
 - [ ] Get 2-3 friends in different leagues to actually use it
 - [ ] README: document the "started as one league, generalized to a product" story explicitly
+
+## Phase 6: A crude, explicitly-labeled trade-value proxy
+**Deferred past Phase 5, not dropped**: Phase 3.8's real-model validation
+confirmed a complete, honestly-bounded product (composition + signals +
+an explicit, correctly-refused valuation gap) is demo-ready now -- even
+under a more insistent phrasing ("give me a solid trade proposal I can
+propose right now"), the agent correctly named concrete surplus-position
+trade partners while still explicitly declining valuation/fairness.
+Trade valuation is a real value-add, not a blocker -- this is sequencing,
+not scope-cutting, so it moves after Phase 5 (get a live, demoable
+product out first) rather than sitting between Phase 3.8 and Phase 4.
+
+The remaining gap after Phase 3.8: the agent can say which teams have
+surplus/need at a position, but still can't reason about whether a
+specific trade is fair -- is your TE worth their spare RB? Real value
+modeling (season-long projections, position-scarcity curves) is
+genuinely hard and not appropriate to build in one pass. This phase
+builds the honest, cheap version instead, clearly labeled as a proxy --
+the same pattern `report.py`'s waiver `opportunity_score` already
+establishes (an explicitly-labeled heuristic, never presented as a real
+valuation model).
+
+**The single new signal**: season-long fantasy points scored so far this
+season, per player, computed from real nflverse weekly stats using this
+league's actual Sleeper scoring settings (the same settings
+`matchup_signals.py`/`report.py` already read), summed as-of the current
+week -- strictly respecting the existing as-of-date-filtering rule, never
+a future week. This is the cheapest, most defensible single-number proxy
+for "how good has this player actually been this season" -- explicitly
+NOT "how good will they be," NOT position-scarcity-adjusted, and NOT a
+real trade-value model. Labeled exactly that everywhere it appears
+(field/variable names, system prompt language, docstrings) -- e.g. a
+field literally named `season_points_so_far_proxy`, never a bare `value`.
+
+**Where it's exposed**: through `get_player_signals`'s existing output
+(one more per-player number, not a new capability category), not a new
+tool.
+
+**The harder half is the prompt wording, not the computation.** With
+`get_league_rosters` (3.8) plus this points-so-far proxy, the agent CAN
+now attempt a rough trade suggestion -- "Team X rosters a
+proxy-comparable RB to your weak-TE need" -- but the system prompt must
+make it describe this as a rough, points-based comparison, never as real
+trade value, and must make it name the proxy's real limitations (no
+position-scarcity weighting, no accounting for the other side's own
+roster needs, no injury/schedule adjustment) as part of its reasoning,
+not silently omit them. Getting this qualification language right is the
+actual point of this phase -- the risk is the model overstating a crude
+proxy's reliability, which would quietly reopen the exact fabrication
+problem Phase 3.7 fixed, just dressed up in a real-looking number instead
+of pure invention.
+
+**Explicitly out of scope**: real position-scarcity modeling,
+`src/scheduler/refresh.py`, `report.py`.
 
 ## Eval methodology
 - **Qualitative seed set**: real, researched pregame dilemmas (e.g. Week 5 2025
@@ -565,9 +575,6 @@ into this pattern, just not the model for anything new.
 - [x] Test coverage: named-team lookup, all-teams lookup, unknown team, compound-question orchestration (composition answered, valuation still gapped)
 - [ ] Real-model validation (this sandbox still has no `ANTHROPIC_API_KEY`)
 
-### Phase 3.9: A crude, explicitly-labeled trade-value proxy
-- [ ] Not started
-
 ### Phase 4: Stretch (optional)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper
@@ -581,3 +588,10 @@ into this pattern, just not the model for anything new.
 - [ ] Cost/query caps
 - [ ] Deploy to free-tier host
 - [ ] Get real multi-league usage
+
+### Phase 6: A crude, explicitly-labeled trade-value proxy
+Deferred past Phase 5, not dropped -- see Phase 6's section above for the
+rationale (Phase 3.8's real-model validation confirmed a complete,
+honestly-bounded product is demo-ready now; trade valuation is a
+value-add, not a blocker).
+- [ ] Not started
