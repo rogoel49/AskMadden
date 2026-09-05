@@ -199,15 +199,9 @@ or monetized, it needs to genuinely work for more than one league.
   which previously (accurately, at the time) claimed no tool inspects
   another team's roster at all — now false, and left uncorrected would
   have had the model believe something false about its own capabilities.
-  Trade valuation itself is Phase 3.9's job, not attempted here. See
+  Trade valuation itself is deferred to Phase 6, not attempted here. See
   TODO.md's Phase 3.8 section for full detail, including the live-model
   validation gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
-- Phase 3.9 (crude, explicitly-labeled trade-value proxy): not started.
-  Note: this project still calls it Phase 3.9, not "Phase 6" — a prior
-  session apparently intended to renumber it past Phase 5 but that
-  renumbering was never actually done in PROJECT_SPEC.md/TODO.md/here.
-  Flagging so a future session doesn't assume it happened; not fixed in
-  this session since it was out of scope for Phase 4 work.
 - Phase 4 (coverage classification stretch): optional, attempted and
   blocked before Stage 1, not abandoned. This session confirmed two
   things worth recording before the next attempt: (1) contrary to how
@@ -229,6 +223,12 @@ or monetized, it needs to genuinely work for more than one league.
   Kaggle credentials plus a sandbox with kaggle.com allowed, or the data
   downloaded outside the sandbox and handed in directly).
 - Phase 5 (productization — final deliverable): not started
+- Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
+  Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
+  confirmed a complete, honestly-bounded product (composition + signals +
+  an explicit, correctly-refused valuation gap) is demo-ready now. Trade
+  valuation is a real value-add, not a blocker — this is sequencing, not
+  scope-cutting.
 
 Always check TODO.md for the up-to-date task list within the active phase.
 

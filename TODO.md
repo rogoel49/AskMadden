@@ -625,7 +625,8 @@ not a permanent one. The data already exists and is already ingested
 `lookup.py`'s `all_rostered_players()` already proved the data is
 accessible league-wide) -- nothing exposed per-team roster *composition*
 to the reasoning agent. This phase closes exactly that, and only that --
-composition, never valuation (Phase 3.9's job).
+composition, never valuation (deferred to Phase 6, after Phase 5 -- see
+that section for why).
 
 This session: full `pytest` suite is 145/145 (138 before this session; 7
 new tests: 3 in `tests/test_lookup.py`, 3 dispatch-level +
@@ -679,15 +680,7 @@ new tests: 3 in `tests/test_lookup.py`, 3 dispatch-level +
       `get_league_rosters`, cites real teams/rosters, and still declines
       trade fairness/specific offers -- still outstanding.
 - [ ] Not touched, deliberately out of scope: trade valuation itself
-      (Phase 3.9), `src/scheduler/refresh.py`, `report.py`.
-
-## Phase 3.9: A crude, explicitly-labeled trade-value proxy
-Not started. See `PROJECT_SPEC.md`'s Phase 3.9 section for the planned
-scope (a `season_points_so_far_proxy` field on `get_player_signals`,
-computed from real nflverse weekly stats + this league's actual scoring
-settings, as-of-date filtered -- explicitly not a real trade-value model,
-labeled as a proxy everywhere it appears, same pattern as `report.py`'s
-waiver `opportunity_score`).
+      (deferred to Phase 6), `src/scheduler/refresh.py`, `report.py`.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
@@ -738,3 +731,22 @@ and Phases 2-3 are actually done, not just assumed done.**
 - [ ] Deploy to free-tier host (Railway/Render/Fly.io)
 - [ ] Get 2-3 friends in different leagues to actually use it
 - [ ] README: document the "started as one league, generalized to a product" story explicitly
+
+## Phase 6: A crude, explicitly-labeled trade-value proxy
+Not started. Deferred past Phase 5, not dropped: Phase 3.8's real-model
+validation confirmed a complete, honestly-bounded product (composition +
+signals + an explicit, correctly-refused valuation gap) is demo-ready
+now -- confirmed live that a compound trade question correctly
+identifies real composition (weak position, surplus-position trade
+partners named concretely) while explicitly and correctly declining
+valuation/fairness, even under a more insistent phrasing ("give me a
+solid trade proposal I can propose right now"). Trade valuation is a
+real value-add, not a blocker -- this is sequencing, not scope-cutting.
+
+See `PROJECT_SPEC.md`'s Phase 6 section for the planned scope (a
+`season_points_so_far_proxy` field on `get_player_signals`, computed from
+real nflverse weekly stats + this league's actual scoring settings,
+as-of-date filtered -- explicitly not a real trade-value model, labeled
+as a proxy everywhere it appears, same pattern as `report.py`'s waiver
+`opportunity_score`).
+- [ ] Not started
