@@ -307,6 +307,75 @@ def test_get_current_matchup_reports_a_note_when_week_not_ingested(tmp_path, mon
     assert "has been ingested" in result["note"]  # "No matchup data ... has been ingested" (not a guess)
 
 
+# ---- Phase 3.8: get_league_rosters (composition, never valuation) ----
+
+
+def _make_ctx_with_two_full_rosters(tmp_path, players_df) -> recommend.RecommendContext:
+    """Two teams, both with real rostered players -- for get_league_rosters
+    composition tests. Player identities here are plain Sleeper-space
+    fixtures (get_league_rosters reads teams.json/players.json directly,
+    no nflverse name resolution involved), unlike players_df (used for
+    get_player_signals' separate resolution path in the same ctx)."""
+    ctx = _make_ctx(tmp_path, players_df)
+    _write(
+        ctx.raw_dir,
+        "teams.json",
+        [
+            {
+                "roster_id": 1, "owner_id": "u1", "display_name": "rogoel49", "team_name": "Victorious Secret",
+                "players": ["sleeper_cmc"], "starters": ["sleeper_cmc"], "settings": {},
+            },
+            {
+                "roster_id": 2, "owner_id": "u2", "display_name": "rival", "team_name": "Rival Team",
+                "players": ["sleeper_rb1", "sleeper_rb2", "sleeper_te1"], "starters": [], "settings": {},
+            },
+        ],
+    )
+    _write(
+        ctx.raw_dir,
+        "players.json",
+        {
+            "sleeper_cmc": {"full_name": "Christian McCaffrey", "position": "RB", "team": "SF"},
+            "sleeper_rb1": {"full_name": "Rival RB One", "position": "RB", "team": "KC"},
+            "sleeper_rb2": {"full_name": "Rival RB Two", "position": "RB", "team": "KC"},
+            "sleeper_te1": {"full_name": "Rival TE One", "position": "TE", "team": "KC"},
+        },
+    )
+    return ctx
+
+
+def test_get_league_rosters_returns_every_team_by_default(tmp_path):
+    players = pl.DataFrame([_CHRISTIAN_ROW])
+    ctx = _make_ctx_with_two_full_rosters(tmp_path, players)
+
+    result = recommend.dispatch_tool("get_league_rosters", {}, ctx)
+
+    assert {t["roster_id"] for t in result["teams"]} == {1, 2}
+    rival = next(t for t in result["teams"] if t["roster_id"] == 2)
+    assert rival["counts_by_position"] == {"RB": 2, "TE": 1}
+
+
+def test_get_league_rosters_filters_to_one_named_team(tmp_path):
+    players = pl.DataFrame([_CHRISTIAN_ROW])
+    ctx = _make_ctx_with_two_full_rosters(tmp_path, players)
+
+    result = recommend.dispatch_tool("get_league_rosters", {"owner_display_name": "rival"}, ctx)
+
+    assert len(result["teams"]) == 1
+    assert result["teams"][0]["team_name"] == "Rival Team"
+    assert {p["name"] for p in result["teams"][0]["players"]} == {"Rival RB One", "Rival RB Two", "Rival TE One"}
+
+
+def test_get_league_rosters_unknown_owner_reports_error_not_a_guess(tmp_path):
+    players = pl.DataFrame([_CHRISTIAN_ROW])
+    ctx = _make_ctx_with_two_full_rosters(tmp_path, players)
+
+    result = recommend.dispatch_tool("get_league_rosters", {"owner_display_name": "nobody"}, ctx)
+
+    assert "error" in result
+    assert "teams" not in result
+
+
 # ---- orchestration loop, driven by a fake Anthropic client ----
 
 
@@ -511,6 +580,98 @@ def test_recommend_answers_the_answerable_half_of_a_compound_question(tmp_path, 
     assert "player_name" not in result["data_gaps"][0]
 
 
+def test_recommend_uses_get_league_rosters_for_composition_but_still_declines_valuation(tmp_path, monkeypatch):
+    """Phase 3.8: orchestration-wiring proof, not model-behavior proof --
+    same honest framing as Phase 3.7's compound-question test. Scripts
+    the now-possible ideal behavior (call get_league_rosters, cite a real
+    composition fact, still record a data_gaps entry for the still-missing
+    valuation piece) and confirms recommend() carries it through
+    correctly. It does not prove a real model chooses to call
+    get_league_rosters or phrase the caveat this way -- only real-model
+    validation can (see TODO.md's Phase 3.8 section)."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    _write(
+        raw_dir,
+        "teams.json",
+        [
+            {
+                "roster_id": 1, "owner_id": "u1", "display_name": "rogoel49", "team_name": "Victorious Secret",
+                "players": ["sleeper_cmc"], "starters": ["sleeper_cmc"], "settings": {},
+            },
+            {
+                "roster_id": 2, "owner_id": "u2", "display_name": "rival", "team_name": "Rival Team",
+                "players": ["sleeper_rb1", "sleeper_rb2"], "starters": [], "settings": {},
+            },
+        ],
+    )
+    _write(
+        raw_dir,
+        "players.json",
+        {
+            "sleeper_cmc": {"full_name": "Christian McCaffrey", "position": "RB", "team": "SF"},
+            "sleeper_rb1": {"full_name": "Rival RB One", "position": "RB", "team": "KC"},
+            "sleeper_rb2": {"full_name": "Rival RB Two", "position": "RB", "team": "KC"},
+        },
+    )
+    embed.embed(embed.build_signal_chunks([_CHRISTIAN_SIGNAL_ROW]), persist_dir=persist_dir)
+
+    responses = [
+        SimpleNamespace(content=[_tool_use_block("get_my_roster", {})]),
+        SimpleNamespace(content=[_tool_use_block("get_league_rosters", {})]),
+        SimpleNamespace(
+            content=[
+                _tool_use_block(
+                    "submit_recommendation",
+                    {
+                        "recommendation": "Your weakest position is TE (none rostered). Rival Team rosters 2 RBs and 0 TEs.",
+                        "reasoning": (
+                            "get_my_roster shows no TE at all. get_league_rosters shows Rival Team has 2 RBs "
+                            "and 0 TEs -- real roster composition, not a guess."
+                        ),
+                        "data_gaps": [
+                            {
+                                "reason": "out_of_scope_capability",
+                                "detail": (
+                                    "Can't assess whether a trade would be fair or what to offer -- no tool "
+                                    "here values assets or compares player worth across teams yet."
+                                ),
+                            }
+                        ],
+                    },
+                    id_="tool_3",
+                )
+            ]
+        ),
+    ]
+    client = _FakeClient(responses)
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    result = recommend.recommend(
+        "What's my weakest position, and which teams might be willing to trade at that position?",
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+    )
+
+    assert result["error"] is None
+    assert "Rival Team" in result["recommendation"]
+    tool_names = [c["name"] for c in result["tool_calls"]]
+    assert "get_league_rosters" in tool_names
+    league_rosters_result = next(c["result"] for c in result["tool_calls"] if c["name"] == "get_league_rosters")
+    assert any(t["team_name"] == "Rival Team" and t["counts_by_position"] == {"RB": 2} for t in league_rosters_result["teams"])
+    assert len(result["data_gaps"]) == 1
+    assert result["data_gaps"][0]["reason"] == "out_of_scope_capability"
+    assert "fair" in result["data_gaps"][0]["detail"] or "value" in result["data_gaps"][0]["detail"]
+
+
 def test_recommend_does_not_reject_ungrounded_trade_advice_at_the_code_level(tmp_path, monkeypatch):
     """Honest limitation, not a real safeguard: recommend() has no code-
     level check on what a model puts in `reasoning` -- if a (real) model
@@ -587,8 +748,8 @@ def test_system_prompt_explicitly_bars_ungrounded_trade_advice():
         {"name": "Test League"}, {"rec": 0.5}, season=2024, as_of_week=8
     )
 
-    assert "must be backed by an actual tool call you made THIS turn" in prompt
-    assert "find_owner only tells you who owns one named player" in prompt
+    assert "must be backed by an actual get_league_rosters" in prompt
+    assert "there is still no tool for trade value, fairness, or 'what should I offer'" in prompt
     assert "do not improvise one" in prompt
 
 

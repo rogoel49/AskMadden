@@ -304,6 +304,96 @@ validation is the primary check for this addendum, not incidental --
 re-running the exact real compound question is the only thing that can
 confirm the fix.
 
+## Phase 3.8: Roster-composition visibility across the league
+Closes one real gap Phase 3.7's honest decline left behind: after #15,
+asking "who should I trade with" correctly declined to fabricate an
+answer and correctly explained why -- but the explanation ("no tool
+inspects another team's roster") was itself a closeable gap, not a
+permanent one. The data already exists and is already ingested (Sleeper's
+own roster endpoint returns every team's roster; `lookup.py`'s
+`all_rostered_players()` already proves the data is accessible
+league-wide) -- nothing exposed per-team roster *composition* to the
+reasoning agent. This phase closes that, and only that -- composition,
+never valuation (that's Phase 3.9).
+
+**New tool: `get_league_rosters`.** Backed by a new
+`src/rag/lookup.py:all_team_rosters()` (every team's roster, grouped by
+position, with a per-position count) and `team_roster_for_owner()` (the
+same, filtered to one team) -- the league-wide, per-team-grouped
+counterpart to the existing `my_players()`. The tool itself takes an
+optional `owner_display_name`: omit it to survey every team in the
+league at once (the useful shape for "which teams have surplus/need at a
+position"), or give one team's owner display name to look at just that
+team. Wired into `recommend.py`'s tool dispatch and
+`submit_recommendation`'s tool list the same way every other tool is.
+
+**Keeping Phase 3.7's anti-fabrication rule intact was the whole point.**
+This tool tells the agent WHAT a team has -- it still says nothing about
+whether a trade is fair, what a player is worth, or what to offer. The
+system prompt is updated carefully, not just additively: the compound-
+question guidance now says the trade-partner half is *partially*
+answerable (composition, via `get_league_rosters`) but the valuation half
+still isn't, and the anti-fabrication paragraph now explicitly allows a
+composition claim when `get_league_rosters` actually supports it while
+still blocking any claim about trade value, fairness, or what to offer.
+`find_owner`'s own tool description is also corrected -- it previously
+said "no tool here inspects another team's full roster," which was true
+before this phase and is no longer true; leaving it unedited would have
+had the model believe a now-false thing about its own capabilities. A
+compound trade question should now get a real, grounded partial answer
+(which teams have surplus at the weak position) plus an honest
+`data_gaps` entry for the still-missing valuation piece -- not a
+fully-resolved trade recommendation (Phase 3.9's job) and not a bare
+decline (the old Phase 3.7 behavior, now an under-answer given the new
+tool).
+
+**Explicitly out of scope**: trade valuation itself (Phase 3.9),
+`src/scheduler/refresh.py`, `report.py`.
+
+## Phase 3.9: A crude, explicitly-labeled trade-value proxy
+The remaining gap after Phase 3.8: the agent can say which teams have
+surplus/need at a position, but still can't reason about whether a
+specific trade is fair -- is your TE worth their spare RB? Real value
+modeling (season-long projections, position-scarcity curves) is
+genuinely hard and not appropriate to build in one pass. This phase
+builds the honest, cheap version instead, clearly labeled as a proxy --
+the same pattern `report.py`'s waiver `opportunity_score` already
+establishes (an explicitly-labeled heuristic, never presented as a real
+valuation model).
+
+**The single new signal**: season-long fantasy points scored so far this
+season, per player, computed from real nflverse weekly stats using this
+league's actual Sleeper scoring settings (the same settings
+`matchup_signals.py`/`report.py` already read), summed as-of the current
+week -- strictly respecting the existing as-of-date-filtering rule, never
+a future week. This is the cheapest, most defensible single-number proxy
+for "how good has this player actually been this season" -- explicitly
+NOT "how good will they be," NOT position-scarcity-adjusted, and NOT a
+real trade-value model. Labeled exactly that everywhere it appears
+(field/variable names, system prompt language, docstrings) -- e.g. a
+field literally named `season_points_so_far_proxy`, never a bare `value`.
+
+**Where it's exposed**: through `get_player_signals`'s existing output
+(one more per-player number, not a new capability category), not a new
+tool.
+
+**The harder half is the prompt wording, not the computation.** With
+`get_league_rosters` (3.8) plus this points-so-far proxy, the agent CAN
+now attempt a rough trade suggestion -- "Team X rosters a
+proxy-comparable RB to your weak-TE need" -- but the system prompt must
+make it describe this as a rough, points-based comparison, never as real
+trade value, and must make it name the proxy's real limitations (no
+position-scarcity weighting, no accounting for the other side's own
+roster needs, no injury/schedule adjustment) as part of its reasoning,
+not silently omit them. Getting this qualification language right is the
+actual point of this phase -- the risk is the model overstating a crude
+proxy's reliability, which would quietly reopen the exact fabrication
+problem Phase 3.7 fixed, just dressed up in a real-looking number instead
+of pure invention.
+
+**Explicitly out of scope**: real position-scarcity modeling,
+`src/scheduler/refresh.py`, `report.py`.
+
 ## Phase 4 stretch: derived coverage classification
 Real man/zone or coverage-shell labels aren't free (PFF/SIS charting is
 paywalled), but they can be *derived* from NFL Big Data Bowl tracking
@@ -466,6 +556,17 @@ into this pattern, just not the model for anything new.
       gap" -- Gap 2 validated clean for real; Gap 1's original fix did
       not, see Phase 3.7's addendum above. Real-model re-validation still
       needed (flagged, not done in this sandbox).
+
+### Phase 3.8: Roster-composition visibility across the league
+- [x] `src/rag/lookup.py`: `all_team_rosters()` / `team_roster_for_owner()`
+- [x] New `get_league_rosters` tool, wired into `recommend.py`'s dispatch and tool list
+- [x] System prompt updated: composition is now partially answerable, valuation still isn't -- without contradicting itself
+- [x] `find_owner`'s tool description corrected (no longer claims league-wide roster inspection is entirely impossible)
+- [x] Test coverage: named-team lookup, all-teams lookup, unknown team, compound-question orchestration (composition answered, valuation still gapped)
+- [ ] Real-model validation (this sandbox still has no `ANTHROPIC_API_KEY`)
+
+### Phase 3.9: A crude, explicitly-labeled trade-value proxy
+- [ ] Not started
 
 ### Phase 4: Stretch (optional)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
