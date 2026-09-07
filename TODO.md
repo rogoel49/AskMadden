@@ -736,20 +736,109 @@ shown up in Phase 5.2 in production.
 - [ ] Weekly auto-generated lineup recommendations
 
 ## Phase 5: Productization (final deliverable)
-Turns this from a single-league tool into a small real product: paste
-in any Sleeper league ID, get the same signals-backed recommendations.
-No password/OAuth, no payments — a portfolio deliverable, not a
-business. See `PROJECT_SPEC.md`'s Phase 5 section for full detail and
-success criteria. **Not started — do not begin until Phase 1 validation
-and Phases 2-3 are actually done, not just assumed done.**
-- [ ] Pull Sleeper scoring settings per league; parameterize signals/recommend accordingly
-- [ ] Build storage layer: league_id/team_id → user mapping (SQLite)
-- [ ] Build API layer (`src/api/`) wrapping recommend.py, scoped per league_id
-- [ ] Build minimal web frontend (`web/`): register league → view roster → ask/recommend
-- [ ] Add per-user/day query caps to bound Claude API spend
+
+Turns this from a single-league tool into a small real product: anyone
+can connect their own Sleeper account, pick a league, and get the same
+signals-backed recommendations. No password/OAuth, no payments — a
+portfolio deliverable, not a business. See PROJECT_SPEC.md's Phase 5
+section for full detail, rationale, and success criteria.
+
+Not started. Phase 4 is explicitly optional and not a blocker (see
+above) — the actual gate was Phases 1-3.8, which are done. Phase 3.7's
+anti-fabrication addendum and Phase 3.8's roster-composition tool
+(get_league_rosters) are both real-model validated and closed as of
+this update — see their respective sections above. Phase 6 (the
+points-based trade-value proxy) is deferred past Phase 5 by design, not
+a prerequisite — see Phase 6's own section for the rationale.
+
+A UI design for this phase already exists, built outside a Claude Code
+session: design/askmadden-ui-mockup.html — a static (no real data)
+HTML/CSS/JS prototype of the login, league picker, and Feed/Chat/
+Roster/Moves flow. Phase 5.3 below wires it to real data; it is not a
+from-scratch design task.
+
+Sequencing constraint, same shape as every prior phase's dependency
+chain: 5.1 and 5.2 (backend) must exist before 5.3 (frontend) is
+anything but a static demo calling nothing real.
+
+### 5.1 — Scoring + league parameterization
+- [ ] recommend() and generate_report() accept league_id as a
+      required parameter instead of operating on whatever's currently
+      ingested
+- [ ] Pull per-league scoring settings from Sleeper's
+      /league/<league_id> endpoint, pass through instead of assuming
+      half-PPR
+- [ ] Regression check: Victorious Secret 3.0's existing output is
+      unchanged before/after — half-PPR becomes the first
+      parameterized case, not a special one
+- [ ] Verify (same check every phase so far has run): no change here
+      touches matchup_signals.py or rag/ — the per-league join stays
+      confined to recommend.py/report.py's existing pattern
+
+### 5.2 — API + storage layer
+- [ ] src/api/auth.py: Sleeper username to GET /v1/user/<username> to
+      user_id to GET /v1/user/<user_id>/leagues/nfl/<season> for the
+      league list. No password, no OAuth, per the original spec.
+- [ ] src/api/storage.py: SQLite, username to [league_id], plus which
+      league is active per session
+- [ ] src/api/main.py (FastAPI): endpoints wrapping recommend() and
+      generate_report() — leagues, roster, recommendations, chat
+      (chat needs to accept/return messages for multi-turn, per
+      Phase 3.5)
+- [ ] data_gaps (Phase 3.7) and stale/source_season markers (Phase
+      3.6) pass through the API response unmodified — don't collapse
+      three distinct facts into one flag
+- [ ] Per-user/day query caps to bound Claude API spend
+
+### 5.3 — Wire the mockup to real data
+design/askmadden-ui-mockup.html has no framework dependency, so this
+is a wiring pass:
+- [ ] Login screen to real /api/leagues call, replacing the mockup's
+      hardcoded two-league array
+- [ ] League picker + switch-league sheet to real league list (both
+      already share one render function in the mockup)
+- [ ] Feed tab to real recommendations endpoint
+- [ ] Chat tab to real chat endpoint; add distinct chip styles for
+      stale, no_signal_data, and out_of_scope_capability (the mockup
+      currently only has one amber "stale" chip covering what are,
+      per Phase 3.6/3.7, three different facts)
+- [ ] Roster tab to real roster endpoint
+- [ ] Moves to Trades: no longer a placeholder — Phase 3.8's
+      get_league_rosters tool is real-model validated (composition
+      and surplus-need across the league), so this tab should show
+      real data: your weakest position, which teams have surplus
+      there, by name. Label this clearly as composition/surplus
+      insight, not a trade grade or a specific proposal — the
+      mockup's dimmed "Grading not live yet" framing should be
+      replaced with something like "Who might trade with you"
+      (composition, real, live) plus a separate, clearly-secondary
+      note that valuation/fairness grading is Phase 6, not yet built.
+      Do not wire any UI element to a fabricated trade value or
+      fairness score — that data genuinely doesn't exist until Phase
+      6 lands.
+
+### 5.4 — PWA installability
+- [ ] manifest.json (icons, theme-color, display: standalone)
+- [ ] Minimal service worker (cache-first static assets is enough)
+- [ ] Verify "Add to Home Screen" on iOS Safari and Android Chrome —
+      this is the actual mechanism for getting this on a phone, no
+      App Store submission
+
+### 5.5 — Marketing site (new scope, not in the original Phase 5 spec)
+- [ ] web/site/index.html: wide desktop layout, pitch, product
+      screenshots, eval numbers once they exist at volume, CTA into
+      web/app/'s login
+- [ ] Shares web/shared/tokens.css with the app — same colors/type,
+      no duplication
+- [ ] Static — no auth, no API calls
+
+### 5.6 — Deployment
+- [ ] FastAPI mounts web/app/ and web/site/ as static routes — one
+      deployment, one URL, no CORS
 - [ ] Deploy to free-tier host (Railway/Render/Fly.io)
 - [ ] Get 2-3 friends in different leagues to actually use it
-- [ ] README: document the "started as one league, generalized to a product" story explicitly
+- [ ] README: document the "started as one league, generalized to a
+      product" story, with real eval numbers from run_decision_eval.py
 
 ## Phase 6: A crude, explicitly-labeled trade-value proxy
 Not started. Deferred past Phase 5, not dropped: Phase 3.8's real-model

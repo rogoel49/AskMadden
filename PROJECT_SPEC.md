@@ -403,15 +403,89 @@ Ask Madden gives for Victorious Secret 3.0. Deliberately scoped small:
 different leagues (not just Victorious Secret 3.0), and a README that
 can honestly say "built for one league, then shipped as a product."
 
-### Phase 5 TODO
-- [ ] Pull Sleeper scoring settings per league; parameterize signals/recommend accordingly
-- [ ] Build storage layer: league_id/team_id → user mapping (SQLite)
-- [ ] Build API layer wrapping recommend.py, scoped per league_id
-- [ ] Build minimal web frontend: register league → view roster → ask/recommend
-- [ ] Add per-user/day query caps
-- [ ] Deploy to free-tier host
+### Phase 5 sub-plan
+
+Two frontend deliverables now instead of one: the "minimal web UI"
+this section already describes, and a public marketing page for the
+portfolio story (new — see 5.5). A UI design already exists, built
+outside a Claude Code session: design/askmadden-ui-mockup.html, a
+static (no real data) HTML/CSS/JS prototype of the login, league
+picker, and Feed/Chat/Roster/Moves flow. Phase 5.3 wires it up; it is
+not a from-scratch design task.
+
+Sequencing constraint, same shape as every prior phase's dependency
+chain: 5.1 and 5.2 (backend) must exist before 5.3 (frontend) is
+anything but a static demo. Do not start frontend work before
+recommend() accepts league_id as a parameter.
+
+Phase 4 is not a gate here — it's explicitly optional stretch work
+(coverage classification, Discord bot, weekly auto-lineups), unrelated
+to productization. Phase 5's actual prerequisite is Phases 1-3.8, all
+of which are done and real-model validated, including Phase 3.8's
+get_league_rosters composition tool. Phase 6 (points-based trade-value
+proxy) is deferred past Phase 5 by design — see Phase 6's section for
+why — and is not a prerequisite either.
+
+#### 5.1 — Scoring + league parameterization
+matchup_signals.py and recommend()/generate_report() currently operate
+on whatever's already ingested — implicitly Victorious Secret 3.0's
+half-PPR settings. Sleeper's league API already returns scoring
+settings per league — pull and pass those through. Contained work: the
+signals/RAG layer itself stays league-agnostic; only the per-league
+join at query time changes.
+
+- [ ] recommend() / generate_report() accept league_id as a required
+      parameter
+- [ ] Pull scoring settings from Sleeper per league
+- [ ] Regression check: Victorious Secret 3.0 output unchanged
+
+#### 5.2 — API + storage layer
+- [ ] src/api/auth.py: Sleeper username to user_id to league list
+      (read-only, no password/OAuth)
+- [ ] src/api/storage.py: SQLite, username to [league_id]
+- [ ] src/api/main.py (FastAPI): endpoints wrapping recommend() and
+      generate_report()
+- [ ] data_gaps (Phase 3.7) and stale/source_season markers (Phase
+      3.6) pass through unmodified — three distinct facts, not one
+      flag
+- [ ] Per-user/day query caps
+
+#### 5.3 — Wire the mockup to real data
+- [ ] Login, league picker, switch-league sheet to real /api/leagues
+- [ ] Feed, Roster tabs to real endpoints
+- [ ] Chat tab to real endpoint; add distinct chip styles for stale,
+      no_signal_data, and out_of_scope_capability (the mockup
+      currently collapses all three into one amber "stale" chip)
+- [ ] Moves to Trades: shows real composition/surplus-need data via
+      get_league_rosters (Phase 3.8, real-model validated) — weakest
+      position, which teams have surplus there, by name. Not a
+      placeholder. Labeled clearly as composition insight, with
+      valuation/fairness grading called out as Phase 6, not yet
+      built — never wired to a fabricated trade value
+
+#### 5.4 — PWA installability
+- [ ] manifest.json, minimal service worker
+- [ ] Verify "Add to Home Screen" on iOS Safari and Android Chrome —
+      the actual mechanism for a phone install, no App Store
+      submission
+
+#### 5.5 — Marketing site (new scope)
+A second, public-facing page, wide desktop layout — not the
+phone-frame app. Pitch, product screenshots, eval numbers once they
+exist at volume, a CTA into the app's login. Shares design tokens with
+the app so the two read as one product.
+
+- [ ] web/site/index.html
+- [ ] Shared web/shared/tokens.css between site and app
+- [ ] Static — no auth, no API calls
+
+#### 5.6 — Deployment
+- [ ] FastAPI mounts web/app/ and web/site/ as static routes — one
+      deployment, one URL, no CORS
+- [ ] Free-tier host (Railway/Render/Fly.io)
 - [ ] Get 2-3 friends in different leagues to actually use it
-- [ ] README: document the "started as one league, generalized to a product" story explicitly
+- [ ] README: "started as one league, generalized to a product," with
+      real eval numbers from run_decision_eval.py
 
 ## Phase 6: A crude, explicitly-labeled trade-value proxy
 **Deferred past Phase 5, not dropped**: Phase 3.8's real-model validation
