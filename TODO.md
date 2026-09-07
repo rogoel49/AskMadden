@@ -682,6 +682,54 @@ new tests: 3 in `tests/test_lookup.py`, 3 dispatch-level +
 - [ ] Not touched, deliberately out of scope: trade valuation itself
       (deferred to Phase 6), `src/scheduler/refresh.py`, `report.py`.
 
+## Fixed: recommend()/generate_report() silently depended on the CLI's main() to load .env
+Not part of any phase's planned scope -- a real gap found by investigation
+(`python -c "from src.reasoning.recommend import recommend;
+recommend('...')"` failed with an Anthropic auth error even though
+`python -m src.reasoning.recommend "..."` worked with the same `.env`
+file). Confirmed, not assumed: `load_dotenv()` was only ever called
+inside each module's own CLI `main()` (`src/reasoning/recommend.py`,
+`src/reasoning/report.py`) -- `recommend()` and `generate_report()`
+themselves never called it, so calling either directly (skipping the CLI
+entry point entirely) never populated `ANTHROPIC_API_KEY`/`MY_ROSTER_ID`
+from `.env` at all. Reproduced the exact mechanism directly: with
+`ANTHROPIC_API_KEY` absent from the environment, `anthropic.Anthropic()`
+constructs without error, but the first real `.messages.create()` call
+fails with `TypeError: Could not resolve authentication method...` --
+exactly the reported "Anthropic auth error" symptom, and it happens
+before any network call.
+
+This matters beyond a one-off `-c` repro: Phase 5.2's API layer will
+import and call `recommend()`/`generate_report()` directly, the same way
+the failing one-liner did -- left unfixed, the same failure would have
+shown up in Phase 5.2 in production.
+- [x] `recommend()` and `generate_report()` now call `load_dotenv()`
+      themselves, as their own first statement -- `python-dotenv` was
+      already an established project dependency (`requirements.txt`,
+      already used the same way in `cli.py`/`sleeper.py`/both modules'
+      own `main()`), so this matches the existing pattern rather than
+      introducing a new one. `load_dotenv()`'s default behavior (never
+      overrides a variable already present in the environment) is
+      exactly the "production-correct" semantics needed: real env vars
+      (Phase 5.2's actual deployment target) always win, and it's a
+      cheap no-op when no `.env` file exists at all (the normal
+      production case) -- so this doesn't just paper over local dev, it
+      is correct in both cases.
+- [x] Removed the now-redundant `load_dotenv()` calls from both modules'
+      `main()` (every path through `main()` reaches `recommend()` or
+      `generate_report()`, which now load it themselves) rather than
+      leaving a duplicate call sitting in two places.
+- [x] Test coverage: `tests/test_recommend.py`'s
+      `test_recommend_loads_dotenv_itself_not_only_via_cli_main` (spies on
+      `load_dotenv` to confirm `recommend()` actually calls it -- verified
+      to fail against the pre-fix code) and
+      `test_recommend_works_when_called_directly_with_env_already_set`
+      (the production-correct path: real env vars already set, no `.env`
+      file involved, called directly rather than via the CLI);
+      `tests/test_report.py`'s equivalent
+      `test_generate_report_loads_dotenv_itself_not_only_via_cli_main`.
+      Full `pytest` suite: 148/148 (145 before this fix; 3 new tests).
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

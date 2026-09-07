@@ -129,6 +129,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+from dotenv import load_dotenv
 
 from src.rag import lookup, player_index
 from src.rag.embed import CHROMA_DIR, RAW_DIR
@@ -619,7 +620,15 @@ def generate_report(
     most recent prior season's data, explicitly marked stale in every
     output (never silently) -- see module docstring's "Prior-season
     signal fallback" section.
+
+    Loads .env itself so MY_ROSTER_ID (needed for start_sit/drop) is
+    available whether this is called via the CLI or imported directly --
+    see src/reasoning/recommend.py's recommend() for the same fix and
+    why it's needed (this function had the identical gap: env loading
+    only happened in this module's own main(), not here).
     """
+    load_dotenv()
+
     if report_type not in REPORT_TYPES:
         raise ValueError(f"Unknown report_type {report_type!r} -- must be one of {REPORT_TYPES}.")
 
@@ -658,9 +667,6 @@ def _print_report(report: dict) -> None:
 def main() -> None:
     import argparse
 
-    from dotenv import load_dotenv
-
-    load_dotenv()
     parser = argparse.ArgumentParser(description="Ask Madden: generate a structured roster/waiver report")
     parser.add_argument("report_type", choices=REPORT_TYPES)
     parser.add_argument("--season", type=int, default=None)

@@ -566,7 +566,25 @@ def recommend(
     code identifying why, so a caller (the CLI, an eval harness) always
     gets a well-formed response to work with rather than an unhandled
     exception.
+
+    Loads .env itself (see the comment just below) so this works whether
+    called via the CLI or imported directly -- e.g.
+    `from src.reasoning.recommend import recommend`, the same way Phase
+    5's API layer will call it.
     """
+    # load_dotenv() only sets a variable if it isn't already in the
+    # environment, so this is safe/correct in production too: real env
+    # vars (Phase 5.2's deployment target) always win, and this is a
+    # cheap no-op if no .env file exists (the normal production case).
+    # This used to only happen in main() (this module's CLI entry
+    # point), which meant recommend() silently depended on being called
+    # via `python -m src.reasoning.recommend` -- calling it directly
+    # (e.g. `from src.reasoning.recommend import recommend`, the same
+    # way Phase 5's API layer will) skipped it entirely and failed with
+    # an Anthropic auth error instead of a clear "ANTHROPIC_API_KEY not
+    # set" message, since ANTHROPIC_API_KEY was never loaded from .env.
+    load_dotenv()
+
     league_path = raw_dir / "league.json"
     if not league_path.exists():
         raise RuntimeError(f"{league_path} doesn't exist -- run `python -m src.ingest.sleeper` first.")
@@ -694,7 +712,10 @@ def _run_repl(season: int | None, as_of_week: int | None) -> None:
 
 
 def main() -> None:
-    load_dotenv()
+    # Not calling load_dotenv() here anymore -- recommend()/generate_report()
+    # (both reached from every branch below) now load it themselves, so a
+    # caller that imports and calls them directly (skipping this CLI
+    # entry point entirely) gets the same behavior instead of a silent gap.
     parser = argparse.ArgumentParser(description="Ask Madden: retrieval + signals -> Claude recommendation")
     parser.add_argument("question", nargs="?", help="a single question; omit this and pass --interactive instead")
     parser.add_argument("--season", type=int, default=None)
