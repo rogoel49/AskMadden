@@ -1055,3 +1055,78 @@ def test_eval_style_calls_never_carry_state_between_independent_questions(tmp_pa
     sent_to_b = client_b.messages.calls[0]["messages"]
     assert len(sent_to_b) == 1
     assert sent_to_b[0]["content"] == "second independent question"
+
+
+# ---- env loading: recommend()/generate_report() must not depend on the
+# CLI's main() to have run first (Phase 5.2's API layer will import and
+# call these directly, the same way `python -c "from
+# src.reasoning.recommend import recommend; recommend(...)"` does) ----
+
+
+def test_recommend_loads_dotenv_itself_not_only_via_cli_main(tmp_path, monkeypatch):
+    """Regression test: recommend() used to rely entirely on the CLI's
+    main() having already called load_dotenv() -- calling recommend()
+    directly (e.g. `from src.reasoning.recommend import recommend`,
+    skipping main() entirely) never loaded .env at all, so
+    ANTHROPIC_API_KEY (or anything else meant to come from .env) was
+    silently missing and the real anthropic.Anthropic() client failed
+    with an auth error instead of picking it up. Confirms recommend()
+    now calls load_dotenv() itself, regardless of how it's invoked."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    embed.embed([], persist_dir=persist_dir)
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
+
+    calls = []
+    monkeypatch.setattr(recommend, "load_dotenv", lambda *a, **kw: calls.append((a, kw)))
+
+    client = _FakeClient(
+        [SimpleNamespace(content=[_tool_use_block("submit_recommendation", {"recommendation": "ok", "reasoning": "ok"})])]
+    )
+    recommend.recommend(
+        "a direct call, not via python -m src.reasoning.recommend",
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+    )
+
+    assert len(calls) == 1  # load_dotenv() was actually invoked by recommend() itself
+
+
+def test_recommend_works_when_called_directly_with_env_already_set(tmp_path, monkeypatch):
+    """The production-correct path: no .env file at all, just real
+    environment variables already present (as Phase 5.2's deployment
+    would have them) -- recommend(), called directly like Phase 5.2's
+    API layer will call it (not via the CLI), must work without needing
+    python -m src.reasoning.recommend to have run first."""
+    raw_dir = tmp_path / "sleeper"
+    persist_dir = tmp_path / "chroma"
+    _seed_league(raw_dir)
+    embed.embed([], persist_dir=persist_dir)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-real")
+    monkeypatch.setenv("MY_ROSTER_ID", "1")
+
+    import src.rag.player_index as player_index_module
+
+    monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
+
+    client = _FakeClient(
+        [SimpleNamespace(content=[_tool_use_block("submit_recommendation", {"recommendation": "ok", "reasoning": "ok"})])]
+    )
+    result = recommend.recommend(
+        "a direct import call in a production-like environment",
+        raw_dir=raw_dir,
+        persist_dir=persist_dir,
+        season=2024,
+        as_of_week=8,
+        client=client,
+    )
+
+    assert result["error"] is None
+    assert result["recommendation"] == "ok"

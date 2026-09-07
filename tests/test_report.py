@@ -420,3 +420,24 @@ def test_unknown_report_type_raises(tmp_path, monkeypatch):
 def test_requires_sleeper_ingest_to_have_run(tmp_path):
     with pytest.raises(RuntimeError, match="run `python -m src.ingest.sleeper`"):
         report.generate_report("start_sit", raw_dir=tmp_path / "nonexistent")
+
+
+def test_generate_report_loads_dotenv_itself_not_only_via_cli_main(tmp_path, monkeypatch):
+    """Same env-loading gap as recommend.py's recommend() (see
+    tests/test_recommend.py's equivalent regression test): generate_report()
+    reads MY_ROSTER_ID for start_sit/drop, which used to only get loaded
+    from .env via this module's own CLI main() -- calling generate_report()
+    directly (e.g. from a future API layer) skipped that entirely.
+    Confirms it now calls load_dotenv() itself."""
+    roster = {"sleeper_cmc": {"full_name": "Christian McCaffrey", "position": "RB", "team": "SF"}}
+    players_df = pl.DataFrame([_CHRISTIAN_ROW])
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_CHRISTIAN_SIGNAL_ROW], players_df)
+
+    calls = []
+    monkeypatch.setattr(report, "load_dotenv", lambda *a, **kw: calls.append((a, kw)))
+
+    report.generate_report(
+        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    assert len(calls) == 1  # load_dotenv() was actually invoked by generate_report() itself
