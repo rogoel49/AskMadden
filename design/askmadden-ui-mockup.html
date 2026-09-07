@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ask Madden — UI Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#05070a;
+    --bg-glow-a: #0c2a20;
+    --bg-glow-b: #0a1a2c;
+    --elevated:#0e131a;
+    --surface:#141a22;
+    --surface-2:#1c2430;
+    --border:#232b37;
+    --border-soft:#1a212b;
+    --text:#eef2f6;
+    --text-dim:#8a93a3;
+    --text-faint:#5b6472;
+    --green:#39e39a;
+    --green-dim:rgba(57,227,154,.13);
+    --green-line:rgba(57,227,154,.35);
+    --amber:#f0a94e;
+    --amber-dim:rgba(240,169,78,.14);
+    --coral:#f2705f;
+    --coral-dim:rgba(242,112,95,.14);
+    --radius-lg:22px;
+    --radius-md:14px;
+    --radius-sm:9px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(60% 50% at 18% 8%, var(--bg-glow-a) 0%, transparent 60%),
+      radial-gradient(50% 45% at 85% 90%, var(--bg-glow-b) 0%, transparent 60%),
+      var(--bg);
+    min-height:100vh;
+    font-family:'Space Grotesk', sans-serif;
+    color:var(--text);
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    padding:48px 20px 80px;
+  }
+  .display{ font-family:'Anton', sans-serif; font-weight:400; letter-spacing:.01em; }
+
+  /* ---------- page chrome ---------- */
+  .stage{ width:100%; max-width:1180px; }
+  .stage-head{
+    display:flex; align-items:flex-end; justify-content:space-between;
+    gap:24px; margin-bottom:34px; flex-wrap:wrap;
+  }
+  .stage-head h1{
+    font-family:'Anton', sans-serif; font-weight:400;
+    font-size:34px; line-height:1; margin:0 0 10px; letter-spacing:.015em;
+  }
+  .stage-head h1 span{ color:var(--green); }
+  .stage-head p{ margin:0; color:var(--text-dim); font-size:14.5px; max-width:480px; line-height:1.55;}
+  .stage-tags{ display:flex; gap:8px; flex-wrap:wrap; }
+  .tag{
+    font-size:12px; color:var(--text-dim); border:1px solid var(--border);
+    padding:6px 11px; border-radius:100px; background:var(--elevated);
+    white-space:nowrap;
+  }
+  .layout{ display:flex; gap:40px; align-items:flex-start; justify-content:center; flex-wrap:wrap; }
+
+  /* ---------- phone frame ---------- */
+  .phone-wrap{ position:relative; flex:0 0 auto; }
+  .phone{
+    width:390px; height:820px;
+    background:linear-gradient(180deg, #0b0f14, #070a0d);
+    border-radius:46px;
+    border:1px solid #262e3a;
+    box-shadow:
+      0 0 0 8px #05070a,
+      0 0 0 9px #232b36,
+      0 40px 90px -30px rgba(0,0,0,.85),
+      0 0 60px -10px rgba(57,227,154,.08);
+    padding:14px;
+    position:relative;
+    overflow:hidden;
+  }
+  .notch{
+    position:absolute; top:14px; left:50%; transform:translateX(-50%);
+    width:120px; height:26px; background:#05070a; border-radius:0 0 16px 16px; z-index:30;
+  }
+  .screen{
+    position:relative; width:100%; height:100%;
+    background:var(--bg);
+    border-radius:32px; overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+  .statusbar{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:16px 22px 4px; font-size:13px; font-weight:600; color:var(--text);
+    flex:0 0 auto; position:relative; z-index:5;
+  }
+  .statusbar .icons{ display:flex; gap:5px; align-items:center; opacity:.85; }
+
+  /* ---------- full-screen views (login / picker / app) ---------- */
+  .view{ position:absolute; inset:0; display:none; flex-direction:column; background:var(--bg); }
+  .view.show{ display:flex; }
+  .view-inner{ flex:1 1 auto; overflow-y:auto; padding:0 22px 30px; display:flex; flex-direction:column; }
+  .view-inner::-webkit-scrollbar{ display:none; }
+
+  /* ----- login ----- */
+  #view-login .view-inner{ justify-content:center; padding-top:8px; }
+  .brand-mark{ text-align:left; margin-bottom:34px; }
+  .brand-mark .wordmark{ font-family:'Anton'; font-size:26px; letter-spacing:.02em; }
+  .brand-mark .wordmark span{ color:var(--green); }
+  .brand-mark .tagline{ font-size:12.5px; color:var(--text-dim); margin-top:6px; line-height:1.5; max-width:260px; }
+  .field-label{ font-size:11px; color:var(--text-faint); font-weight:700; letter-spacing:.04em; margin:0 0 7px 2px; }
+  .field-input{
+    display:flex; align-items:center; gap:8px;
+    background:var(--surface); border:1px solid var(--border); border-radius:13px;
+    padding:14px 15px; margin-bottom:16px;
+  }
+  .field-input span.prefix{ color:var(--text-faint); font-size:13.5px; }
+  .field-input input{
+    flex:1; background:transparent; border:none; outline:none; color:var(--text);
+    font-family:'Space Grotesk'; font-size:13.5px;
+  }
+  .field-input input::placeholder{ color:var(--text-faint); }
+  .primary-btn{
+    width:100%; background:var(--green); border:none; color:var(--bg);
+    font-family:'Space Grotesk'; font-weight:700; font-size:13.5px;
+    padding:14px; border-radius:13px; margin-top:2px; cursor:pointer;
+  }
+  .ghost-btn{
+    width:100%; background:transparent; border:1px solid var(--border); color:var(--text-dim);
+    font-family:'Space Grotesk'; font-weight:600; font-size:12.5px;
+    padding:12px; border-radius:13px; margin-top:10px; cursor:pointer;
+  }
+  .login-note{ font-size:11px; color:var(--text-faint); line-height:1.6; margin-top:16px; text-align:left; }
+  .sleeper-badge{
+    display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--text-dim);
+    border:1px solid var(--border); background:var(--elevated); padding:6px 10px; border-radius:100px;
+    margin-bottom:22px;
+  }
+  .sleeper-dot{ width:6px; height:6px; border-radius:50%; background:var(--green); }
+
+  /* ----- picker ----- */
+  #view-picker .view-inner{ padding-top:20px; }
+  .picker-head{ margin-bottom:18px; }
+  .picker-head .hi{ font-size:12px; color:var(--text-faint); margin-bottom:4px; }
+  .picker-head h2{ font-family:'Anton'; font-weight:400; font-size:19px; margin:0; letter-spacing:.01em; }
+  .league-list{ display:flex; flex-direction:column; gap:10px; margin-bottom:14px; }
+  .league-card{
+    display:flex; align-items:center; gap:12px;
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md);
+    padding:13px; cursor:pointer; transition:border-color .15s ease;
+  }
+  .league-card:hover, .league-card.selected{ border-color:var(--green-line); }
+  .league-card .lg-avatar{
+    width:42px; height:42px; border-radius:12px; flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Anton'; font-size:14px; color:var(--green);
+    background:linear-gradient(145deg,#1c2430,#10151c); border:1px solid var(--border);
+  }
+  .league-card .lg-mid{ flex:1; min-width:0; }
+  .league-card .lg-name{ font-size:13.5px; font-weight:600; }
+  .league-card .lg-meta{ font-size:11px; color:var(--text-faint); margin-top:2px; }
+  .league-card .lg-team{ font-size:10.5px; color:var(--green); margin-top:3px; }
+  .league-card .chev{ color:var(--text-faint); flex:0 0 auto; }
+  .league-card.active-marker{ border-color:var(--green); }
+  .check-pill{
+    font-size:9.5px; font-weight:700; color:var(--bg); background:var(--green);
+    padding:3px 7px; border-radius:100px; letter-spacing:.03em;
+  }
+
+  .paste-toggle{
+    font-size:12px; color:var(--text-faint); text-align:center; margin:6px 0 4px; cursor:pointer;
+    text-decoration:underline; text-underline-offset:3px;
+  }
+  .paste-box{ display:none; margin-top:10px; }
+  .paste-box.show{ display:block; }
+
+  /* ---------- app header (inside view-app) ---------- */
+  .app-header{
+    flex:0 0 auto;
+    padding:10px 18px 14px;
+    display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid var(--border-soft);
+  }
+  .brand-row{ display:flex; align-items:center; gap:10px; cursor:pointer; }
+  .league-avatar{
+    width:38px; height:38px; border-radius:11px;
+    background:linear-gradient(145deg,#1c2430,#10151c);
+    border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Anton',sans-serif; font-size:13px; color:var(--green);
+    position:relative;
+  }
+  .league-avatar::after{
+    content:""; position:absolute; bottom:-1px; right:-1px;
+    width:9px; height:9px; border-radius:50%;
+    background:var(--green); border:2px solid var(--bg);
+  }
+  .league-meta .lname{ font-size:13.5px; font-weight:600; line-height:1.15; }
+  .league-meta .lsub{ font-size:11.5px; color:var(--text-faint); }
+  .header-actions{ display:flex; align-items:center; gap:12px; }
+  .icon-btn{
+    width:34px; height:34px; border-radius:10px; background:var(--surface);
+    border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
+    color:var(--text-dim);
+  }
+  .team-avatar{
+    width:34px; height:34px; border-radius:50%;
+    background:linear-gradient(145deg,#2a3340,#151b23);
+    border:1.5px solid var(--green-line);
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:700; color:var(--green);
+  }
+
+  /* ---------- content ---------- */
+  .app-content{ flex:1 1 auto; overflow-y:auto; padding:16px 16px 90px; }
+  .app-content::-webkit-scrollbar{ width:0; }
+  .panel{ display:none; animation:rise .32s ease; }
+  .panel.active{ display:block; }
+  @keyframes rise{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+
+  .section-label{ display:flex; align-items:baseline; justify-content:space-between; margin:22px 2px 12px; }
+  .section-label:first-child{ margin-top:2px; }
+  .section-label h2{ font-family:'Anton', sans-serif; font-weight:400; font-size:15.5px; letter-spacing:.02em; margin:0; color:var(--text); }
+  .section-label a{ font-size:12px; color:var(--text-faint); text-decoration:none; }
+
+  .hscroll{ display:flex; gap:12px; overflow-x:auto; padding:2px 2px 8px; margin:0 -2px; scrollbar-width:none; }
+  .hscroll::-webkit-scrollbar{ display:none; }
+
+  .rec-card{ flex:0 0 auto; width:222px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px; }
+  .rec-top{ display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px; }
+  .player-id{ display:flex; gap:9px; align-items:center; }
+  .avatar-ring{
+    width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:700; color:var(--text); background:var(--elevated); border:2px solid var(--surface-2); flex:0 0 auto;
+  }
+  .avatar-ring.rb{ border-color:#3a7bff44; }
+  .avatar-ring.wr{ border-color:var(--green-line); }
+  .avatar-ring.qb{ border-color:var(--amber); }
+  .pname{ font-size:13.5px; font-weight:600; line-height:1.2; }
+  .ppos{ font-size:11px; color:var(--text-faint); }
+  .verdict{ font-family:'Anton',sans-serif; font-size:11px; letter-spacing:.04em; padding:5px 9px; border-radius:7px; line-height:1; }
+  .verdict.start{ color:var(--green); background:var(--green-dim); }
+  .verdict.sit{ color:var(--coral); background:var(--coral-dim); }
+  .verdict.add{ color:var(--amber); background:var(--amber-dim); }
+
+  .chip-row{ display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .chip{ font-size:10.5px; color:var(--text-dim); background:var(--elevated); border:1px solid var(--border-soft); padding:4px 8px; border-radius:100px; white-space:nowrap; }
+  .chip.pos{ color:var(--green); border-color:var(--green-line); background:var(--green-dim); }
+  .chip.stale{ color:var(--amber); border-color:rgba(240,169,78,.35); background:var(--amber-dim); }
+  .chip svg{ width:9px; height:9px; margin-right:3px; vertical-align:-1px; }
+  .rec-why{ font-size:11.5px; color:var(--text-dim); line-height:1.45; margin-top:10px; }
+
+  .waiver-row{ display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 13px; margin-bottom:10px; }
+  .waiver-row .avatar-ring{ width:34px; height:34px; font-size:10px; }
+  .waiver-mid{ flex:1 1 auto; min-width:0; }
+  .waiver-mid .pname{ font-size:13px; }
+  .waiver-mid .reason{ font-size:11px; color:var(--text-faint); margin-top:2px; }
+  .add-btn{ font-family:'Space Grotesk'; font-size:11.5px; font-weight:700; color:var(--bg); background:var(--green); border:none; border-radius:8px; padding:8px 12px; white-space:nowrap; }
+  .priority{ font-family:'Anton'; font-size:15px; color:var(--green); min-width:26px; text-align:center; }
+
+  .state-card{ border:1px dashed var(--border); border-radius:var(--radius-md); padding:16px; background:var(--elevated); margin-top:4px; }
+  .state-card .tag-mini{ font-size:10.5px; color:var(--amber); font-weight:700; letter-spacing:.02em; }
+  .state-card p{ font-size:12px; color:var(--text-dim); line-height:1.5; margin:6px 0 0; }
+
+  .chat-scroll{ display:flex; flex-direction:column; gap:14px; padding-bottom:8px; }
+  .msg{ display:flex; gap:9px; max-width:88%; }
+  .msg.user{ align-self:flex-end; flex-direction:row-reverse; }
+  .msg .bubble{ font-size:13px; line-height:1.5; padding:11px 13px; border-radius:14px; }
+  .msg.assistant .bubble{ background:var(--surface); border:1px solid var(--border); border-left:2.5px solid var(--green); color:var(--text); border-radius:4px 14px 14px 14px; }
+  .msg.user .bubble{ background:var(--green-dim); color:var(--text); border:1px solid var(--green-line); border-radius:14px 4px 14px 14px; }
+  .msg-avatar{ width:26px; height:26px; border-radius:8px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px solid var(--border); font-size:10px; font-weight:700; color:var(--green); }
+  .chat-signals{ display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .chat-table{ margin-top:10px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  .chat-table .row{ display:grid; grid-template-columns:1.3fr .9fr .9fr; gap:6px; padding:7px 10px; font-size:11px; border-top:1px solid var(--border-soft); }
+  .chat-table .row:first-child{ border-top:none; background:var(--elevated); color:var(--text-faint); font-weight:600;}
+  .chat-table .row span:first-child{ color:var(--text); font-weight:600; }
+  .chat-table .row.win span:nth-child(2){ color:var(--green); font-weight:700; }
+
+  .suggest-row{ display:flex; gap:8px; overflow-x:auto; padding:2px 2px 12px; scrollbar-width:none; }
+  .suggest-row::-webkit-scrollbar{ display:none; }
+  .suggest-chip{ flex:0 0 auto; font-size:12px; color:var(--text-dim); border:1px solid var(--border); background:var(--surface); padding:8px 12px; border-radius:100px; white-space:nowrap; }
+  .chat-input-bar{ display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border); border-radius:100px; padding:6px 6px 6px 15px; margin-top:4px; }
+  .chat-input-bar input{ flex:1; background:transparent; border:none; outline:none; color:var(--text); font-family:'Space Grotesk'; font-size:12.5px; }
+  .chat-input-bar input::placeholder{ color:var(--text-faint); }
+  .send-btn{ width:34px; height:34px; border-radius:50%; background:var(--green); border:none; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+
+  .segmented{ display:flex; background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:3px; margin-bottom:16px; }
+  .segmented button{ flex:1; border:none; background:transparent; color:var(--text-faint); font-family:'Space Grotesk'; font-size:12.5px; font-weight:600; padding:9px 0; border-radius:8px; cursor:pointer; }
+  .segmented button.active{ background:var(--green); color:var(--bg); }
+
+  .pos-group{ margin-bottom:16px; }
+  .pos-label{ font-size:11px; color:var(--text-faint); font-weight:700; letter-spacing:.06em; margin:0 0 8px 2px; }
+  .roster-row{ display:flex; align-items:center; gap:11px; padding:10px 4px; border-bottom:1px solid var(--border-soft); }
+  .roster-row:last-child{ border-bottom:none; }
+  .roster-row .avatar-ring{ width:36px; height:36px; font-size:10.5px; }
+  .roster-mid{ flex:1; min-width:0; }
+  .roster-mid .pname{ font-size:13px; }
+  .roster-mid .matchup{ font-size:11px; color:var(--text-faint); margin-top:1px; }
+  .roster-right{ text-align:right; }
+  .roster-right .pts{ font-size:13px; font-weight:700; }
+  .trend{ font-size:10.5px; display:flex; align-items:center; gap:2px; justify-content:flex-end; margin-top:2px; }
+  .trend.up{ color:var(--green); }
+  .trend.down{ color:var(--coral); }
+
+  .trade-card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px; margin-bottom:16px; }
+  .trade-head{ display:flex; align-items:center; justify-content:space-between; }
+  .trade-head .lbl{ font-size:11px; color:var(--text-faint); letter-spacing:.04em; }
+  .trade-verdict{ font-family:'Anton'; font-size:22px; color:var(--green); margin:4px 0 12px; }
+  .meter{ height:6px; border-radius:100px; background:var(--elevated); overflow:hidden; position:relative; margin-bottom:14px;}
+  .meter-fill{ position:absolute; inset:0; width:63%; background:linear-gradient(90deg,var(--amber),var(--green)); border-radius:100px; }
+  .trade-sides{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .trade-side{ background:var(--elevated); border:1px solid var(--border-soft); border-radius:10px; padding:10px; }
+  .trade-side .side-lbl{ font-size:10px; color:var(--text-faint); margin-bottom:6px; }
+  .trade-side .side-player{ font-size:12px; margin-bottom:4px; }
+
+  /* ---------- tab bar ---------- */
+  .tabbar{
+    position:absolute; left:14px; right:14px; bottom:14px;
+    display:flex; justify-content:space-around; align-items:center;
+    background:rgba(14,19,26,.88); backdrop-filter:blur(14px);
+    border:1px solid var(--border); border-radius:20px; padding:9px 6px; z-index:20;
+  }
+  .tab-btn{ display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:none; color:var(--text-faint); cursor:pointer; padding:5px 14px; border-radius:12px; transition:color .15s ease; }
+  .tab-btn svg{ width:20px; height:20px; }
+  .tab-btn span{ font-size:9.5px; font-weight:600; letter-spacing:.02em; }
+  .tab-btn.active{ color:var(--green); }
+  .tab-btn.active .icon-wrap{ background:var(--green-dim); }
+  .icon-wrap{ padding:5px 12px; border-radius:10px; }
+
+  /* ---------- switch-league modal (inside app) ---------- */
+  .modal-veil{ position:absolute; inset:0; background:rgba(3,5,7,.72); display:none; align-items:flex-end; z-index:40; }
+  .modal-veil.show{ display:flex; }
+  .modal-sheet{ width:100%; background:var(--elevated); border:1px solid var(--border); border-radius:24px 24px 0 0; padding:22px 20px 26px; animation:sheetUp .28s ease; max-height:78%; overflow-y:auto; position:relative; }
+  @keyframes sheetUp{ from{ transform:translateY(30px); opacity:0;} to{transform:translateY(0); opacity:1;} }
+  .sheet-handle{ width:36px; height:4px; background:var(--border); border-radius:100px; margin:0 auto 16px; }
+  .modal-sheet h3{ font-family:'Anton'; font-weight:400; font-size:18px; margin:0 0 6px; }
+  .modal-sheet p{ font-size:12px; color:var(--text-dim); margin:0 0 16px; line-height:1.5; }
+  .modal-close{ position:absolute; top:16px; right:16px; width:28px; height:28px; border-radius:50%; background:var(--surface); border:1px solid var(--border); color:var(--text-dim); display:flex; align-items:center; justify-content:center; z-index:2;}
+
+  /* ---------- notes column ---------- */
+  .notes{ flex:1 1 320px; max-width:400px; padding-top:6px; }
+  .notes h3{ font-family:'Anton'; font-weight:400; font-size:15px; margin:0 0 10px; color:var(--text); letter-spacing:.01em; }
+  .notes .swatch-row{ display:flex; gap:8px; margin-bottom:22px; flex-wrap:wrap; }
+  .swatch{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--text-dim); }
+  .swatch i{ width:14px; height:14px; border-radius:5px; display:inline-block; border:1px solid rgba(255,255,255,.08); }
+  .note-block{ margin-bottom:20px; }
+  .note-block p{ font-size:12.5px; color:var(--text-dim); line-height:1.6; margin:0 0 4px; }
+  .note-block .num{ color:var(--green); font-weight:700; }
+  .jump-row{ display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
+  .jump-btn{ font-size:11.5px; color:var(--text); background:var(--surface); border:1px solid var(--border); padding:8px 12px; border-radius:100px; cursor:pointer; }
+  .jump-btn:hover{ border-color:var(--green-line); }
+  @media (max-width:900px){ .notes{ max-width:100%; } .layout{ flex-direction:column; align-items:center; } }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="stage-head">
+    <div>
+      <h1>Ask <span>Madden</span> — Phase 5 UI</h1>
+      <p>Login → pick a league → live insights. Use the jump buttons to preview each screen, or click through the actual flow inside the phone.</p>
+    </div>
+    <div class="stage-tags">
+      <span class="tag">Mobile-first PWA</span>
+      <span class="tag">Explainability-first</span>
+      <span class="tag">Sleeper-username auth</span>
+    </div>
+  </div>
+
+  <div class="layout">
+
+    <!-- ================= PHONE ================= -->
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="statusbar">
+            <span>9:41</span>
+            <div class="icons">
+              <svg width="15" height="10" viewBox="0 0 15 10" fill="none"><rect x="0" y="6" width="2.5" height="4" rx="0.5" fill="currentColor"/><rect x="4" y="4" width="2.5" height="6" rx="0.5" fill="currentColor"/><rect x="8" y="2" width="2.5" height="8" rx="0.5" fill="currentColor"/><rect x="12" y="0" width="2.5" height="10" rx="0.5" fill="currentColor"/></svg>
+              <svg width="16" height="11" viewBox="0 0 16 11" fill="none"><rect x="0.5" y="0.5" width="13" height="10" rx="2.5" stroke="currentColor"/><rect x="2" y="2" width="10" height="7" rx="1.3" fill="currentColor"/><rect x="14.3" y="3.3" width="1.4" height="4.4" rx="0.7" fill="currentColor"/></svg>
+            </div>
+          </div>
+
+          <!-- ============ VIEW: LOGIN ============ -->
+          <div class="view show" id="view-login">
+            <div class="view-inner">
+              <div class="brand-mark">
+                <div class="wordmark">ASK <span>MADDEN</span></div>
+                <div class="tagline">Signals-backed start/sit, waivers and trades — reasoning included, not just a number.</div>
+              </div>
+
+              <div class="sleeper-badge"><span class="sleeper-dot"></span>Connects to Sleeper — read-only</div>
+
+              <div class="field-label">Sleeper username</div>
+              <div class="field-input">
+                <span class="prefix">@</span>
+                <input type="text" id="username-input" placeholder="e.g. rgoel49" value="rgoel49">
+              </div>
+              <button class="primary-btn" onclick="handleLogin()">Continue</button>
+
+              <div class="login-note">No password. We look up the leagues tied to this username through Sleeper's public API — nothing is ever written back to your team unless you make a move yourself.</div>
+            </div>
+          </div>
+
+          <!-- ============ VIEW: LEAGUE PICKER ============ -->
+          <div class="view" id="view-picker">
+            <div class="view-inner">
+              <div class="picker-head">
+                <div class="hi" id="picker-hi">Hey, @rgoel49</div>
+                <h2>Pick a league</h2>
+              </div>
+
+              <div class="league-list" id="league-list"><!-- rendered by JS --></div>
+
+              <div class="paste-toggle" onclick="togglePaste()">Don't see it? Paste a league ID instead</div>
+              <div class="paste-box" id="paste-box">
+                <div class="field-input" style="margin-top:10px;">
+                  <input type="text" placeholder="Paste any Sleeper league ID">
+                </div>
+                <button class="ghost-btn" onclick="selectLeague(2)">Load this league</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============ VIEW: MAIN APP ============ -->
+          <div class="view" id="view-app">
+
+            <!-- header -->
+            <div class="app-header">
+              <div class="brand-row" onclick="showModal()">
+                <div class="league-avatar" id="hdr-avatar">VS</div>
+                <div class="league-meta">
+                  <div class="lname" id="hdr-name">Victorious Secret 3.0</div>
+                  <div class="lsub" id="hdr-sub">Week 1 · Half-PPR · 12 teams</div>
+                </div>
+              </div>
+              <div class="header-actions">
+                <div class="icon-btn">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+                </div>
+                <div class="team-avatar" id="hdr-team-initials">RF</div>
+              </div>
+            </div>
+
+            <!-- content -->
+            <div class="app-content">
+
+              <!-- ===== FEED ===== -->
+              <section class="panel active" id="panel-feed">
+                <div class="section-label"><h2>Start today</h2><a href="#">Full lineup →</a></div>
+                <div class="hscroll">
+                  <div class="rec-card">
+                    <div class="rec-top">
+                      <div class="player-id">
+                        <div class="avatar-ring rb">BI</div>
+                        <div><div class="pname">Bucky Irving</div><div class="ppos">RB · TB</div></div>
+                      </div>
+                      <div class="verdict start">START</div>
+                    </div>
+                    <div class="rec-why">Opponent allows the 4th-most rush yards to RBs. RYOE trending up 3 straight weeks.</div>
+                    <div class="chip-row">
+                      <span class="chip pos">Run-funnel def · 4th</span>
+                      <span class="chip pos">RYOE +1.4</span>
+                    </div>
+                  </div>
+                  <div class="rec-card">
+                    <div class="rec-top">
+                      <div class="player-id">
+                        <div class="avatar-ring wr">JR</div>
+                        <div><div class="pname">Jayden Reed</div><div class="ppos">WR · GB</div></div>
+                      </div>
+                      <div class="verdict sit">SIT</div>
+                    </div>
+                    <div class="rec-why">Target share dipped 3 weeks running against a top-6 zone coverage defense.</div>
+                    <div class="chip-row">
+                      <span class="chip">Target share ↓</span>
+                      <span class="chip stale"><svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>Stale · 2024 data</span>
+                    </div>
+                  </div>
+                  <div class="rec-card">
+                    <div class="rec-top">
+                      <div class="player-id">
+                        <div class="avatar-ring qb">JT</div>
+                        <div><div class="pname">Jonathan Taylor</div><div class="ppos">RB · IND</div></div>
+                      </div>
+                      <div class="verdict start">START</div>
+                    </div>
+                    <div class="rec-why">Implied team total is 26.5, 2nd-highest on the slate this week.</div>
+                    <div class="chip-row">
+                      <span class="chip pos">Game script ⇧</span>
+                      <span class="chip pos">RZ share 31%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="section-label"><h2>Waiver targets</h2><a href="#">See all →</a></div>
+                <div class="waiver-row">
+                  <div class="priority">1</div>
+                  <div class="avatar-ring wr" style="width:34px;height:34px;font-size:10px;">TF</div>
+                  <div class="waiver-mid"><div class="pname">Tutu Atwell</div><div class="reason">Opportunity share up after Kupp's snap count fell</div></div>
+                  <button class="add-btn">Add</button>
+                </div>
+                <div class="waiver-row">
+                  <div class="priority">2</div>
+                  <div class="avatar-ring rb" style="width:34px;height:34px;font-size:10px;">JC</div>
+                  <div class="waiver-mid"><div class="pname">Jaylen Warren</div><div class="reason">Target share proxy trending toward every-down role</div></div>
+                  <button class="add-btn">Add</button>
+                </div>
+
+                <div class="section-label"><h2>Trade center</h2></div>
+                <div class="state-card">
+                  <div class="tag-mini">IN PROGRESS</div>
+                  <p>Trade grading needs season-long asset value and cross-team need signals we haven't built yet — so we're not going to fake a grade. Waiver and start/sit calls above are live now.</p>
+                </div>
+              </section>
+
+              <!-- ===== CHAT ===== -->
+              <section class="panel" id="panel-chat">
+                <div class="chat-scroll">
+                  <div class="msg user"><div class="msg-avatar">RF</div><div class="bubble">Start Bucky Irving or Javonte Williams this week?</div></div>
+                  <div class="msg assistant">
+                    <div class="msg-avatar">AM</div>
+                    <div class="bubble">
+                      Irving, and it's not close. His matchup is the better one, and his role has been trending up while Williams shares touches in Denver.
+                      <div class="chat-table">
+                        <div class="row"><span></span><span>Irving</span><span>Williams</span></div>
+                        <div class="row win"><span>Opp run-funnel rank</span><span>4th</span><span>19th</span></div>
+                        <div class="row win"><span>RYOE, last 3</span><span>+1.4</span><span>+0.2</span></div>
+                        <div class="row win"><span>Red zone share</span><span>31%</span><span>18%</span></div>
+                      </div>
+                      <div class="chat-signals"><span class="chip pos">nflverse · live</span><span class="chip pos">NGS · live</span></div>
+                    </div>
+                  </div>
+                  <div class="msg user"><div class="msg-avatar">RF</div><div class="bubble">What about Jayden Reed — worth trusting in flex?</div></div>
+                  <div class="msg assistant">
+                    <div class="msg-avatar">AM</div>
+                    <div class="bubble">
+                      Lean sit. His target share signal is running on last season's numbers since 2025 game logs aren't posted yet — flagged below so you know it's not this week's data.
+                      <div class="chip-row"><span class="chip stale"><svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>Stale · 2024 fallback</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="suggest-row">
+                  <div class="suggest-chip">Grade my Week 1 lineup</div>
+                  <div class="suggest-chip">Any injury news on my RBs?</div>
+                  <div class="suggest-chip">Best flex play this week</div>
+                </div>
+                <div class="chat-input-bar">
+                  <input type="text" placeholder="Ask about your roster…">
+                  <button class="send-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#05070a" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+                </div>
+              </section>
+
+              <!-- ===== ROSTER ===== -->
+              <section class="panel" id="panel-roster">
+                <div class="segmented"><button class="active">Starters</button><button>Bench</button></div>
+                <div class="pos-group">
+                  <div class="pos-label">QB</div>
+                  <div class="roster-row">
+                    <div class="avatar-ring qb">JH</div>
+                    <div class="roster-mid"><div class="pname">Jalen Hurts</div><div class="matchup">vs DAL · 1:00 PM</div></div>
+                    <div class="roster-right"><div class="pts">21.4</div><div class="trend up">▲ efficiency</div></div>
+                  </div>
+                </div>
+                <div class="pos-group">
+                  <div class="pos-label">RB</div>
+                  <div class="roster-row">
+                    <div class="avatar-ring rb">BI</div>
+                    <div class="roster-mid"><div class="pname">Bucky Irving</div><div class="matchup">vs ATL · 1:00 PM</div></div>
+                    <div class="roster-right"><div class="pts">16.8</div><div class="trend up">▲ RYOE</div></div>
+                  </div>
+                  <div class="roster-row">
+                    <div class="avatar-ring rb">JT</div>
+                    <div class="roster-mid"><div class="pname">Jonathan Taylor</div><div class="matchup">vs MIA · 4:05 PM</div></div>
+                    <div class="roster-right"><div class="pts">18.1</div><div class="trend up">▲ game script</div></div>
+                  </div>
+                </div>
+                <div class="pos-group">
+                  <div class="pos-label">WR</div>
+                  <div class="roster-row">
+                    <div class="avatar-ring wr">PN</div>
+                    <div class="roster-mid"><div class="pname">Puka Nacua</div><div class="matchup">vs SEA · 4:25 PM</div></div>
+                    <div class="roster-right"><div class="pts">15.2</div><div class="trend up">▲ target share</div></div>
+                  </div>
+                  <div class="roster-row">
+                    <div class="avatar-ring wr">JR</div>
+                    <div class="roster-mid"><div class="pname">Jayden Reed</div><div class="matchup">vs CHI · 1:00 PM</div></div>
+                    <div class="roster-right"><div class="pts">9.4</div><div class="trend down">▼ targets</div></div>
+                  </div>
+                </div>
+                <div class="pos-group">
+                  <div class="pos-label">TE · FLEX · DEF · K</div>
+                  <div class="roster-row">
+                    <div class="avatar-ring" style="border-color:#8a93a344;">TK</div>
+                    <div class="roster-mid"><div class="pname">Trey McBride</div><div class="matchup">vs SF · 1:00 PM</div></div>
+                    <div class="roster-right"><div class="pts">12.6</div><div class="trend up">▲ route rate</div></div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ===== MOVES ===== -->
+              <section class="panel" id="panel-moves">
+                <div class="segmented"><button class="active">Waivers</button><button>Trades</button></div>
+                <div class="section-label" style="margin-top:4px;"><h2>This week's priority</h2></div>
+                <div class="waiver-row">
+                  <div class="priority">1</div>
+                  <div class="avatar-ring wr" style="width:34px;height:34px;font-size:10px;">TF</div>
+                  <div class="waiver-mid"><div class="pname">Tutu Atwell</div><div class="reason">Opportunity share proxy up 9pts week over week</div></div>
+                  <button class="add-btn">Add</button>
+                </div>
+                <div class="waiver-row">
+                  <div class="priority">2</div>
+                  <div class="avatar-ring rb" style="width:34px;height:34px;font-size:10px;">JC</div>
+                  <div class="waiver-mid"><div class="pname">Jaylen Warren</div><div class="reason">Trending toward lead-back role in Pittsburgh</div></div>
+                  <button class="add-btn">Add</button>
+                </div>
+                <div class="waiver-row">
+                  <div class="priority">3</div>
+                  <div class="avatar-ring qb" style="width:34px;height:34px;font-size:10px;">GM</div>
+                  <div class="waiver-mid"><div class="pname">Gus Edwards</div><div class="reason">Streaming option — plus matchup vs run-funnel D</div></div>
+                  <button class="add-btn">Add</button>
+                </div>
+                <div class="trade-card" style="margin-top:20px; opacity:.55;">
+                  <div class="trade-head"><div class="lbl">TRADE ANALYZER — preview of Phase 4 build</div></div>
+                  <div class="trade-verdict">Grading not live yet</div>
+                  <div class="meter"><div class="meter-fill" style="width:0%;"></div></div>
+                  <div class="trade-sides">
+                    <div class="trade-side"><div class="side-lbl">YOU RECEIVE</div><div class="side-player">—</div></div>
+                    <div class="trade-side"><div class="side-lbl">YOU SEND</div><div class="side-player">—</div></div>
+                  </div>
+                </div>
+              </section>
+
+            </div>
+
+            <!-- tab bar -->
+            <nav class="tabbar">
+              <button class="tab-btn active" data-tab="feed">
+                <span class="icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 11-14h-7l1-6z"/></svg></span>
+                <span>Feed</span>
+              </button>
+              <button class="tab-btn" data-tab="chat">
+                <span class="icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg></span>
+                <span>Chat</span>
+              </button>
+              <button class="tab-btn" data-tab="roster">
+                <span class="icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span>
+                <span>Roster</span>
+              </button>
+              <button class="tab-btn" data-tab="moves">
+                <span class="icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg></span>
+                <span>Moves</span>
+              </button>
+            </nav>
+
+            <!-- switch-league modal -->
+            <div class="modal-veil" id="leagueModal">
+              <div class="modal-sheet">
+                <button class="modal-close" onclick="hideModal()">✕</button>
+                <div class="sheet-handle"></div>
+                <h3>Your leagues</h3>
+                <p>Toggle leagues — the tabs behind this sheet stay the same, only the roster, matchups and signals underneath change.</p>
+                <div class="league-list" id="modal-league-list"><!-- rendered by JS --></div>
+              </div>
+            </div>
+
+          </div><!-- /view-app -->
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= NOTES ================= -->
+    <div class="notes">
+      <h3>Jump to a screen</h3>
+      <div class="jump-row">
+        <button class="jump-btn" onclick="goView('login')">Login</button>
+        <button class="jump-btn" onclick="goView('picker')">League picker</button>
+        <button class="jump-btn" onclick="goView('app')">Main app</button>
+      </div>
+
+      <h3>Design tokens</h3>
+      <div class="swatch-row">
+        <div class="swatch"><i style="background:#05070a"></i>Background</div>
+        <div class="swatch"><i style="background:#161b22"></i>Surface</div>
+        <div class="swatch"><i style="background:#39e39a"></i>Signal green</div>
+        <div class="swatch"><i style="background:#f0a94e"></i>Stale / caution</div>
+        <div class="swatch"><i style="background:#f2705f"></i>Sit / negative</div>
+      </div>
+
+      <h3>How the new flow works</h3>
+      <div class="note-block"><p><span class="num">Login</span> — asks for a Sleeper username only, not a league ID. That's the real Sleeper-side lookup: username → user_id → every league that user_id belongs to for the season.</p></div>
+      <div class="note-block"><p><span class="num">Picker</span> — shows every league Sleeper returns for that username as a card (name, format, your team in it). Tapping one lands you straight on Feed for that league.</p></div>
+      <div class="note-block"><p><span class="num">Toggle</span> — same "Your leagues" list reopens from the league avatar in the header. Switching updates the header and, in the real build, re-runs the per-league join in <code style="color:var(--text)">recommend.py</code> — signals themselves don't need to be recomputed.</p></div>
+      <div class="note-block"><p><span class="num">Fallback</span> — "Paste a league ID instead" stays available on the picker for leagues you don't personally belong to.</p></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // ---- mock league data ----
+  const leagues = [
+    { id:'1389341490030862336', avatar:'VS', name:'Victorious Secret 3.0', meta:'12 teams · Half-PPR · Redraft', team:'Ready? Fetty', initials:'RF' },
+    { id:'9284710239481029384', avatar:'TC', name:'The Turf Cartel', meta:'10 teams · PPR · Dynasty', team:'Gridiron Gremlins', initials:'GG' },
+  ];
+  let currentLeagueIndex = 0;
+
+  function renderLeagueList(targetId, withCheck){
+    const el = document.getElementById(targetId);
+    el.innerHTML = leagues.map((lg, i) => `
+      <div class="league-card ${withCheck && i===currentLeagueIndex ? 'active-marker' : ''}" onclick="selectLeague(${i})">
+        <div class="lg-avatar">${lg.avatar}</div>
+        <div class="lg-mid">
+          <div class="lg-name">${lg.name}</div>
+          <div class="lg-meta">${lg.meta}</div>
+          <div class="lg-team">Your team · ${lg.team}</div>
+        </div>
+        ${withCheck && i===currentLeagueIndex ? '<span class="check-pill">ACTIVE</span>' : `<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>`}
+      </div>
+    `).join('');
+  }
+
+  function handleLogin(){
+    const uname = document.getElementById('username-input').value || 'rgoel49';
+    document.getElementById('picker-hi').textContent = `Hey, @${uname}`;
+    renderLeagueList('league-list', false);
+    goView('picker');
+  }
+
+  function selectLeague(i){
+    currentLeagueIndex = Math.min(i, leagues.length - 1);
+    const lg = leagues[currentLeagueIndex];
+    document.getElementById('hdr-avatar').textContent = lg.avatar;
+    document.getElementById('hdr-name').textContent = lg.name;
+    document.getElementById('hdr-sub').textContent = 'Week 1 · ' + lg.meta.split(' · ').slice(1).join(' · ');
+    document.getElementById('hdr-team-initials').textContent = lg.initials;
+    hideModal();
+    goView('app');
+    // reset to Feed tab on load/switch
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('.tab-btn[data-tab="feed"]').classList.add('active');
+    Object.values(panels).forEach(p => p.classList.remove('active'));
+    panels.feed.classList.add('active');
+  }
+
+  function togglePaste(){ document.getElementById('paste-box').classList.toggle('show'); }
+
+  function goView(name){
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('show'));
+    document.getElementById('view-' + name).classList.add('show');
+    if(name === 'app'){ renderLeagueList('modal-league-list', true); }
+  }
+
+  // ---- tab switching ----
+  const buttons = document.querySelectorAll('.tab-btn');
+  const panels = {
+    feed: document.getElementById('panel-feed'),
+    chat: document.getElementById('panel-chat'),
+    roster: document.getElementById('panel-roster'),
+    moves: document.getElementById('panel-moves'),
+  };
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      buttons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      Object.values(panels).forEach(p => p.classList.remove('active'));
+      panels[btn.dataset.tab].classList.add('active');
+    });
+  });
+
+  function showModal(){ renderLeagueList('modal-league-list', true); document.getElementById('leagueModal').classList.add('show'); }
+  function hideModal(){ document.getElementById('leagueModal').classList.remove('show'); }
+
+  document.querySelectorAll('.segmented').forEach(seg => {
+    seg.querySelectorAll('button').forEach(b => {
+      b.addEventListener('click', () => {
+        seg.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      });
+    });
+  });
+</script>
+
+</body>
+</html>
