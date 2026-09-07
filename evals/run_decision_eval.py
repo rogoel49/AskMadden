@@ -70,11 +70,18 @@ def score_dilemma(question: dict, outcome: dict, expected_player_id: str | None)
 
 
 def run(
+    league_id: str,
     questions_path: Path = DECISION_QUESTIONS_PATH,
     raw_dir: Path = RAW_DIR,
     persist_dir: Path = CHROMA_DIR,
     client: "anthropic.Anthropic | None" = None,
 ) -> dict:
+    """league_id: the Sleeper league whose roster/scoring context every
+    dilemma is answered in (Phase 5.1 -- recommend() requires it and
+    verifies raw_dir actually holds that league). The dilemmas themselves
+    are league-agnostic (real nflverse box scores); the league only
+    shapes the system prompt's scoring settings, same as any other
+    recommend() call."""
     questions = load_questions(questions_path)
     client = client or anthropic.Anthropic()
 
@@ -86,6 +93,7 @@ def run(
 
         outcome = recommend.recommend(
             question["question"],
+            league_id,
             raw_dir=raw_dir,
             persist_dir=persist_dir,
             season=season,
@@ -119,7 +127,23 @@ def run(
 
 
 def main() -> None:
-    summary = run()
+    import argparse
+    import os
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    parser = argparse.ArgumentParser(description="Ask Madden: decision-accuracy backtest")
+    parser.add_argument(
+        "--league-id",
+        default=os.environ.get("SLEEPER_LEAGUE_ID"),
+        help="the Sleeper league to answer each dilemma in (Phase 5.1: required -- defaults to SLEEPER_LEAGUE_ID)",
+    )
+    args = parser.parse_args()
+    if not args.league_id:
+        raise SystemExit("a Sleeper league ID is required: pass --league-id <id>, or set SLEEPER_LEAGUE_ID in .env")
+
+    summary = run(args.league_id)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = RESULTS_DIR / f"{summary['date']}_decision_run.json"
     out_path.write_text(json.dumps(summary, indent=2))

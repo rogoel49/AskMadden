@@ -8,6 +8,11 @@ import pytest
 from src.rag import embed
 from src.reasoning import recommend
 
+# Victorious Secret 3.0's real Sleeper league ID (the one CLAUDE.md names);
+# every fixture league.json below carries it, and every recommend() call
+# passes it, since Phase 5.1 made league_id a required, verified input.
+_LEAGUE_ID = "1389341490030862336"
+
 
 def _write(raw_dir: Path, filename: str, data) -> None:
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -19,6 +24,7 @@ def _seed_league(raw_dir: Path) -> None:
         raw_dir,
         "league.json",
         {
+            "league_id": _LEAGUE_ID,
             "name": "Victorious Secret 3.0",
             "season": "2024",
             "settings": {"num_teams": 12},
@@ -438,7 +444,7 @@ def test_recommend_calls_get_player_signals_then_submits(tmp_path, monkeypatch):
     monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW, _LUKE_ROW]))
 
     result = recommend.recommend(
-        "Should I start Christian McCaffrey?",
+        "Should I start Christian McCaffrey?", _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,
@@ -502,7 +508,7 @@ def test_recommend_surfaces_no_signal_data_gap_instead_of_generic_reasoning(tmp_
     )
 
     result = recommend.recommend(
-        "Should I start Rookie Nodata?",
+        "Should I start Rookie Nodata?", _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,
@@ -565,7 +571,7 @@ def test_recommend_answers_the_answerable_half_of_a_compound_question(tmp_path, 
     monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW, _LUKE_ROW]))
 
     result = recommend.recommend(
-        "What's my weakest position, and who should I trade with to strengthen it?",
+        "What's my weakest position, and who should I trade with to strengthen it?", _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,
@@ -653,7 +659,7 @@ def test_recommend_uses_get_league_rosters_for_composition_but_still_declines_va
     monkeypatch.setenv("MY_ROSTER_ID", "1")
 
     result = recommend.recommend(
-        "What's my weakest position, and which teams might be willing to trade at that position?",
+        "What's my weakest position, and which teams might be willing to trade at that position?", _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,
@@ -720,7 +726,7 @@ def test_recommend_does_not_reject_ungrounded_trade_advice_at_the_code_level(tmp
     monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW, _LUKE_ROW]))
 
     result = recommend.recommend(
-        "What's my weakest position, and who should I trade with to strengthen it?",
+        "What's my weakest position, and who should I trade with to strengthen it?", _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,
@@ -766,7 +772,7 @@ def test_recommend_falls_back_to_plain_text_if_model_never_calls_a_tool(tmp_path
     monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
 
     result = recommend.recommend(
-        "What's up?", raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client
+        "What's up?", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client
     )
 
     assert result["recommendation"] == "I don't have enough information."
@@ -795,7 +801,7 @@ def test_recommend_returns_gracefully_if_max_turns_exceeded_without_submitting(t
     monkeypatch.setattr(player_index_module.nflverse, "fetch_players", lambda: pl.DataFrame([_CHRISTIAN_ROW]))
 
     result = recommend.recommend(
-        "loop forever",
+        "loop forever", _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,
@@ -812,8 +818,8 @@ def test_recommend_returns_gracefully_if_max_turns_exceeded_without_submitting(t
 
 
 def test_recommend_requires_sleeper_ingest_to_have_run(tmp_path):
-    with pytest.raises(RuntimeError, match="run `python -m src.ingest.sleeper`"):
-        recommend.recommend("anything", raw_dir=tmp_path / "nonexistent", client=_FakeClient([]))
+    with pytest.raises(RuntimeError, match=r"run `python -m src.ingest.sleeper"):
+        recommend.recommend("anything", _LEAGUE_ID, raw_dir=tmp_path / "nonexistent", client=_FakeClient([]))
 
 
 def _seed_league_with_record_and_matchup(raw_dir: Path) -> None:
@@ -878,7 +884,7 @@ def test_recommend_answers_record_and_matchup_question_with_the_new_tools(tmp_pa
     client = _FakeClient(responses)
 
     result = recommend.recommend(
-        _RECORD_AND_MATCHUP_QUESTION, raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client
+        _RECORD_AND_MATCHUP_QUESTION, _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client
     )
 
     assert result["error"] is None
@@ -910,7 +916,7 @@ def test_recommend_never_crashes_on_the_record_and_matchup_question_even_if_mode
     client = _FakeClient(responses)
 
     result = recommend.recommend(
-        _RECORD_AND_MATCHUP_QUESTION,
+        _RECORD_AND_MATCHUP_QUESTION, _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,
@@ -952,7 +958,7 @@ def test_recommend_returns_messages_that_can_be_continued(tmp_path, monkeypatch)
     client = _FakeClient(responses)
 
     result = recommend.recommend(
-        "Should I start Christian McCaffrey?",
+        "Should I start Christian McCaffrey?", _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,
@@ -986,7 +992,7 @@ def test_recommend_second_call_sends_the_full_prior_history_to_the_client(tmp_pa
     turn1_responses = [SimpleNamespace(content=[_text_block("Which of your flex-eligible players do you mean?")])]
     client = _FakeClient(turn1_responses)
     turn1 = recommend.recommend(
-        "Who should I start at flex?", raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client
+        "Who should I start at flex?", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client
     )
 
     assert turn1["recommendation"] == "Which of your flex-eligible players do you mean?"
@@ -1004,7 +1010,7 @@ def test_recommend_second_call_sends_the_full_prior_history_to_the_client(tmp_pa
     ]
     client2 = _FakeClient(turn2_responses)
     turn2 = recommend.recommend(
-        "I meant Christian McCaffrey",
+        "I meant Christian McCaffrey", _LEAGUE_ID,
         messages=turn1["messages"],
         raw_dir=raw_dir,
         persist_dir=persist_dir,
@@ -1043,11 +1049,11 @@ def test_eval_style_calls_never_carry_state_between_independent_questions(tmp_pa
 
     client_a = _one_shot_client()
     recommend.recommend(
-        "first independent question", raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client_a
+        "first independent question", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client_a
     )
     client_b = _one_shot_client()
     recommend.recommend(
-        "second independent question", raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client_b
+        "second independent question", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=2024, as_of_week=8, client=client_b
     )
 
     # Each call's client only ever saw its own single question -- no
@@ -1088,7 +1094,7 @@ def test_recommend_loads_dotenv_itself_not_only_via_cli_main(tmp_path, monkeypat
         [SimpleNamespace(content=[_tool_use_block("submit_recommendation", {"recommendation": "ok", "reasoning": "ok"})])]
     )
     recommend.recommend(
-        "a direct call, not via python -m src.reasoning.recommend",
+        "a direct call, not via python -m src.reasoning.recommend", _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,
@@ -1120,7 +1126,7 @@ def test_recommend_works_when_called_directly_with_env_already_set(tmp_path, mon
         [SimpleNamespace(content=[_tool_use_block("submit_recommendation", {"recommendation": "ok", "reasoning": "ok"})])]
     )
     result = recommend.recommend(
-        "a direct import call in a production-like environment",
+        "a direct import call in a production-like environment", _LEAGUE_ID,
         raw_dir=raw_dir,
         persist_dir=persist_dir,
         season=2024,

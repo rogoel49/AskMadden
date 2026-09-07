@@ -7,6 +7,8 @@ import pytest
 from src.rag import embed
 from src.reasoning import report
 
+_LEAGUE_ID = "1389341490030862336"  # Victorious Secret 3.0 -- see tests/test_recommend.py
+
 # Real nflverse identities (same fixtures test_recommend.py already uses for
 # the McCaffrey-brothers bug, plus a couple more for a 3-candidate RB group).
 _CHRISTIAN_ROW = {
@@ -75,7 +77,13 @@ def _seed_league(raw_dir: Path, roster_players: dict, second_team_players: dict 
     _write(
         raw_dir,
         "league.json",
-        {"name": "Victorious Secret 3.0", "season": "2024", "settings": {"num_teams": 12}, "scoring_settings": {"rec": 0.5}},
+        {
+            "league_id": _LEAGUE_ID,
+            "name": "Victorious Secret 3.0",
+            "season": "2024",
+            "settings": {"num_teams": 12},
+            "scoring_settings": {"rec": 0.5},
+        },
     )
     teams = [
         {
@@ -137,7 +145,7 @@ def test_start_sit_recommends_the_stronger_rb_with_grounded_reasoning(tmp_path, 
     )
 
     result = report.generate_report(
-        "start_sit", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "start_sit", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     assert result["report_type"] == "start_sit"
@@ -161,7 +169,7 @@ def test_start_sit_skips_position_with_only_one_rostered_player(tmp_path, monkey
     raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_CHRISTIAN_SIGNAL_ROW], players_df)
 
     result = report.generate_report(
-        "start_sit", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "start_sit", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     assert result["entries"] == []
@@ -175,7 +183,7 @@ def test_start_sit_requires_my_roster_id(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="MY_ROSTER_ID"):
         report.generate_report(
-            "start_sit", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+            "start_sit", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
         )
 
 
@@ -193,7 +201,7 @@ def test_drop_identifies_the_weak_contributor_with_concrete_reasons(tmp_path, mo
     )
 
     result = report.generate_report(
-        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     assert result["report_type"] == "drop"
@@ -215,7 +223,7 @@ def test_drop_excludes_players_with_no_computed_signals(tmp_path, monkeypatch):
     raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_CHRISTIAN_SIGNAL_ROW], players_df)
 
     result = report.generate_report(
-        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     assert [e["name"] for e in result["entries"]] == ["Christian McCaffrey"]
@@ -239,7 +247,7 @@ def test_waiver_pickups_excludes_every_rostered_player_across_the_league(tmp_pat
     )
 
     result = report.generate_report(
-        "waiver_pickups", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "waiver_pickups", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     names = [e["name"] for e in result["entries"]]
@@ -256,7 +264,7 @@ def test_waiver_pickups_excludes_pool_players_with_no_signal_data(tmp_path, monk
     raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, my_roster, [_CHRISTIAN_SIGNAL_ROW], players_df)
 
     result = report.generate_report(
-        "waiver_pickups", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "waiver_pickups", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     assert result["entries"] == []  # James Cook has no signal row, so nothing to ground a pickup in
@@ -271,7 +279,7 @@ def test_waiver_pickups_does_not_require_my_roster_id(tmp_path, monkeypatch):
     monkeypatch.delenv("MY_ROSTER_ID")
 
     result = report.generate_report(
-        "waiver_pickups", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "waiver_pickups", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     assert result["entries"]
@@ -301,7 +309,7 @@ def test_drop_falls_back_to_stale_prior_season_when_no_current_season_data(tmp_p
     )
 
     result = report.generate_report(
-        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     assert len(result["entries"]) == 1
@@ -329,7 +337,7 @@ def test_drop_never_falls_back_when_current_season_data_exists(tmp_path, monkeyp
     )
 
     result = report.generate_report(
-        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     entry = result["entries"][0]
@@ -365,7 +373,7 @@ def test_drop_handles_a_player_with_no_signal_data_at_all_gracefully(tmp_path, m
     # prior-season file either (it only has Barkley).
 
     result = report.generate_report(
-        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     assert [e["name"] for e in result["entries"]] == ["Saquon Barkley"]
@@ -388,7 +396,7 @@ def test_waiver_pickups_marks_stale_fallback_candidates_too(tmp_path, monkeypatc
     )
 
     result = report.generate_report(
-        "waiver_pickups", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "waiver_pickups", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     barkley = next(e for e in result["entries"] if e["name"] == "Saquon Barkley")
@@ -408,7 +416,7 @@ def test_unknown_report_type_raises(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="Unknown report_type"):
         report.generate_report(
-            "trade_suggestions",
+            "trade_suggestions", _LEAGUE_ID,
             raw_dir=raw_dir,
             persist_dir=persist_dir,
             season=_SEASON,
@@ -418,8 +426,8 @@ def test_unknown_report_type_raises(tmp_path, monkeypatch):
 
 
 def test_requires_sleeper_ingest_to_have_run(tmp_path):
-    with pytest.raises(RuntimeError, match="run `python -m src.ingest.sleeper`"):
-        report.generate_report("start_sit", raw_dir=tmp_path / "nonexistent")
+    with pytest.raises(RuntimeError, match=r"run `python -m src.ingest.sleeper"):
+        report.generate_report("start_sit", _LEAGUE_ID, raw_dir=tmp_path / "nonexistent")
 
 
 def test_generate_report_loads_dotenv_itself_not_only_via_cli_main(tmp_path, monkeypatch):
@@ -437,7 +445,7 @@ def test_generate_report_loads_dotenv_itself_not_only_via_cli_main(tmp_path, mon
     monkeypatch.setattr(report, "load_dotenv", lambda *a, **kw: calls.append((a, kw)))
 
     report.generate_report(
-        "drop", raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+        "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
     assert len(calls) == 1  # load_dotenv() was actually invoked by generate_report() itself

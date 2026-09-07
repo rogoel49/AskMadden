@@ -203,7 +203,19 @@ or monetized, it needs to genuinely work for more than one league.
   TODO.md's Phase 3.8 section for full detail, including the live-model
   validation gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
 - Phase 4 (coverage classification stretch): optional, not started
-- Phase 5 (productization — final deliverable): not started
+- Phase 5 (productization — final deliverable): 5.1 implemented,
+  5.2-5.6 not started. 5.1 (league/scoring parameterization):
+  `recommend()`/`generate_report()` take a required `league_id`,
+  resolved and verified against the ingested `league.json` by new
+  `src/reasoning/league.py` (`LeagueMismatchError` on a different
+  league, never a silent wrong-league answer); CLIs take `--league-id`
+  defaulting to `SLEEPER_LEAGUE_ID`. The investigation found the
+  plan's "currently assumes half-PPR" premise was a single-league
+  blind spot, not a magic number — `recommend.py` already read the
+  real `scoring_settings`, `report.py`'s ranking is scoring-independent
+  (now pinned by a test), `matchup_signals.py` has no scoring concept.
+  `MY_ROSTER_ID` is still env-implicit inside `src/rag/lookup.py`
+  (out of 5.1's scope) — 5.2's job. See TODO.md's Phase 5.1 entry.
 - Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
   Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
   confirmed a complete, honestly-bounded product (composition + signals +

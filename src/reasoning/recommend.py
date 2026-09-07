@@ -18,12 +18,17 @@ prompt) alongside the league-agnostic signal corpus. Nothing about a
 specific league or scoring format leaks into src/signals/ or src/rag/ --
 see CLAUDE.md's key architectural principle.
 
-**Scope note**: recommend() operates on whatever league is already
-ingested into data/raw/sleeper/ (like lookup.py and embed.py already
-do) -- it does not take a league_id and re-fetch a different league.
-Multi-league parameterization is explicitly Phase 5's job
-(src/api/, per PROJECT_SPEC.md); adding it here early would blur that
-phase boundary for no benefit yet.
+**Which league (Phase 5.1)**: recommend() takes an explicit, required
+league_id and resolves it via src/reasoning/league.py's load_league(),
+which reads the league's real Sleeper scoring_settings from the
+ingested league.json in raw_dir and refuses (LeagueMismatchError) if
+that directory holds a different league. Before Phase 5.1 the league
+was implicit -- whatever src.ingest.sleeper last wrote to
+data/raw/sleeper/ -- with no check at all. Scoring was never hardcoded
+here (this module has read the real scoring_settings since Phase 3;
+see league.py's docstring for what the Phase 5.1 trace actually found);
+what changed is that the league is now named and verified rather than
+assumed. Per-league storage/auth/API is still Phase 5.2's job.
 
 **Named-player bug fix**: retrieve.py's query() is pure embedding
 similarity search, which can't tell two same-surname NFL players apart
@@ -50,6 +55,7 @@ from dotenv import load_dotenv
 
 from src.rag import lookup, player_index, retrieve
 from src.rag.embed import CHROMA_DIR, RAW_DIR
+from src.reasoning.league import LeagueConfig, load_league
 
 DEFAULT_MODEL = os.environ.get("ASKMADDEN_MODEL", "claude-sonnet-4-5-20250929")
 MAX_TOOL_TURNS = 8
@@ -261,6 +267,13 @@ class RecommendContext:
     season: int
     as_of_week: int
     player_idx: Any  # polars.DataFrame, from player_index.build_player_index()
+    # The verified league this context answers for (Phase 5.1) -- always
+    # set by recommend()/generate_report(); optional only so tests that
+    # exercise one tool handler directly can still build a context by
+    # hand. The tool handlers themselves read Sleeper data via raw_dir
+    # and never need scoring settings (see league.py's docstring for
+    # why: nothing in the tools is scoring-dependent).
+    league: LeagueConfig | None = None
 
 
 @dataclass
@@ -271,6 +284,10 @@ class RecommendResult:
     tool_calls: list[dict] = field(default_factory=list)
     messages: list[dict] = field(default_factory=list)
     error: str | None = None
+    # Which league this answer was grounded in (Phase 5.1) -- echoed so a
+    # multi-league caller (Phase 5.2's API) can never mistake one
+    # league's answer for another's.
+    league_id: str | None = None
     # Structured version of any gap named in `reasoning`'s prose (a
     # no-signal-data player, or a part of the question no tool could
     # answer) -- see submit_recommendation's tool schema. Always a list,
@@ -290,6 +307,7 @@ class RecommendResult:
             "tool_calls": self.tool_calls,
             "messages": self.messages,
             "error": self.error,
+            "league_id": self.league_id,
         }
 
 
@@ -532,6 +550,7 @@ def dispatch_tool(name: str, tool_input: dict, ctx: RecommendContext) -> dict:
 
 def recommend(
     question: str,
+    league_id: str,
     messages: list[dict] | None = None,
     raw_dir: Path = RAW_DIR,
     persist_dir: Path = CHROMA_DIR,
@@ -543,7 +562,17 @@ def recommend(
 ) -> dict:
     """Answer question using retrieved facts + computed signals via a
     Claude tool-use agent, returning
-    {"recommendation", "reasoning", "player_id", "tool_calls", "messages", "error"}.
+    {"recommendation", "reasoning", "player_id", "data_gaps", "tool_calls",
+    "messages", "error", "league_id"}.
+
+    league_id: the Sleeper league to answer for -- required (Phase 5.1).
+    Resolved via src/reasoning/league.py's load_league(): the league's
+    real scoring_settings come from the ingested league.json in raw_dir,
+    and a raw_dir that holds a *different* league raises
+    LeagueMismatchError before any model call rather than silently
+    answering from the wrong roster/scoring. raw_dir/persist_dir remain
+    the on-disk location of that league's data (per-league storage
+    layout is Phase 5.2's job, not this parameter's).
 
     messages: prior conversation history (as previously returned in a
     result's "messages"), for a multi-turn conversation -- e.g. the
@@ -585,11 +614,13 @@ def recommend(
     # set" message, since ANTHROPIC_API_KEY was never loaded from .env.
     load_dotenv()
 
-    league_path = raw_dir / "league.json"
-    if not league_path.exists():
-        raise RuntimeError(f"{league_path} doesn't exist -- run `python -m src.ingest.sleeper` first.")
-    league = _load_json(league_path)
-    scoring_settings = league.get("scoring_settings", {})
+    # Phase 5.1: the league is an explicit, verified input. This is the
+    # single read of the league's real Sleeper scoring_settings -- they
+    # go into the system prompt below, verbatim, exactly as Phase 3
+    # already did; the only difference is that the league they belong
+    # to is now named by the caller and checked against what's on disk.
+    league = load_league(league_id, raw_dir=raw_dir, persist_dir=persist_dir)
+    scoring_settings = league.scoring_settings
 
     if season is None or as_of_week is None:
         inferred_season, inferred_week = _infer_season_and_week(raw_dir)
@@ -602,10 +633,11 @@ def recommend(
         season=season,
         as_of_week=as_of_week,
         player_idx=player_index.build_player_index(season),
+        league=league,
     )
 
     client = client or anthropic.Anthropic()
-    system_prompt = _build_system_prompt(league, scoring_settings, season, as_of_week)
+    system_prompt = _build_system_prompt({"name": league.name}, scoring_settings, season, as_of_week)
     messages = list(messages) if messages else []
     messages.append({"role": "user", "content": question})
     tool_calls: list[dict] = []
@@ -629,7 +661,7 @@ def recommend(
             # from (the last turn is a plain assistant text turn, no
             # pending tool_use to resolve).
             text = "".join(block.text for block in response.content if block.type == "text")
-            return RecommendResult(text, None, None, tool_calls, messages).to_dict()
+            return RecommendResult(text, None, None, tool_calls, messages, league_id=league.league_id).to_dict()
 
         submit = next((b for b in tool_uses if b.name == "submit_recommendation"), None)
         if submit is not None:
@@ -658,6 +690,7 @@ def recommend(
                 data_gaps=submit.input.get("data_gaps") or [],
                 tool_calls=tool_calls,
                 messages=messages,
+                league_id=league.league_id,
             ).to_dict()
 
         tool_results = []
@@ -677,6 +710,7 @@ def recommend(
         tool_calls=tool_calls,
         messages=messages,
         error="max_turns_exceeded",
+        league_id=league.league_id,
     ).to_dict()
 
 
@@ -691,7 +725,7 @@ def _print_result(result: dict) -> None:
             print(f"  - [{gap.get('reason', 'unknown')}]{who} {gap.get('detail', '')}")
 
 
-def _run_repl(season: int | None, as_of_week: int | None) -> None:
+def _run_repl(league_id: str, season: int | None, as_of_week: int | None) -> None:
     """Multi-turn REPL: each turn's response feeds the next call's
     `messages`, so a clarifying question the agent asks can be answered
     in the same conversation instead of starting over."""
@@ -705,19 +739,30 @@ def _run_repl(season: int | None, as_of_week: int | None) -> None:
             break
         if not question or question.lower() in {"exit", "quit"}:
             break
-        result = recommend(question, messages=messages, season=season, as_of_week=as_of_week)
+        result = recommend(question, league_id, messages=messages, season=season, as_of_week=as_of_week)
         messages = result["messages"]
         _print_result(result)
         print()
 
 
 def main() -> None:
-    # Not calling load_dotenv() here anymore -- recommend()/generate_report()
-    # (both reached from every branch below) now load it themselves, so a
-    # caller that imports and calls them directly (skipping this CLI
-    # entry point entirely) gets the same behavior instead of a silent gap.
+    # recommend()/generate_report() load .env themselves (so a direct
+    # import gets the same behavior as this CLI), but the CLI's own
+    # --league-id default below reads SLEEPER_LEAGUE_ID at argparse time,
+    # before either of them runs -- so load it here too. load_dotenv()
+    # never overrides a real environment variable, so calling it in both
+    # places is harmless.
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Ask Madden: retrieval + signals -> Claude recommendation")
     parser.add_argument("question", nargs="?", help="a single question; omit this and pass --interactive instead")
+    parser.add_argument(
+        "--league-id",
+        default=os.environ.get("SLEEPER_LEAGUE_ID"),
+        help=(
+            "the Sleeper league to answer for (Phase 5.1: required -- defaults to SLEEPER_LEAGUE_ID from "
+            "the environment/.env, the same variable `python -m src.ingest.sleeper` uses)"
+        ),
+    )
     parser.add_argument("--season", type=int, default=None)
     parser.add_argument("--as-of-week", type=int, default=None)
     parser.add_argument(
@@ -734,23 +779,29 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if not args.league_id:
+        raise SystemExit(
+            "a Sleeper league ID is required: pass --league-id <id>, or set SLEEPER_LEAGUE_ID in .env "
+            "(see .env.example)"
+        )
+
     if args.report:
         # Imported here, not at module level: report.py imports this
         # module (to reuse dispatch_tool/RecommendContext), so importing
         # it back at the top of this file would be a circular import.
         from src.reasoning.report import generate_report, _print_report
 
-        _print_report(generate_report(args.report, season=args.season, as_of_week=args.as_of_week))
+        _print_report(generate_report(args.report, args.league_id, season=args.season, as_of_week=args.as_of_week))
         return
 
     if args.interactive:
-        _run_repl(season=args.season, as_of_week=args.as_of_week)
+        _run_repl(args.league_id, season=args.season, as_of_week=args.as_of_week)
         return
 
     if not args.question:
         raise SystemExit("a question is required unless --interactive or --report is given")
 
-    result = recommend(args.question, season=args.season, as_of_week=args.as_of_week)
+    result = recommend(args.question, args.league_id, season=args.season, as_of_week=args.as_of_week)
     _print_result(result)
 
 

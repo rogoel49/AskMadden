@@ -743,7 +743,8 @@ signals-backed recommendations. No password/OAuth, no payments — a
 portfolio deliverable, not a business. See PROJECT_SPEC.md's Phase 5
 section for full detail, rationale, and success criteria.
 
-Not started. Phase 4 is explicitly optional and not a blocker (see
+5.1 is implemented (see its section below); 5.2-5.6 are not started.
+Phase 4 is explicitly optional and not a blocker (see
 above) — the actual gate was Phases 1-3.8, which are done. Phase 3.7's
 anti-fabrication addendum and Phase 3.8's roster-composition tool
 (get_league_rosters) are both real-model validated and closed as of
@@ -762,18 +763,151 @@ chain: 5.1 and 5.2 (backend) must exist before 5.3 (frontend) is
 anything but a static demo calling nothing real.
 
 ### 5.1 — Scoring + league parameterization
-- [ ] recommend() and generate_report() accept league_id as a
-      required parameter instead of operating on whatever's currently
-      ingested
-- [ ] Pull per-league scoring settings from Sleeper's
-      /league/<league_id> endpoint, pass through instead of assuming
-      half-PPR
-- [ ] Regression check: Victorious Secret 3.0's existing output is
-      unchanged before/after — half-PPR becomes the first
-      parameterized case, not a special one
-- [ ] Verify (same check every phase so far has run): no change here
-      touches matchup_signals.py or rag/ — the per-league join stays
-      confined to recommend.py/report.py's existing pattern
+Implemented. Full `pytest` suite is 176/176 (148 before this phase's
+28 new tests, `tests/test_league.py`). Same two sandbox blockers as
+every prior session -- no `ANTHROPIC_API_KEY`, `api.sleeper.app` blocked
+by the sandbox's network policy (confirmed again via the proxy status
+endpoint) -- so see "Validation" below for exactly what was and wasn't
+run against real data.
+
+**What the investigation actually found (the useful part).** The
+Phase 5 plan text (this file and PROJECT_SPEC.md) said
+`matchup_signals.py` and `recommend.py` "currently assume half-PPR".
+Traced before changing anything, that turned out to be a **single-
+league blind spot, not a magic number** -- there was no hardcoded 0.5
+(or any other scoring weight) anywhere to replace:
+- `recommend.py` has read the league's real Sleeper `scoring_settings`
+  from the ingested `league.json` since Phase 3 and put them in the
+  system prompt verbatim (`rec=0.5, pass_td=4, ...`). That's its ONLY
+  use of scoring: a text summary the model is told to let "inform which
+  stats matter". It was correct for Victorious Secret 3.0 only because
+  the one ingested league happened to be half-PPR -- the code already
+  did the right thing, it had just never been shown a second league.
+- `report.py` never read scoring settings at all. Its ranking
+  (`_opportunity_score`) is a weighted sum of `epa_trend` /
+  `red_zone_share` / `target_share` -- usage/efficiency signals that
+  are the same number in any scoring format. So reports have no
+  scoring-dependent output today, full stop: two leagues with identical
+  rosters and different scoring get identical reports. Now pinned by a
+  test (`test_generate_report_ranking_is_scoring_format_independent_today`)
+  so that if a scoring-aware ranking is ever added (Phase 6's
+  points-based proxy is the natural place), the test fails and gets
+  rewritten deliberately rather than the property changing silently.
+- `matchup_signals.py` (and everything under `src/rag/`) has no
+  scoring concept whatsoever -- verified by grep and now by a guard test
+  (`test_league_module_is_not_imported_by_signals_or_rag`). The spec
+  sentence naming it was simply wrong; corrected in PROJECT_SPEC.md.
+- `evals/build_ground_truth.py` is the one place scoring settings are
+  applied *numerically* (its `STAT_TO_SCORING_KEY` mapping), and it
+  reads them from the same `data/raw/sleeper/league.json`, same
+  `data.scoring_settings` key, as `recommend.py` -- consistent, just
+  path-keyed rather than league-keyed, and (like everything else) with
+  no record of *which* league a row was scored under.
+- "Which league" was genuinely implicit everywhere: `recommend()` /
+  `generate_report()` took `raw_dir`/`persist_dir` and trusted whatever
+  `src.ingest.sleeper` last wrote there. No `league_id` was read, passed,
+  or checked anywhere in the reasoning layer -- Sleeper's `league.json`
+  carries one, nothing looked at it. Ingest league B, ask about league
+  A, get league B's roster and scoring with no error.
+
+**What changed.**
+- [x] New `src/reasoning/league.py` (the per-league join layer, not
+      `rag/`): `load_league(league_id, raw_dir, persist_dir)` reads the
+      ingested `league.json`, returns a `LeagueConfig` carrying the
+      league's real `scoring_settings` verbatim, and raises
+      `LeagueMismatchError` (naming both IDs and a copy-pasteable
+      re-ingest command) if the directory holds a *different* league or
+      a `league.json` with no `league_id` at all. The point: a
+      wrong-league answer is now a loud error, never a quiet one.
+- [x] `recommend()` and `generate_report()` accept `league_id` as a
+      required second positional parameter and go through
+      `load_league()` -- `recommend()` refuses before spending a model
+      call. `raw_dir`/`persist_dir` still say *where* that league's data
+      lives (the existing flat `data/raw/sleeper/` / `data/chroma/`
+      convention, unchanged so Rohan's single-league setup keeps working);
+      per-league storage layout is 5.2's job, not this parameter's.
+      Every result now echoes the league: `league_id` on
+      `recommend()`'s dict, `league_id` + `league_name` on every report
+      header (additive keys only -- see the regression note).
+- [x] Scoring settings pulled from that league's real Sleeper data --
+      which, per above, they already were; the real change is that the
+      read now happens in one place (`LeagueConfig.scoring_settings`)
+      keyed by a verified `league_id`, and `build_ground_truth.py`'s
+      loader routes through the same `league.py` reader (optionally
+      verifying `league_id`) so ground truth and the agent can't be
+      scored against two different leagues' settings.
+- [x] CLIs: `python -m src.reasoning.recommend` (all three modes),
+      `python -m src.reasoning.report`, `python -m evals.run_decision_eval`,
+      and `python -m evals.build_ground_truth` take `--league-id`,
+      defaulting to `SLEEPER_LEAGUE_ID` from `.env` (the same variable
+      `src.ingest.sleeper` already used) and exiting with a clear
+      message if neither is set. The CLIs call `load_dotenv()` themselves
+      again for that default (PR #18 had moved it into `recommend()`/
+      `generate_report()`; both places now, harmlessly).
+- [x] Regression check, Victorious Secret 3.0 unchanged before/after --
+      see "Validation".
+- [x] Verified: no change touches `matchup_signals.py` or anything under
+      `src/rag/` (`git diff --stat` -- the only `src/` files touched are
+      `src/reasoning/{recommend,report,league}.py`), and the new guard
+      test fails if anything in `src/signals/` or `src/rag/` ever imports
+      from `src/reasoning/` or reads `scoring_settings`.
+
+**Still implicit -- flagged, deliberately not fixed here.**
+`MY_ROSTER_ID` (which roster in the league is "mine") is still read
+from the environment inside `src/rag/lookup.py`'s `current_roster()`. A
+`roster_id` is per-league, so it belongs alongside `league_id` as an
+explicit input in a multi-league product -- but that change lives in
+`src/rag/lookup.py`, which this phase was scoped not to touch. 5.2's
+"league_id + your team within it" session model is where it gets
+parameterized (an explicit `roster_id` parameter threaded through
+`lookup.py` and `RecommendContext`). Two related 5.2 notes: (1) the
+Chroma collection in `persist_dir` mixes league-specific chunks
+(`league:settings`, `team:*`, `matchup:*`, `transaction:*`) with the
+league-agnostic signal chunks in one collection, so `persist_dir` is
+effectively per-league today and signals get re-embedded per league --
+fine for one league, worth splitting when 5.2 stores more than one; (2)
+`ground_truth.jsonl` rows say `scoring_format: "league_actual"` but not
+which league, which becomes ambiguous the moment two leagues' evals
+exist -- row schema left alone here (regenerating needs Sleeper access
+this sandbox doesn't have), flagged for 5.2.
+
+**Validation.** No real Victorious Secret 3.0 pull exists in this
+sandbox (`data/raw/` is gitignored and Sleeper is blocked), so "before/
+after against the actual ingested data" was run the closest honest way
+available: a VS3.0-*shaped* fixture (real league ID, name, 12 teams,
+Sleeper-shaped half-PPR `scoring_settings`, a roster of real players)
+joined to the REAL committed `signals_2024_week5.parquet` and the REAL
+nflverse player index, run under `origin/main` (a worktree) and under
+this branch, for all three report types plus a `recommend()` call with
+a scripted fake client exercising all nine tools (real tool execution,
+only the model is faked). Result: **zero differences apart from the
+additive `league_id`/`league_name` keys** -- every report entry, every
+tool result, and the system prompt (byte-identical) match. A second,
+full-PPR fixture league confirmed the other direction: its system
+prompt shows `rec=1.0` and a `bonus_rec_te=0.5` key half-PPR lacks (and
+a no-PPR fixture in the tests shows no `rec=` at all -- nothing invents
+a reception value), while its reports are identical to the half-PPR
+league's, exactly as the finding above predicts. One non-additive diff
+did show up in that second league's `search_league_info` results and was
+chased down: same code, same query, two independently-built Chroma
+indexes from identical chunks returned different top-5 lists (HNSW
+approximate-search recall -- a closer chunk was missing from one
+index's results). That's `src/rag/retrieve.py` behavior this phase
+didn't touch, not a regression; noting it because it will bite any
+future exact-output regression check that includes semantic search.
+**Gaps for Rohan's machine, same pattern as every prior phase:** (1)
+re-run the real thing -- `python -m src.reasoning.recommend --report
+drop` and a real question, with `SLEEPER_LEAGUE_ID` in `.env`, against
+the actual ingested league, and confirm the output reads the same as
+before; (2) no second *real* league exists in this sandbox's fixtures
+(none was fabricated), so "a genuinely different scoring format produces
+genuinely different, correct output" is only demonstrated at the
+system-prompt level with fixtures -- ingest a friend's PPR/standard
+league (`python -m src.ingest.sleeper --league-id <theirs>` into a
+separate `raw_dir`, then `recommend(..., league_id=<theirs>,
+raw_dir=...)`) to validate it for real, and note that only the prompt
+will differ until something downstream actually consumes scoring
+numerically.
 
 ### 5.2 — API + storage layer
 - [ ] src/api/auth.py: Sleeper username to GET /v1/user/<username> to
