@@ -60,6 +60,34 @@ from src.reasoning.league import LeagueConfig, load_league
 DEFAULT_MODEL = os.environ.get("ASKMADDEN_MODEL", "claude-sonnet-4-5-20250929")
 MAX_TOOL_TURNS = 8
 
+_DOTENV_LOADED = False
+
+
+def load_dotenv_once() -> bool:
+    """Load .env into the environment the first time this is called in a
+    process; a no-op afterwards. Returns True only on the call that
+    actually loaded.
+
+    PR #18 made recommend()/generate_report() call load_dotenv()
+    themselves so a direct import behaves like the CLI. Phase 5.2's
+    investigation checked whether that placement is safe for a
+    long-running API server: it was correct but per-request -- every
+    call walked the filesystem for a .env and re-parsed it, which is
+    harmless for a one-shot CLI process (exactly one call) and pure
+    waste for a server handling many requests (load_dotenv() never
+    overrides an existing variable, so repeat calls could never even
+    change anything). This memo keeps the direct-import guarantee (the
+    first call, however it's reached, loads .env) while making every
+    later call free. Tests reset _DOTENV_LOADED via tests/conftest.py.
+    """
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED:
+        return False
+    load_dotenv()
+    _DOTENV_LOADED = True
+    return True
+
+
 TOOLS: list[dict] = [
     {
         "name": "get_my_roster",
@@ -274,6 +302,12 @@ class RecommendContext:
     # and never need scoring settings (see league.py's docstring for
     # why: nothing in the tools is scoring-dependent).
     league: LeagueConfig | None = None
+    # Which roster in that league is "mine" (Phase 5.2) -- passed down to
+    # src/rag/lookup.py's my_* functions. None means "fall back to the
+    # MY_ROSTER_ID environment variable" (the single-league CLI
+    # convention), so a CLI user's behavior is unchanged; the API server
+    # always sets it from the session, never from its own environment.
+    roster_id: str | None = None
 
 
 @dataclass
@@ -288,6 +322,10 @@ class RecommendResult:
     # multi-league caller (Phase 5.2's API) can never mistake one
     # league's answer for another's.
     league_id: str | None = None
+    # Which roster the "my"-flavored tools answered for (Phase 5.2) --
+    # the explicit roster_id if one was passed, else None (meaning the
+    # MY_ROSTER_ID environment fallback applied, or no tool needed it).
+    roster_id: str | None = None
     # Structured version of any gap named in `reasoning`'s prose (a
     # no-signal-data player, or a part of the question no tool could
     # answer) -- see submit_recommendation's tool schema. Always a list,
@@ -308,6 +346,7 @@ class RecommendResult:
             "messages": self.messages,
             "error": self.error,
             "league_id": self.league_id,
+            "roster_id": self.roster_id,
         }
 
 
@@ -396,7 +435,9 @@ def _tool_get_my_roster(tool_input: dict, ctx: RecommendContext) -> dict:
     position = tool_input.get("position")
     try:
         players = (
-            lookup.my_players_by_position(position, ctx.raw_dir) if position else lookup.my_players(ctx.raw_dir)
+            lookup.my_players_by_position(position, ctx.raw_dir, roster_id=ctx.roster_id)
+            if position
+            else lookup.my_players(ctx.raw_dir, roster_id=ctx.roster_id)
         )
     except RuntimeError as e:
         return {"error": str(e)}
@@ -494,7 +535,11 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
 def _tool_get_team_record(tool_input: dict, ctx: RecommendContext) -> dict:
     owner = tool_input.get("owner_display_name")
     try:
-        record = lookup.team_record_for_owner(owner, ctx.raw_dir) if owner else lookup.my_team_record(ctx.raw_dir)
+        record = (
+            lookup.team_record_for_owner(owner, ctx.raw_dir)
+            if owner
+            else lookup.my_team_record(ctx.raw_dir, roster_id=ctx.roster_id)
+        )
     except RuntimeError as e:
         return {"error": str(e)}
     if record is None:
@@ -508,7 +553,7 @@ def _tool_get_current_matchup(tool_input: dict, ctx: RecommendContext) -> dict:
         matchup = (
             lookup.current_matchup_for_owner(owner, ctx.as_of_week, ctx.raw_dir)
             if owner
-            else lookup.my_current_matchup(ctx.as_of_week, ctx.raw_dir)
+            else lookup.my_current_matchup(ctx.as_of_week, ctx.raw_dir, roster_id=ctx.roster_id)
         )
     except RuntimeError as e:
         return {"error": str(e)}
@@ -559,11 +604,18 @@ def recommend(
     client: "anthropic.Anthropic | None" = None,
     model: str = DEFAULT_MODEL,
     max_turns: int = MAX_TOOL_TURNS,
+    roster_id: str | None = None,
 ) -> dict:
     """Answer question using retrieved facts + computed signals via a
     Claude tool-use agent, returning
     {"recommendation", "reasoning", "player_id", "data_gaps", "tool_calls",
-    "messages", "error", "league_id"}.
+    "messages", "error", "league_id", "roster_id"}.
+
+    roster_id: which roster in league_id is "mine" for the my-flavored
+    tools (Phase 5.2). None falls back to the MY_ROSTER_ID environment
+    variable inside src/rag/lookup.py -- the single-league CLI/.env
+    convention, unchanged. The API server always passes the session's
+    roster_id explicitly and never relies on the fallback.
 
     league_id: the Sleeper league to answer for -- required (Phase 5.1).
     Resolved via src/reasoning/league.py's load_league(): the league's
@@ -612,7 +664,8 @@ def recommend(
     # way Phase 5's API layer will) skipped it entirely and failed with
     # an Anthropic auth error instead of a clear "ANTHROPIC_API_KEY not
     # set" message, since ANTHROPIC_API_KEY was never loaded from .env.
-    load_dotenv()
+    # Phase 5.2: once per process, not once per call -- see load_dotenv_once().
+    load_dotenv_once()
 
     # Phase 5.1: the league is an explicit, verified input. This is the
     # single read of the league's real Sleeper scoring_settings -- they
@@ -634,6 +687,7 @@ def recommend(
         as_of_week=as_of_week,
         player_idx=player_index.build_player_index(season),
         league=league,
+        roster_id=str(roster_id) if roster_id is not None else None,
     )
 
     client = client or anthropic.Anthropic()
@@ -661,7 +715,9 @@ def recommend(
             # from (the last turn is a plain assistant text turn, no
             # pending tool_use to resolve).
             text = "".join(block.text for block in response.content if block.type == "text")
-            return RecommendResult(text, None, None, tool_calls, messages, league_id=league.league_id).to_dict()
+            return RecommendResult(
+                text, None, None, tool_calls, messages, league_id=league.league_id, roster_id=ctx.roster_id
+            ).to_dict()
 
         submit = next((b for b in tool_uses if b.name == "submit_recommendation"), None)
         if submit is not None:
@@ -691,6 +747,7 @@ def recommend(
                 tool_calls=tool_calls,
                 messages=messages,
                 league_id=league.league_id,
+                roster_id=ctx.roster_id,
             ).to_dict()
 
         tool_results = []
@@ -711,6 +768,7 @@ def recommend(
         messages=messages,
         error="max_turns_exceeded",
         league_id=league.league_id,
+        roster_id=ctx.roster_id,
     ).to_dict()
 
 
@@ -725,7 +783,7 @@ def _print_result(result: dict) -> None:
             print(f"  - [{gap.get('reason', 'unknown')}]{who} {gap.get('detail', '')}")
 
 
-def _run_repl(league_id: str, season: int | None, as_of_week: int | None) -> None:
+def _run_repl(league_id: str, season: int | None, as_of_week: int | None, roster_id: str | None = None) -> None:
     """Multi-turn REPL: each turn's response feeds the next call's
     `messages`, so a clarifying question the agent asks can be answered
     in the same conversation instead of starting over."""
@@ -739,7 +797,9 @@ def _run_repl(league_id: str, season: int | None, as_of_week: int | None) -> Non
             break
         if not question or question.lower() in {"exit", "quit"}:
             break
-        result = recommend(question, league_id, messages=messages, season=season, as_of_week=as_of_week)
+        result = recommend(
+            question, league_id, messages=messages, season=season, as_of_week=as_of_week, roster_id=roster_id
+        )
         messages = result["messages"]
         _print_result(result)
         print()
@@ -751,8 +811,8 @@ def main() -> None:
     # --league-id default below reads SLEEPER_LEAGUE_ID at argparse time,
     # before either of them runs -- so load it here too. load_dotenv()
     # never overrides a real environment variable, so calling it in both
-    # places is harmless.
-    load_dotenv()
+    # places is harmless (and, since Phase 5.2, a no-op the second time).
+    load_dotenv_once()
     parser = argparse.ArgumentParser(description="Ask Madden: retrieval + signals -> Claude recommendation")
     parser.add_argument("question", nargs="?", help="a single question; omit this and pass --interactive instead")
     parser.add_argument(
@@ -761,6 +821,14 @@ def main() -> None:
         help=(
             "the Sleeper league to answer for (Phase 5.1: required -- defaults to SLEEPER_LEAGUE_ID from "
             "the environment/.env, the same variable `python -m src.ingest.sleeper` uses)"
+        ),
+    )
+    parser.add_argument(
+        "--roster-id",
+        default=None,
+        help=(
+            "which roster in that league is yours (Phase 5.2) -- defaults to MY_ROSTER_ID from the "
+            "environment/.env, exactly as before"
         ),
     )
     parser.add_argument("--season", type=int, default=None)
@@ -791,17 +859,23 @@ def main() -> None:
         # it back at the top of this file would be a circular import.
         from src.reasoning.report import generate_report, _print_report
 
-        _print_report(generate_report(args.report, args.league_id, season=args.season, as_of_week=args.as_of_week))
+        _print_report(
+            generate_report(
+                args.report, args.league_id, season=args.season, as_of_week=args.as_of_week, roster_id=args.roster_id
+            )
+        )
         return
 
     if args.interactive:
-        _run_repl(args.league_id, season=args.season, as_of_week=args.as_of_week)
+        _run_repl(args.league_id, season=args.season, as_of_week=args.as_of_week, roster_id=args.roster_id)
         return
 
     if not args.question:
         raise SystemExit("a question is required unless --interactive or --report is given")
 
-    result = recommend(args.question, args.league_id, season=args.season, as_of_week=args.as_of_week)
+    result = recommend(
+        args.question, args.league_id, season=args.season, as_of_week=args.as_of_week, roster_id=args.roster_id
+    )
     _print_result(result)
 
 

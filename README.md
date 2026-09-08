@@ -132,6 +132,22 @@ knowledge; and a question with an unanswerable part (e.g. trade
 valuation) gets a `data_gaps` entry instead of the model improvising
 an answer it can't back up.
 
+## API server (Phase 5.2)
+The same `recommend()` / `generate_report()` behind HTTP, multi-user
+and multi-league: log in with a Sleeper username (no password — the
+API is public and read-only), pick one of your leagues, ask questions.
+```
+uvicorn src.api.main:app --reload
+```
+Endpoints: `POST /api/leagues` (username → your leagues), `POST
+/api/sessions` (pick a league; its data is ingested on first use),
+`GET /api/roster`, `GET /api/reports/{start_sit|drop|waiver_pickups}`,
+`POST /api/chat` (pass back the returned `messages` to continue a
+conversation). Chat responses carry `data_gaps` and per-player
+`signals_consulted` stale markers as separate fields. Claude-backed
+chat is capped per user per day (`ASKMADDEN_DAILY_QUERY_CAP`, default
+25); reports are free. Interactive docs at `/docs` once it's running.
+
 ## Evals
 Pull real weekly box scores from nflverse and turn them into ground
 truth (fantasy points computed using the league's actual scoring
@@ -166,7 +182,7 @@ process can still lose to a fluke game.
 ```
 pytest
 ```
-Currently 148/148 passing. See `TODO.md` for the session-by-session
+Currently 246/246 passing. See `TODO.md` for the session-by-session
 log of what was validated against real data versus what still needs a
 live re-run (a few items are flagged as needing a machine with both
 `ANTHROPIC_API_KEY` and live Sleeper API access, which this project's
