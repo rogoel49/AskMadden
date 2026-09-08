@@ -238,6 +238,16 @@ or monetized, it needs to genuinely work for more than one league.
 
 Always check TODO.md for the up-to-date task list within the active phase.
 
+## Frontend architecture (Phase 5)
+One responsive frontend, `design/askmadden-ui-mockup.html`, with a
+landing view (`#view-landing`) as its entry point, then the
+login/league-picker flow, then a single app shell that reflows from a
+phone frame (below 900px) to a sidebar-nav desktop layout via CSS
+media queries only. There is no separate static marketing site and no
+second build target — the landing page is a view inside the same file.
+The landing page's eval-numbers band shows labeled placeholders until
+real eval numbers exist (see TODO.md's 5.5 entry for what gates each).
+
 ## Key architectural principle — do not violate
 The signals table and RAG corpus are **league-agnostic** — computed
 from NFL-wide sources (nflverse, NGS, odds), not tied to any one

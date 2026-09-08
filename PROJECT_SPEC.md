@@ -410,13 +410,17 @@ can honestly say "built for one league, then shipped as a product."
 
 ### Phase 5 sub-plan
 
-Two frontend deliverables now instead of one: the "minimal web UI"
-this section already describes, and a public marketing page for the
-portfolio story (new — see 5.5). A UI design already exists, built
+One responsive frontend with a landing view as its entry point (the
+"public marketing page" originally planned as a separate site is now
+that landing view — see 5.5). A UI design already exists, built
 outside a Claude Code session: design/askmadden-ui-mockup.html, a
-static (no real data) HTML/CSS/JS prototype of the login, league
-picker, and Feed/Chat/Roster/Moves flow. Phase 5.3 wires it up; it is
-not a from-scratch design task.
+static (no real data) HTML/CSS/JS prototype with three top-level
+views — a landing page (hero pitch, feature cards, an eval-numbers
+band with explicitly-labeled placeholder values), the login/league-
+picker flow, and a single responsive app shell (phone frame below
+900px, sidebar-nav desktop layout above it; same DOM, CSS media
+queries only, not two builds). Phase 5.3 wires it up; it is not a
+from-scratch design task and the responsive layout is already built.
 
 Sequencing constraint, same shape as every prior phase's dependency
 chain: 5.1 and 5.2 (backend) must exist before 5.3 (frontend) is
@@ -474,6 +478,8 @@ investigation, both prerequisites for a server.
 - [x] Per-user/day query caps (ASKMADDEN_DAILY_QUERY_CAP, chat only)
 
 #### 5.3 — Wire the mockup to real data
+The mockup's responsive breakpoint CSS is already built in; this is
+data wiring only, not layout work.
 - [ ] Login, league picker, switch-league sheet to real /api/leagues
 - [ ] Feed, Roster tabs to real endpoints
 - [ ] Chat tab to real endpoint; add distinct chip styles for stale,
@@ -492,19 +498,25 @@ investigation, both prerequisites for a server.
       the actual mechanism for a phone install, no App Store
       submission
 
-#### 5.5 — Marketing site (new scope)
-A second, public-facing page, wide desktop layout — not the
-phone-frame app. Pitch, product screenshots, eval numbers once they
-exist at volume, a CTA into the app's login. Shares design tokens with
-the app so the two read as one product.
+#### 5.5 — Landing page (front door)
+The `#view-landing` view inside the same responsive mockup file, not
+a separate site: hero pitch, feature cards, an eval-numbers band, a
+CTA into the login view. Its own small, independent piece of content
+work, but one view in one file — design tokens are shared by
+construction.
 
-- [ ] web/site/index.html
-- [ ] Shared web/shared/tokens.css between site and app
-- [ ] Static — no auth, no API calls
+- [ ] Landing copy and feature cards finalized
+- [ ] Eval-numbers band populated only with real numbers: retrieval
+      and decision accuracy once run_eval.py / run_decision_eval.py
+      have run at volume (no Phase 4 dependency); matchup-fit accuracy
+      only once Phase 4's coverage classification lands (the signals
+      table marks that signal a modeled proxy until then). Placeholders
+      are labeled as placeholders on purpose.
+- [ ] No auth, no API calls from the landing view
 
 #### 5.6 — Deployment
-- [ ] FastAPI mounts web/app/ and web/site/ as static routes — one
-      deployment, one URL, no CORS
+- [ ] FastAPI mounts the one responsive frontend as a static route —
+      one deployment, one URL, no CORS
 - [ ] Free-tier host (Railway/Render/Fly.io)
 - [ ] Get 2-3 friends in different leagues to actually use it
 - [ ] README: "started as one league, generalized to a product," with
