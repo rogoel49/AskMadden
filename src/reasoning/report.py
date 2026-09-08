@@ -134,6 +134,7 @@ from dotenv import load_dotenv
 from src.rag import lookup, player_index
 from src.rag.embed import CHROMA_DIR, RAW_DIR
 from src.reasoning import recommend
+from src.reasoning.league import load_league
 from src.signals.matchup_signals import PROCESSED_DIR as SIGNALS_DIR
 
 REPORT_TYPES = ("start_sit", "drop", "waiver_pickups")
@@ -396,6 +397,8 @@ def _report_header(ctx: recommend.RecommendContext, report_type: str) -> dict:
     matchup = recommend.dispatch_tool("get_current_matchup", {}, ctx)
     return {
         "report_type": report_type,
+        "league_id": ctx.league.league_id if ctx.league else None,
+        "league_name": ctx.league.name if ctx.league else None,
         "season": ctx.season,
         "as_of_week": ctx.as_of_week,
         "roster_id": team.get("roster_id"),
@@ -586,6 +589,8 @@ def _waiver_pickups_report(
 
     return {
         "report_type": "waiver_pickups",
+        "league_id": ctx.league.league_id if ctx.league else None,
+        "league_name": ctx.league.name if ctx.league else None,
         "season": ctx.season,
         "as_of_week": ctx.as_of_week,
         "entries": entries,
@@ -595,6 +600,7 @@ def _waiver_pickups_report(
 
 def generate_report(
     report_type: str,
+    league_id: str,
     raw_dir: Path = RAW_DIR,
     persist_dir: Path = CHROMA_DIR,
     season: int | None = None,
@@ -610,6 +616,19 @@ def generate_report(
     already-computed signals table directly for ranking (see module
     docstring for why). Never calls the Claude API -- see module
     docstring.
+
+    league_id: the Sleeper league to report on -- required (Phase 5.1),
+    resolved and verified against raw_dir's ingested league.json via
+    src/reasoning/league.py's load_league() exactly as recommend() does;
+    a raw_dir holding a different league raises LeagueMismatchError
+    rather than reporting on the wrong roster. Every report's header
+    echoes league_id/league_name. Note that no ranking here is
+    scoring-format-dependent (see league.py's docstring): the league's
+    scoring_settings are loaded and verified but not consumed by the
+    opportunity score, so two leagues with identical rosters and
+    different scoring get identical reports today -- a documented
+    property, not an oversight (a points-based, scoring-aware ranking is
+    Phase 6's proxy work, not parameterization).
 
     start_sit and drop require MY_ROSTER_ID to be configured (same
     requirement as recommend.py's "my"-flavored tools) since both report
@@ -632,9 +651,8 @@ def generate_report(
     if report_type not in REPORT_TYPES:
         raise ValueError(f"Unknown report_type {report_type!r} -- must be one of {REPORT_TYPES}.")
 
-    league_path = raw_dir / "league.json"
-    if not league_path.exists():
-        raise RuntimeError(f"{league_path} doesn't exist -- run `python -m src.ingest.sleeper` first.")
+    # Phase 5.1: same explicit, verified league resolution as recommend().
+    league = load_league(league_id, raw_dir=raw_dir, persist_dir=persist_dir)
 
     if season is None or as_of_week is None:
         # Reuses recommend.py's own season/week inference (Sleeper's
@@ -649,6 +667,7 @@ def generate_report(
         season=season,
         as_of_week=as_of_week,
         player_idx=player_index.build_player_index(season),
+        league=league,
     )
     signals_by_id = _load_signals_table(signals_dir, season, as_of_week)
     fallback_season, fallback_rows = _load_prior_season_fallback_table(signals_dir, season)
@@ -666,14 +685,30 @@ def _print_report(report: dict) -> None:
 
 def main() -> None:
     import argparse
+    import os
 
+    # See src/reasoning/recommend.py's main() for why the CLI loads .env
+    # itself on top of generate_report() doing so: --league-id's default
+    # is read at argparse time, before generate_report() runs.
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Ask Madden: generate a structured roster/waiver report")
     parser.add_argument("report_type", choices=REPORT_TYPES)
+    parser.add_argument(
+        "--league-id",
+        default=os.environ.get("SLEEPER_LEAGUE_ID"),
+        help="the Sleeper league to report on (Phase 5.1: required -- defaults to SLEEPER_LEAGUE_ID from .env)",
+    )
     parser.add_argument("--season", type=int, default=None)
     parser.add_argument("--as-of-week", type=int, default=None)
     args = parser.parse_args()
 
-    report = generate_report(args.report_type, season=args.season, as_of_week=args.as_of_week)
+    if not args.league_id:
+        raise SystemExit(
+            "a Sleeper league ID is required: pass --league-id <id>, or set SLEEPER_LEAGUE_ID in .env "
+            "(see .env.example)"
+        )
+
+    report = generate_report(args.report_type, args.league_id, season=args.season, as_of_week=args.as_of_week)
     _print_report(report)
 
 

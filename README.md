@@ -87,6 +87,13 @@ collection at `data/chroma/`:
 python -m src.rag.embed
 ```
 
+Every command below answers for one specific Sleeper league: pass
+`--league-id <id>`, or set `SLEEPER_LEAGUE_ID` in `.env` (the same
+variable the ingest step uses) and omit the flag. The league ID is
+checked against what's actually ingested — asking about a league whose
+data isn't in `data/raw/sleeper/` is an error, never a silent answer
+from a different league's roster.
+
 Ask a single question, backed by retrieval + signals + a Claude
 tool-use agent. The agent can look at your own roster, a named
 player's signals, your team record and current matchup, and — league-
@@ -127,8 +134,9 @@ an answer it can't back up.
 
 ## Evals
 Pull real weekly box scores from nflverse and turn them into ground
-truth (fantasy points computed using this league's actual scoring
-settings, never hand-authored):
+truth (fantasy points computed using the league's actual scoring
+settings — read from the same ingested `league.json` the agent uses,
+`--league-id`/`SLEEPER_LEAGUE_ID` as above — never hand-authored):
 ```
 python -m src.ingest.nflverse --season 2024
 python -m evals.build_ground_truth --season 2024 --weeks 1 2 3 4 5

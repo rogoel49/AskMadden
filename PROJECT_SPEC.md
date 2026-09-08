@@ -381,7 +381,12 @@ Ask Madden gives for Victorious Secret 3.0. Deliberately scoped small:
   `recommend.py` currently assume half-PPR. Sleeper's league API
   already returns scoring settings per league — pull and pass those
   through instead of hardcoding. This is real work but contained to
-  a handful of functions.
+  a handful of functions. *(Corrected by Phase 5.1's investigation:
+  neither module ever hardcoded half-PPR. `matchup_signals.py` has no
+  scoring concept at all, and `recommend.py` has read the league's
+  real `scoring_settings` since Phase 3 — it had only ever been shown
+  one league's. The real gap was league identity being implicit; see
+  TODO.md's Phase 5.1 entry.)*
 - **Per-league join at query time**: global signals/RAG corpus stay
   shared and refreshed on one schedule; `recommend.py` takes
   `league_id` (and derives roster/scoring/matchups from it) as a
@@ -427,17 +432,26 @@ proxy) is deferred past Phase 5 by design — see Phase 6's section for
 why — and is not a prerequisite either.
 
 #### 5.1 — Scoring + league parameterization
-matchup_signals.py and recommend()/generate_report() currently operate
-on whatever's already ingested — implicitly Victorious Secret 3.0's
-half-PPR settings. Sleeper's league API already returns scoring
-settings per league — pull and pass those through. Contained work: the
-signals/RAG layer itself stays league-agnostic; only the per-league
-join at query time changes.
+recommend()/generate_report() currently operate on whatever's already
+ingested — implicitly Victorious Secret 3.0. Sleeper's league API
+already returns scoring settings per league — pull and pass those
+through. Contained work: the signals/RAG layer itself stays
+league-agnostic; only the per-league join at query time changes.
+(Phase 5.1 finding: "implicitly half-PPR" was a single-league blind
+spot, not a hardcoded value — recommend() already read the real
+scoring_settings, report.py's ranking doesn't depend on scoring at
+all, and matchup_signals.py never had a scoring concept. What was
+actually missing was any notion of *which* league; see TODO.md.)
 
-- [ ] recommend() / generate_report() accept league_id as a required
-      parameter
-- [ ] Pull scoring settings from Sleeper per league
-- [ ] Regression check: Victorious Secret 3.0 output unchanged
+- [x] recommend() / generate_report() accept league_id as a required
+      parameter (verified against the ingested league.json —
+      LeagueMismatchError on a different league, never a silent
+      wrong-league answer; src/reasoning/league.py)
+- [x] Pull scoring settings from Sleeper per league (read from the
+      league's own ingested scoring_settings, one place, verbatim)
+- [x] Regression check: Victorious Secret 3.0 output unchanged
+      (fixture + real 2024 signals in the sandbox; real-league re-run on
+      Rohan's machine still outstanding — see TODO.md)
 
 #### 5.2 — API + storage layer
 - [ ] src/api/auth.py: Sleeper username to user_id to league list

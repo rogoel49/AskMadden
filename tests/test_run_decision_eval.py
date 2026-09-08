@@ -80,7 +80,7 @@ def test_run_scores_a_correctly_recommended_dilemma(tmp_path, monkeypatch):
     persist_dir = tmp_path / "chroma"
     questions_path = tmp_path / "decision_questions.jsonl"
 
-    from tests.test_recommend import _seed_league
+    from tests.test_recommend import _LEAGUE_ID, _seed_league
 
     _seed_league(raw_dir)
     signal_rows = [
@@ -117,7 +117,7 @@ def test_run_scores_a_correctly_recommended_dilemma(tmp_path, monkeypatch):
         ]
     )
 
-    summary = rde.run(questions_path=questions_path, raw_dir=raw_dir, persist_dir=persist_dir, client=client)
+    summary = rde.run(_LEAGUE_ID, questions_path=questions_path, raw_dir=raw_dir, persist_dir=persist_dir, client=client)
 
     assert summary["total_dilemmas"] == 1
     assert summary["scored_dilemmas"] == 1
