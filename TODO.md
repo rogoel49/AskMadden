@@ -743,7 +743,8 @@ signals-backed recommendations. No password/OAuth, no payments — a
 portfolio deliverable, not a business. See PROJECT_SPEC.md's Phase 5
 section for full detail, rationale, and success criteria.
 
-5.1 is implemented (see its section below); 5.2-5.6 are not started.
+5.1 and 5.2 are implemented (see their sections below); 5.3-5.6 are
+not started.
 Phase 4 is explicitly optional and not a blocker (see
 above) — the actual gate was Phases 1-3.8, which are done. Phase 3.7's
 anti-fabrication addendum and Phase 3.8's roster-composition tool
@@ -910,19 +911,168 @@ will differ until something downstream actually consumes scoring
 numerically.
 
 ### 5.2 — API + storage layer
-- [ ] src/api/auth.py: Sleeper username to GET /v1/user/<username> to
-      user_id to GET /v1/user/<user_id>/leagues/nfl/<season> for the
-      league list. No password, no OAuth, per the original spec.
-- [ ] src/api/storage.py: SQLite, username to [league_id], plus which
-      league is active per session
-- [ ] src/api/main.py (FastAPI): endpoints wrapping recommend() and
-      generate_report() — leagues, roster, recommendations, chat
-      (chat needs to accept/return messages for multi-turn, per
-      Phase 3.5)
-- [ ] data_gaps (Phase 3.7) and stale/source_season markers (Phase
-      3.6) pass through the API response unmodified — don't collapse
-      three distinct facts into one flag
-- [ ] Per-user/day query caps to bound Claude API spend
+Implemented. Full `pytest` suite is 246/246 (180 before this phase --
+that count includes the .env test-isolation fix, PR #21, which this
+phase is stacked on; 66 new tests across `tests/test_api_auth.py`,
+`test_api_storage.py`, `test_api_leagues.py`, `test_api_main.py`, and
+`test_roster_id.py`). Same sandbox blockers as every prior phase (no
+`ANTHROPIC_API_KEY`, `api.sleeper.app` blocked) -- see "What's mocked
+vs. what's real" below, which is the important part of this entry.
+
+**What the step-1 investigation found.**
+- *MY_ROSTER_ID's flow* was exactly the shape 5.1 flagged: read from
+  `os.environ` inside `src/rag/lookup.py`'s `current_roster()`, which
+  every "my"-flavored function (`my_players`, `my_players_by_position`,
+  `my_team_record`, `my_current_matchup`) went through, called from
+  `recommend.py`'s `get_my_roster`/`get_team_record`/
+  `get_current_matchup` tool handlers, `report.py`'s `_report_header`,
+  and `cli.py`. Nothing else in the project touched it. One process-wide
+  variable answering "whose roster" is fine for one person's CLI and
+  wrong for a server answering for several people at once.
+- *`load_dotenv()` placement (PR #18)* was correct but per-request:
+  every `recommend()`/`generate_report()` call walked the filesystem
+  for a `.env` and re-parsed it. Harmless for a one-shot CLI process
+  (exactly one call), pure waste for a server -- and since
+  `load_dotenv()` never overrides a variable that's already set, repeat
+  calls could never even change anything. Not a correctness bug, an
+  efficiency one, invisible until there's a server.
+- *`data_gaps` / stale markers' real shapes* differ between the two
+  entry points, which matters for passing them through honestly:
+  `recommend()` returns `data_gaps` at the top level (a list of
+  `{reason, detail, player_name?}` straight from the model's
+  `submit_recommendation` call) but its stale/`has_signals` markers are
+  NOT top-level -- they live on each `get_player_signals` tool result
+  inside `tool_calls` (`has_signals`, `stale`, `source_season`,
+  `source_as_of_week`). `generate_report()` has the opposite shape:
+  every entry carries `stale`/`source_season`/`source_as_of_week`, the
+  report carries `notes`, and there is no `data_gaps` concept at all.
+
+**What changed.**
+- [x] `roster_id` is an explicit parameter, threaded the same way 5.1
+      threaded `league_id`: `lookup.current_roster()` and the four
+      `my_*` functions take `roster_id=None` (explicit wins; `None`
+      falls back to `MY_ROSTER_ID` exactly as before, so the
+      single-league CLI is unchanged -- pinned by tests and by the
+      before/after regression below); `RecommendContext` carries it;
+      `recommend()`/`generate_report()` accept `roster_id=None` and
+      echo it on their results; CLIs take `--roster-id` (default: the
+      env var). New `lookup.team_roster_for_roster_id()` for the API's
+      roster endpoint. **This is the one `src/rag/` file touched, by
+      explicit instruction; the guard test is unmodified and passes.**
+- [x] `load_dotenv()` -> `recommend.load_dotenv_once()`: once per
+      process (memoized), called from `recommend()`,
+      `generate_report()`, both CLIs, and the API's startup hook. The
+      PR #18 guarantee (a direct import loads `.env` on first use) is
+      preserved and tested; five calls in one process now parse `.env`
+      once (tested). `tests/conftest.py` resets the memo per test.
+- [x] `src/api/auth.py`: username -> `GET /v1/user/<username>` ->
+      user_id -> `GET /v1/user/<user_id>/leagues/nfl/<season>` (season
+      defaults to Sleeper's `state/nfl`, the same source ingest uses) ->
+      each league's `scoring_settings` verbatim + the user's own
+      `roster_id` in it (via the existing `fetch_rosters`, matching
+      `owner_id` or `co_owners`). Sleeper's documented "null body for
+      an unknown username" and a 404 both become `UnknownSleeperUser`.
+- [x] `src/api/storage.py`: SQLite, four tables (`users`, `leagues`,
+      `sessions`, `query_counts`), `CREATE TABLE IF NOT EXISTS` on
+      open, no migration framework. A session can only be pointed at a
+      league Sleeper listed for its user.
+- [x] `src/api/leagues.py` (not in the plan, but necessary): where a
+      league's ingested data lives. The developer's own
+      `SLEEPER_LEAGUE_ID` league keeps the flat `data/raw/sleeper/` +
+      `data/chroma/` (so CLI and server share it); every other league
+      gets `data/raw/leagues/<league_id>/{sleeper,chroma}/` (under
+      `data/raw/` so the existing gitignore covers it), ingested on
+      first use with the *existing* `sleeper.run()` + `embed.embed()`
+      pointed at those dirs -- no new ingest code. The signals table
+      stays shared and league-agnostic; it's embedded into each
+      league's collection alongside that league's own chunks, exactly
+      what `embed.main()` already does for one league (the
+      per-league re-embedding of shared signal chunks is redundant at
+      friend scale and is the `src/rag/` split 5.1 already flagged).
+- [x] `src/api/main.py` (FastAPI, `uvicorn src.api.main:app`):
+      `POST /api/leagues` (login), `GET /api/leagues/{username}`,
+      `POST /api/sessions` (pick league; ingests on first use),
+      `GET /api/sessions/{id}`, `GET /api/roster`,
+      `GET /api/reports/{type}`, `POST /api/chat`. Chat exposes
+      `recommend()`'s existing `messages` parameter for multi-turn --
+      the API converts the Anthropic SDK content blocks in `messages`
+      to plain dicts on the way out and passes them straight back in
+      (the SDK accepts dict blocks), nothing re-implemented. The
+      session's `roster_id` is passed explicitly into every
+      `recommend()`/`generate_report()` call; the server never
+      consults `MY_ROSTER_ID` (tested: with the env var pointing at
+      another team, the session's roster still wins). Upstream
+      failures (Sleeper unreachable at login or first-use ingest) are
+      502 with a clear detail, not a bare 500 -- found by booting the
+      real server in the sandbox and watching the blocked Sleeper call
+      come back as a stack trace.
+- [x] `data_gaps` and stale markers pass through as distinct fields.
+      `/api/chat` returns `data_gaps` verbatim AND `signals_consulted`:
+      every resolved `get_player_signals` tool result the agent saw,
+      each carrying `has_signals`/`stale`/`source_season`/
+      `source_as_of_week` exactly as the tool returned them -- a
+      projection of real tool output (the only place those markers
+      exist in `recommend()`'s return value), not a reconstruction, and
+      never a single summary flag. `/api/reports/*` returns
+      `generate_report()`'s dict verbatim (per-entry stale fields,
+      `notes`). Tested for all three cases: grounded (`stale: false`),
+      stale fallback (`stale: true, source_season: 2024`), and
+      `has_signals: false`.
+- [x] Per-user/day query cap: `ASKMADDEN_DAILY_QUERY_CAP` (default 25),
+      counted per username per UTC day in one check-and-increment SQL
+      statement (no double-spend under concurrency), 429 when hit,
+      refused requests not counted. Only `/api/chat` counts -- reports
+      never call Claude and are free.
+
+**What's mocked vs. what's real (read this before trusting anything).**
+Real in the tests: FastAPI routing/validation via `TestClient`, SQLite
+in a temp file, Phase 5.1's league verification, `recommend()`'s actual
+tool-use loop and its real tools, `generate_report()`'s real ranking,
+all against real-shaped fixtures (real nflverse identities, real 2024
+week-5 signal values). Mocked, at exactly these boundaries and nowhere
+else: (1) Sleeper -- `auth.resolve_user_leagues` in the API tests and
+`sleeper._get` in the auth tests, with responses shaped per Sleeper's
+documented API (the fields read are the stable documented ones:
+`user_id`, `league_id`, `name`, `season`, `roster_id`, `owner_id`,
+`co_owners`); (2) league ingest -- `leagues.ingest_league` seeds
+fixture data + a real Chroma index instead of hitting the network;
+(3) the Claude model -- a scripted client that decides which tools to
+call, the tools themselves run for real; (4) nflverse's player list,
+the same monkeypatch every existing test uses. Also done for real:
+booted the actual server with uvicorn and probed it (OpenAPI lists all
+seven routes; unknown session -> 404; login -> 502 because Sleeper is
+blocked here, which is the correct honest answer from this sandbox).
+**Needs a real run on Rohan's machine, same pattern as every phase:**
+```
+uvicorn src.api.main:app --reload
+curl -X POST localhost:8000/api/leagues -H 'content-type: application/json' -d '{"username":"<your sleeper username>"}'
+curl -X POST localhost:8000/api/sessions -H 'content-type: application/json' -d '{"username":"<you>","league_id":"1389341490030862336"}'
+curl "localhost:8000/api/roster?session_id=<from above>"
+curl "localhost:8000/api/reports/drop?session_id=<id>"
+curl -X POST localhost:8000/api/chat -H 'content-type: application/json' -d '{"session_id":"<id>","question":"who should I start at RB?"}'
+```
+Specifically unverified until then: that Sleeper's live responses
+match the documented shapes this was written against (no fabricated
+shape was used, but "documented" isn't "observed"); the first-use
+ingest of a *second* league into `data/raw/leagues/<id>/` end to end
+(Sleeper + nflverse + embed, all network); and a real Claude turn
+through `/api/chat` including a multi-turn follow-up with the returned
+`messages`. Known cost of the per-league layout: `sleeper.run()`'s
+5MB player-pool cache lives in each league's own directory (its cache
+path isn't parameterizable without touching `src/ingest/`, out of
+scope), so the first ingest of each league re-fetches it once -- fine
+for three leagues, worth sharing if this ever grows.
+
+**Regression (direct calls unchanged after PR #20).** Same harness as
+5.1: VS3.0-shaped fixture + real 2024 week-5 signals + real player
+index, `origin/main` (post-#20) vs this branch, all three reports plus
+a nine-tool `recommend()` run, called the old way (no `roster_id`,
+`MY_ROSTER_ID` in the environment). Against the same Chroma index:
+zero differences except the additive `roster_id: null` on
+`recommend()`'s result; system prompt byte-identical. (Against
+independently-built indexes the only extra diffs were again
+`search_league_info`'s Chroma approximate-search variance, same as 5.1
+found -- not this change.)
 
 ### 5.3 — Wire the mockup to real data
 design/askmadden-ui-mockup.html has no framework dependency, so this

@@ -129,7 +129,6 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-from dotenv import load_dotenv
 
 from src.rag import lookup, player_index
 from src.rag.embed import CHROMA_DIR, RAW_DIR
@@ -392,7 +391,7 @@ def _resolve_roster_with_signals(
 
 
 def _report_header(ctx: recommend.RecommendContext, report_type: str) -> dict:
-    team = lookup.current_roster(ctx.raw_dir)
+    team = lookup.current_roster(ctx.raw_dir, roster_id=ctx.roster_id)
     record = recommend.dispatch_tool("get_team_record", {}, ctx)
     matchup = recommend.dispatch_tool("get_current_matchup", {}, ctx)
     return {
@@ -608,6 +607,7 @@ def generate_report(
     signals_dir: Path = SIGNALS_DIR,
     waiver_top_n: int = 10,
     drop_bottom_n: int = 3,
+    roster_id: str | None = None,
 ) -> dict:
     """Generate one of the three buildable Phase 3.5 report types
     (start_sit, drop, waiver_pickups -- trade suggestions are explicitly
@@ -630,9 +630,11 @@ def generate_report(
     property, not an oversight (a points-based, scoring-aware ranking is
     Phase 6's proxy work, not parameterization).
 
-    start_sit and drop require MY_ROSTER_ID to be configured (same
-    requirement as recommend.py's "my"-flavored tools) since both report
-    on your own roster; waiver_pickups doesn't need it since it operates
+    start_sit and drop need to know which roster is yours -- roster_id
+    explicitly (Phase 5.2, what the API server passes from the session),
+    else the MY_ROSTER_ID environment variable (the single-league
+    CLI/.env convention, unchanged; same fallback as recommend.py's
+    "my"-flavored tools). waiver_pickups needs neither since it operates
     over the whole league's rosters minus the full player pool.
 
     A player with no current-season signal at all falls back to their
@@ -644,9 +646,10 @@ def generate_report(
     available whether this is called via the CLI or imported directly --
     see src/reasoning/recommend.py's recommend() for the same fix and
     why it's needed (this function had the identical gap: env loading
-    only happened in this module's own main(), not here).
+    only happened in this module's own main(), not here). Phase 5.2:
+    once per process via recommend.load_dotenv_once(), not per call.
     """
-    load_dotenv()
+    recommend.load_dotenv_once()
 
     if report_type not in REPORT_TYPES:
         raise ValueError(f"Unknown report_type {report_type!r} -- must be one of {REPORT_TYPES}.")
@@ -668,6 +671,7 @@ def generate_report(
         as_of_week=as_of_week,
         player_idx=player_index.build_player_index(season),
         league=league,
+        roster_id=str(roster_id) if roster_id is not None else None,
     )
     signals_by_id = _load_signals_table(signals_dir, season, as_of_week)
     fallback_season, fallback_rows = _load_prior_season_fallback_table(signals_dir, season)
@@ -690,13 +694,16 @@ def main() -> None:
     # See src/reasoning/recommend.py's main() for why the CLI loads .env
     # itself on top of generate_report() doing so: --league-id's default
     # is read at argparse time, before generate_report() runs.
-    load_dotenv()
+    recommend.load_dotenv_once()
     parser = argparse.ArgumentParser(description="Ask Madden: generate a structured roster/waiver report")
     parser.add_argument("report_type", choices=REPORT_TYPES)
     parser.add_argument(
         "--league-id",
         default=os.environ.get("SLEEPER_LEAGUE_ID"),
         help="the Sleeper league to report on (Phase 5.1: required -- defaults to SLEEPER_LEAGUE_ID from .env)",
+    )
+    parser.add_argument(
+        "--roster-id", default=None, help="which roster is yours (Phase 5.2) -- defaults to MY_ROSTER_ID from .env"
     )
     parser.add_argument("--season", type=int, default=None)
     parser.add_argument("--as-of-week", type=int, default=None)
@@ -708,7 +715,9 @@ def main() -> None:
             "(see .env.example)"
         )
 
-    report = generate_report(args.report_type, args.league_id, season=args.season, as_of_week=args.as_of_week)
+    report = generate_report(
+        args.report_type, args.league_id, season=args.season, as_of_week=args.as_of_week, roster_id=args.roster_id
+    )
     _print_report(report)
 
 

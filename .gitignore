@@ -11,3 +11,6 @@ data/raw/*
 
 # the chroma db is rebuilt from data/raw/ on every embed run
 data/chroma/
+
+# Phase 5.2 API: per-user/session state (SQLite) -- local, rebuildable
+data/*.sqlite3

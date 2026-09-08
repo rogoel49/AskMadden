@@ -454,15 +454,24 @@ actually missing was any notion of *which* league; see TODO.md.)
       Rohan's machine still outstanding — see TODO.md)
 
 #### 5.2 — API + storage layer
-- [ ] src/api/auth.py: Sleeper username to user_id to league list
-      (read-only, no password/OAuth)
-- [ ] src/api/storage.py: SQLite, username to [league_id]
-- [ ] src/api/main.py (FastAPI): endpoints wrapping recommend() and
-      generate_report()
-- [ ] data_gaps (Phase 3.7) and stale/source_season markers (Phase
+Implemented (see TODO.md's Phase 5.2 entry for what's mocked vs. real
+and what still needs a live run). Also made roster_id an explicit
+parameter down to src/rag/lookup.py (MY_ROSTER_ID stays as the CLI
+fallback) and .env loading once-per-process — both found by 5.2's
+investigation, both prerequisites for a server.
+- [x] src/api/auth.py: Sleeper username to user_id to league list
+      (read-only, no password/OAuth) — written against Sleeper's
+      documented shapes, mocked in tests, live run still outstanding
+- [x] src/api/storage.py: SQLite, username to [league_id], sessions
+      (active league + roster_id), per-user/day query counts
+- [x] src/api/main.py (FastAPI): endpoints wrapping recommend() and
+      generate_report(), plus src/api/leagues.py for per-league data
+      directories and ingest-on-first-use
+- [x] data_gaps (Phase 3.7) and stale/source_season markers (Phase
       3.6) pass through unmodified — three distinct facts, not one
-      flag
-- [ ] Per-user/day query caps
+      flag (chat: `data_gaps` verbatim + per-player
+      `signals_consulted`; reports: verbatim)
+- [x] Per-user/day query caps (ASKMADDEN_DAILY_QUERY_CAP, chat only)
 
 #### 5.3 — Wire the mockup to real data
 - [ ] Login, league picker, switch-league sheet to real /api/leagues

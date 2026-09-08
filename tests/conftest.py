@@ -54,5 +54,12 @@ def _find_nothing(*args, **kwargs) -> str:
 def isolate_tests_from_real_dotenv_file(monkeypatch):
     """Every test runs as if no .env file exists anywhere on disk, so a
     `monkeypatch.delenv()` stays deleted regardless of what the developer
-    running the suite has in their real .env. See module docstring."""
+    running the suite has in their real .env. See module docstring.
+
+    Also resets recommend.load_dotenv_once()'s per-process memo (Phase
+    5.2) so each test sees a fresh "not loaded yet" process, the way a
+    CLI invocation or a freshly started server does."""
     monkeypatch.setattr(dotenv.main, "find_dotenv", _find_nothing)
+    from src.reasoning import recommend
+
+    monkeypatch.setattr(recommend, "_DOTENV_LOADED", False)

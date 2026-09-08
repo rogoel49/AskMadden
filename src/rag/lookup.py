@@ -70,38 +70,48 @@ def players_by_position_for_owner(owner_display_name: str, position: str, raw_di
     return _players_at_position(team, players, position) if team else []
 
 
-def current_roster(raw_dir: Path = RAW_DIR) -> dict:
-    """Resolve the team configured as "mine" via the MY_ROSTER_ID env var.
+def current_roster(raw_dir: Path = RAW_DIR, roster_id: Any | None = None) -> dict:
+    """Resolve the team that is "mine".
 
     Single source of truth for "my"-flavored questions (my roster, my
     quarterbacks, etc.) -- callers read this instead of each hardcoding
     or re-parsing which roster_id belongs to the current user.
+
+    roster_id: which roster in this league is mine, passed explicitly
+    (Phase 5.2 -- an API server answering for many users can't hold
+    "whose roster" in one process-wide environment variable; the
+    session's roster_id is threaded down to here instead, the same way
+    Phase 5.1 made league_id an explicit input). None (the default)
+    falls back to the MY_ROSTER_ID environment variable, which keeps the
+    single-league CLI/.env convention working exactly as before; an
+    explicit roster_id always wins over the environment.
     """
-    my_roster_id = os.environ.get("MY_ROSTER_ID")
-    if not my_roster_id:
+    if roster_id is None or str(roster_id).strip() == "":
+        roster_id = os.environ.get("MY_ROSTER_ID")
+    if not roster_id:
         raise RuntimeError(
             "MY_ROSTER_ID is not set. Copy .env.example to .env and set it to "
             "your roster_id from data/raw/sleeper/teams.json."
         )
     teams, _ = _load_teams_and_players(raw_dir)
-    for team in teams:
-        if str(team.get("roster_id")) == str(my_roster_id):
-            return team
-    raise RuntimeError(f"No team found with roster_id={my_roster_id!r} in teams.json.")
+    team = _team_by_roster_id(roster_id, teams)
+    if team is None:
+        raise RuntimeError(f"No team found with roster_id={str(roster_id)!r} in teams.json.")
+    return team
 
 
-def my_players_by_position(position: str, raw_dir: Path = RAW_DIR) -> list[dict]:
-    """Rostered players at `position` for the team configured as "mine"
-    (see current_roster())."""
-    team = current_roster(raw_dir)
+def my_players_by_position(position: str, raw_dir: Path = RAW_DIR, roster_id: Any | None = None) -> list[dict]:
+    """Rostered players at `position` for the team that is "mine"
+    (see current_roster() for how roster_id/MY_ROSTER_ID resolve)."""
+    team = current_roster(raw_dir, roster_id=roster_id)
     _, players = _load_teams_and_players(raw_dir)
     return _players_at_position(team, players, position)
 
 
-def my_players(raw_dir: Path = RAW_DIR) -> list[dict]:
-    """All rostered players for the team configured as "mine" (see
+def my_players(raw_dir: Path = RAW_DIR, roster_id: Any | None = None) -> list[dict]:
+    """All rostered players for the team that is "mine" (see
     current_roster()), unfiltered by position."""
-    team = current_roster(raw_dir)
+    team = current_roster(raw_dir, roster_id=roster_id)
     _, players = _load_teams_and_players(raw_dir)
     return [{"player_id": pid, **(players.get(pid) or {})} for pid in (team.get("players") or [])]
 
@@ -134,9 +144,9 @@ def team_record_for_owner(owner_display_name: str, raw_dir: Path = RAW_DIR) -> d
     return team_record(team["roster_id"], raw_dir) if team else None
 
 
-def my_team_record(raw_dir: Path = RAW_DIR) -> dict:
-    """team_record() for the team configured as "mine" (see current_roster())."""
-    team = current_roster(raw_dir)
+def my_team_record(raw_dir: Path = RAW_DIR, roster_id: Any | None = None) -> dict:
+    """team_record() for the team that is "mine" (see current_roster())."""
+    team = current_roster(raw_dir, roster_id=roster_id)
     return team_record(team["roster_id"], raw_dir)
 
 
@@ -183,9 +193,9 @@ def current_matchup_for_owner(owner_display_name: str, week: int, raw_dir: Path 
     return current_matchup(team["roster_id"], week, raw_dir) if team else None
 
 
-def my_current_matchup(week: int, raw_dir: Path = RAW_DIR) -> dict | None:
-    """current_matchup() for the team configured as "mine" (see current_roster())."""
-    team = current_roster(raw_dir)
+def my_current_matchup(week: int, raw_dir: Path = RAW_DIR, roster_id: Any | None = None) -> dict | None:
+    """current_matchup() for the team that is "mine" (see current_roster())."""
+    team = current_roster(raw_dir, roster_id=roster_id)
     return current_matchup(team["roster_id"], week, raw_dir)
 
 
@@ -243,6 +253,16 @@ def all_team_rosters(raw_dir: Path = RAW_DIR) -> list[dict]:
             }
         )
     return rosters
+
+
+def team_roster_for_roster_id(roster_id: Any, raw_dir: Path = RAW_DIR) -> dict | None:
+    """all_team_rosters()'s entry (players grouped with a per-position
+    count) for one roster_id, or None if no team has it. The API's
+    roster endpoint (Phase 5.2) uses this for the session's own roster."""
+    for roster in all_team_rosters(raw_dir):
+        if str(roster.get("roster_id")) == str(roster_id):
+            return roster
+    return None
 
 
 def team_roster_for_owner(owner_display_name: str, raw_dir: Path = RAW_DIR) -> dict | None:

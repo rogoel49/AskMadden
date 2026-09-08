@@ -203,8 +203,21 @@ or monetized, it needs to genuinely work for more than one league.
   TODO.md's Phase 3.8 section for full detail, including the live-model
   validation gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
 - Phase 4 (coverage classification stretch): optional, not started
-- Phase 5 (productization — final deliverable): 5.1 implemented,
-  5.2-5.6 not started. 5.1 (league/scoring parameterization):
+- Phase 5 (productization — final deliverable): 5.1 and 5.2
+  implemented, 5.3-5.6 not started. 5.2 (API + storage): `src/api/`
+  — `auth.py` (Sleeper username → user_id → leagues, documented
+  shapes, mocked in tests, live run outstanding), `storage.py`
+  (SQLite: users, leagues, sessions, daily query counts),
+  `leagues.py` (per-league data dirs + ingest-on-first-use reusing
+  the existing ingest/embed), `main.py` (FastAPI; chat exposes
+  `recommend()`'s `messages` for multi-turn; `data_gaps` verbatim +
+  per-player `signals_consulted` stale markers; reports verbatim;
+  per-user/day cap). `roster_id` is now an explicit parameter down
+  to `src/rag/lookup.py` (`MY_ROSTER_ID` remains the CLI fallback —
+  the one `src/rag/` change, by instruction), and `.env` loads once
+  per process via `recommend.load_dotenv_once()`. See TODO.md's
+  Phase 5.2 entry for what's mocked vs. real. 5.1 (league/scoring
+  parameterization):
   `recommend()`/`generate_report()` take a required `league_id`,
   resolved and verified against the ingested `league.json` by new
   `src/reasoning/league.py` (`LeagueMismatchError` on a different

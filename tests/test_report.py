@@ -447,7 +447,12 @@ def test_generate_report_loads_dotenv_itself_not_only_via_cli_main(tmp_path, mon
     raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_CHRISTIAN_SIGNAL_ROW], players_df)
 
     calls = []
-    monkeypatch.setattr(report, "load_dotenv", lambda *a, **kw: calls.append((a, kw)))
+    # Phase 5.2: generate_report() goes through recommend.load_dotenv_once(),
+    # which calls recommend.py's load_dotenv reference (once per process;
+    # tests/conftest.py resets the memo per test).
+    from src.reasoning import recommend
+
+    monkeypatch.setattr(recommend, "load_dotenv", lambda *a, **kw: calls.append((a, kw)))
 
     report.generate_report(
         "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir

@@ -5,3 +5,6 @@ chromadb
 nflreadpy
 polars
 anthropic
+fastapi
+uvicorn
+httpx
