@@ -176,6 +176,11 @@ def test_start_sit_skips_position_with_only_one_rostered_player(tmp_path, monkey
 
 
 def test_start_sit_requires_my_roster_id(tmp_path, monkeypatch):
+    """delenv alone is NOT enough here: generate_report() calls
+    load_dotenv() itself, which would restore MY_ROSTER_ID from a
+    developer's real .env (it did, on Rohan's machine). tests/conftest.py's
+    autouse fixture makes .env discovery find nothing for every test --
+    see tests/test_dotenv_isolation.py for the mechanism and the guard."""
     roster = {"sleeper_cmc": {"full_name": "Christian McCaffrey", "position": "RB", "team": "SF"}}
     players_df = pl.DataFrame([_CHRISTIAN_ROW])
     raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_CHRISTIAN_SIGNAL_ROW], players_df)
@@ -276,7 +281,7 @@ def test_waiver_pickups_does_not_require_my_roster_id(tmp_path, monkeypatch):
     raw_dir, persist_dir, signals_dir = _setup(
         tmp_path, monkeypatch, my_roster, [_CHRISTIAN_SIGNAL_ROW, _CHASE_SIGNAL_ROW], players_df
     )
-    monkeypatch.delenv("MY_ROSTER_ID")
+    monkeypatch.delenv("MY_ROSTER_ID")  # stays deleted thanks to tests/conftest.py's .env isolation
 
     result = report.generate_report(
         "waiver_pickups", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
