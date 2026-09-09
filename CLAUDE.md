@@ -246,6 +246,13 @@ or monetized, it needs to genuinely work for more than one league.
   an explicit, correctly-refused valuation gap) is demo-ready now. Trade
   valuation is a real value-add, not a blocker — this is sequencing, not
   scope-cutting.
+- Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
+  after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
+  this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit
+  proxy) for the reasoning agent to reach for when current-season
+  signals are stale, instead of unlabeled general knowledge. See
+  PROJECT_SPEC.md's Phase 7 section for detail and TODO.md's Backlog
+  section for the checklists.
 
 Always check TODO.md for the up-to-date task list within the active phase.
 
