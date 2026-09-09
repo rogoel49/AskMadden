@@ -40,6 +40,25 @@ against the real player list) and only then fetches that exact player's
 chunk via retrieve.query_player_signal()'s metadata filter. An
 ambiguous resolution is reported to the model as ambiguous, with every
 candidate, rather than ever being silently guessed.
+
+**Head-to-head / start-sit verdicts come from the shared ranking, not
+free reasoning (Chat/Feed alignment)**: real usage testing found Chat and
+the Feed's start_sit report disagreeing on the same real decision over
+the same signals ("Herbert or Mahomes?" -- Chat "defaulted to Mahomes
+based on his consistently elite performance history" once the
+current-season signal went stale, an ungrounded claim of exactly the kind
+Phase 3.7's addendum bars for trade advice). The rank_players tool below
+calls src/reasoning/ranking.py's rank_candidates() -- the identical code
+generate_report()'s start_sit report uses -- and the system prompt
+requires the model to call it for any comparison between named players
+and to state its verdict, or honestly report a tie / insufficient data,
+never a pick from general knowledge. recommend()'s loop also enforces the
+part of that which is checkable in code: a submit_recommendation whose
+player_id contradicts a rank_players result from the same call (a
+different compared player than the ranking recommended, or a pick at all
+when the ranking was tied/ungroundable) is bounced back to the model as a
+tool error to resubmit, rather than passed through. See ranking.py's
+docstring.
 """
 from __future__ import annotations
 
@@ -55,7 +74,9 @@ from dotenv import load_dotenv
 
 from src.rag import lookup, player_index, retrieve
 from src.rag.embed import CHROMA_DIR, RAW_DIR
+from src.reasoning import ranking
 from src.reasoning.league import LeagueConfig, load_league
+from src.reasoning.ranking import SIGNALS_DIR
 
 DEFAULT_MODEL = os.environ.get("ASKMADDEN_MODEL", "claude-sonnet-4-5-20250929")
 MAX_TOOL_TURNS = 8
@@ -167,6 +188,38 @@ TOOLS: list[dict] = [
             "type": "object",
             "properties": {"player_name": {"type": "string"}},
             "required": ["player_name"],
+        },
+    },
+    {
+        "name": "rank_players",
+        "description": (
+            "Deterministic head-to-head ranking of two or more named players by the same composite "
+            "opportunity score the Feed's start/sit report uses -- THE start/sit verdict. REQUIRED for "
+            "any question comparing specific named players (start X or Y, who's the better play, rank "
+            "my RBs, X vs Y): call it once with every player being compared, and make your stated "
+            "verdict its `recommended` player. It resolves each name against the real player list "
+            "exactly like get_player_signals (an ambiguous or unknown name comes back in `unranked` "
+            "with why, never guessed), scores each player on their current-season signals -- or, when "
+            "a player has none, their stale prior-season fallback, marked stale: true on that entry -- "
+            "and returns `verdict`: 'clear' (a single top player, in `recommended`), 'tied' (the top "
+            "scores are indistinguishable -- `recommended` is null, `tied_at_top` lists them), or "
+            "'insufficient_data' (fewer than two of the named players had any usable signal -- "
+            "`recommended` is null). A verdict computed on stale entries is still the verdict (it's what "
+            "the Feed shows too) -- say plainly that it rests on the named prior season's numbers, but do "
+            "not replace it with your own sense of either player's track record. Every entry's "
+            "signals_summary cites the actual numbers; use them to explain the verdict."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "player_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "description": "The players being compared, as named in the question (2 or more).",
+                }
+            },
+            "required": ["player_names"],
         },
     },
     {
@@ -308,6 +361,19 @@ class RecommendContext:
     # convention), so a CLI user's behavior is unchanged; the API server
     # always sets it from the session, never from its own environment.
     roster_id: str | None = None
+    # Where the computed signals tables live (the parquet files
+    # src/signals/matchup_signals.py writes) -- what the rank_players tool
+    # ranks from, loaded lazily once per context on first use so a chat
+    # turn that never compares players never reads them. Same default as
+    # generate_report()'s signals_dir, so Chat and the Feed rank from the
+    # same files by construction.
+    signals_dir: Path = SIGNALS_DIR
+    _signal_tables: ranking.SignalTables | None = field(default=None, repr=False)
+
+    def signal_tables(self) -> ranking.SignalTables:
+        if self._signal_tables is None:
+            self._signal_tables = ranking.SignalTables.load(self.signals_dir, self.season, self.as_of_week)
+        return self._signal_tables
 
 
 @dataclass
@@ -421,6 +487,25 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "concretely, when get_league_rosters supports it) but can't recommend actual trade value or "
         "strategy, and record that specific gap as a data_gaps entry (reason: out_of_scope_capability) -- "
         "never as trade advice.\n\n"
+        "Head-to-head and start/sit comparisons between specific named players ('start X or Y?', 'who's the "
+        "better play, X or Y', 'rank my WRs', 'X vs Y this week') have exactly one verdict here: rank_players' "
+        "output. For any such question, call rank_players once with every player being compared (it resolves "
+        "names itself, so you don't also need get_player_signals for identity -- call get_player_signals "
+        "too only if you want extra detail beyond the numbers rank_players already cites), then make your "
+        "recommendation and player_id its `recommended` player, and explain that verdict using the "
+        "signals_summary numbers it returned. rank_players is the same deterministic ranking the Feed's "
+        "start/sit report shows, so your verdict and the Feed's can't disagree if you use it. What you must "
+        "never do: reach a start/sit verdict from your own general knowledge of either player -- reputation, "
+        "'consistently elite performance history', last year's fantasy finish, or anything else you didn't "
+        "retrieve this turn. That applies with full force when rank_players' entries are stale: true -- a "
+        "verdict on last season's numbers is still the verdict (the Feed shows the same one); say plainly "
+        "which season it rests on, but do not override it with your own read of the players. If rank_players "
+        "returns verdict 'tied', say the ranking can't separate them and name the tied players -- do not pick "
+        "one. If it returns 'insufficient_data', say the comparison can't be grounded (name who lacked "
+        "data, with a data_gaps entry, reason no_signal_data, for each player it listed as unranked with no "
+        "signals) -- do not pick the one who happened to have data, and do not pick from general knowledge. "
+        "If a name came back unranked as ambiguous, ask which player was meant, exactly as for "
+        "get_player_signals.\n\n"
         "Always end by calling submit_recommendation exactly once with a concrete recommendation and the "
         "reasoning that led to it, citing the specific signals you retrieved -- this league's scoring "
         "settings above should inform which stats matter (e.g. reception volume matters more here if "
@@ -532,6 +617,84 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
     return base
 
 
+def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
+    """Resolve each named player exactly as get_player_signals does
+    (structured exact-then-fuzzy name resolution, never a guess), attach
+    the same signal row generate_report() would use for them
+    (current-season, else stale prior-season fallback), and rank them
+    with ranking.rank_candidates() -- the identical call the Feed's
+    start_sit report makes. The one thing this adds on top of that shared
+    result is `same_position`: the start_sit report only ever compares
+    players within one roster position, and the score isn't
+    position-normalized, so a cross-position comparison (an RB vs. a WR
+    for a flex spot) is flagged as such rather than silently treated as
+    equivalent to the Feed's within-position verdict."""
+    names = tool_input.get("player_names") or []
+    if len(names) < 2:
+        return {"error": "rank_players needs at least two player names to compare."}
+
+    tables = ctx.signal_tables()
+    candidates: list[dict] = []
+    unresolved: list[dict] = []
+    for name in names:
+        result = player_index.resolve_player(name, ctx.player_idx)
+        if result.match_type == "none":
+            unresolved.append({"name": name, "reason": "unresolved", "note": f"No current NFL player matches {name!r}."})
+            continue
+        if result.match_type == "ambiguous":
+            unresolved.append(
+                {
+                    "name": name,
+                    "reason": "ambiguous",
+                    "candidates": [
+                        {"player_id": c.player_id, "name": c.player_name, "position": c.position, "team": c.team}
+                        for c in result.candidates
+                    ],
+                    "note": "More than one current player matches this name -- ask which one was meant instead of guessing.",
+                }
+            )
+            continue
+        match = result.candidates[0]
+        candidates.append(
+            {
+                "player_id": match.player_id,
+                "name": match.player_name,
+                "position": match.position,
+                "team": match.team,
+                "row": tables.row_for(match.player_id),
+            }
+        )
+
+    ranked = ranking.rank_candidates(candidates)
+    # A resolved player with no usable signal at all is the has_signals:
+    # false case -- the same reason code the system prompt maps to a
+    # data_gaps entry, so the model can't mistake "unranked" for "ranked
+    # last".
+    unranked = [{**entry, "reason": "no_signal_data", "has_signals": False} for entry in ranked["unranked"]]
+    positions = {c["position"] for c in candidates if c.get("position")}
+    return {
+        "season": ctx.season,
+        "as_of_week": ctx.as_of_week,
+        "verdict": ranked["verdict"],
+        "recommended": ranked["recommended"],
+        "ranked": ranked["ranked"],
+        "tied_at_top": ranked["tied_at_top"],
+        "unranked": unranked + unresolved,
+        "same_position": len(positions) <= 1,
+        "score_description": ranked["score_description"],
+        "note": (
+            "This is the same deterministic ranking the Feed's start/sit report shows for these players."
+            if len(positions) <= 1
+            else (
+                "These players play different positions. The Feed's start/sit report only compares players "
+                "within one position and this score is not position-normalized, so treat this as the same "
+                "raw opportunity comparison the Feed's waiver report uses across positions, not as a "
+                "within-position start/sit verdict."
+            )
+        ),
+    }
+
+
 def _tool_get_team_record(tool_input: dict, ctx: RecommendContext) -> dict:
     owner = tool_input.get("owner_display_name")
     try:
@@ -577,6 +740,7 @@ _DISPATCH = {
     "find_owner": _tool_find_owner,
     "get_league_rosters": _tool_get_league_rosters,
     "get_player_signals": _tool_get_player_signals,
+    "rank_players": _tool_rank_players,
     "get_team_record": _tool_get_team_record,
     "get_current_matchup": _tool_get_current_matchup,
     "search_league_info": _tool_search_league_info,
@@ -593,6 +757,57 @@ def dispatch_tool(name: str, tool_input: dict, ctx: RecommendContext) -> dict:
     return handler(tool_input, ctx)
 
 
+def _verdict_contradiction(submit_input: dict, tool_calls: list[dict]) -> str | None:
+    """The code-checkable half of the "ground your verdict in rank_players"
+    rule: given what the model is about to submit and every tool call
+    made so far in this recommend() call, return a message describing the
+    contradiction if the submitted player_id is one of the players a
+    rank_players call compared but is NOT what that ranking supports --
+    a different player than its `recommended`, or any pick at all when
+    its verdict was 'tied' or 'insufficient_data'. None when there's
+    nothing to object to (no rank_players call, no player_id, or a
+    player_id outside the compared set -- e.g. a compound question whose
+    recommendation is about someone else entirely). This can't catch a
+    prose-only contradiction (a recommendation string naming the wrong
+    player with player_id unset) -- that part stays with the system
+    prompt and real-model validation, same as Phase 3.7."""
+    player_id = submit_input.get("player_id")
+    if not player_id:
+        return None
+    for call in tool_calls:
+        if call.get("name") != "rank_players":
+            continue
+        result = call.get("result") or {}
+        if "verdict" not in result:
+            continue
+        compared = {e.get("player_id") for e in result.get("ranked", []) + result.get("unranked", [])}
+        if player_id not in compared:
+            continue
+        verdict = result["verdict"]
+        recommended = result.get("recommended") or {}
+        if verdict == "clear" and recommended.get("player_id") != player_id:
+            return (
+                f"Your player_id ({player_id}) contradicts rank_players, which ranked "
+                f"{recommended.get('name')} ({recommended.get('player_id')}) first among the players you "
+                "compared. The start/sit verdict must be rank_players' recommended player -- resubmit with "
+                "that player (you may explain the ranking's numbers, but not override it)."
+            )
+        if verdict == "tied":
+            names = ", ".join(e.get("name") or "?" for e in result.get("tied_at_top", []))
+            return (
+                f"Your player_id ({player_id}) picks one of the players rank_players reported as tied "
+                f"({names}). Resubmit without a player_id, saying the ranking cannot separate them."
+            )
+        if verdict == "insufficient_data":
+            return (
+                f"Your player_id ({player_id}) picks one of the compared players even though rank_players "
+                "reported insufficient_data (fewer than two of them had any usable signal). Resubmit without "
+                "a player_id, saying the comparison can't be grounded and recording a data_gaps entry for "
+                "each player with no signal data."
+            )
+    return None
+
+
 def recommend(
     question: str,
     league_id: str,
@@ -605,6 +820,7 @@ def recommend(
     model: str = DEFAULT_MODEL,
     max_turns: int = MAX_TOOL_TURNS,
     roster_id: str | None = None,
+    signals_dir: Path = SIGNALS_DIR,
 ) -> dict:
     """Answer question using retrieved facts + computed signals via a
     Claude tool-use agent, returning
@@ -635,6 +851,11 @@ def recommend(
     supposedly-independent eval questions would leak context between
     them -- neither passes messages, so neither is affected by this
     parameter existing.
+
+    signals_dir: where the computed signals parquet tables live -- what
+    the rank_players tool ranks from. Defaults to the same directory
+    generate_report() reads, so a Chat verdict and a Feed verdict are
+    computed from the same files.
 
     client defaults to a real anthropic.Anthropic() (reads
     ANTHROPIC_API_KEY from the environment) but can be injected -- tests
@@ -688,6 +909,7 @@ def recommend(
         player_idx=player_index.build_player_index(season),
         league=league,
         roster_id=str(roster_id) if roster_id is not None else None,
+        signals_dir=signals_dir,
     )
 
     client = client or anthropic.Anthropic()
@@ -727,16 +949,41 @@ def recommend(
             # conversation with another question afterward (the API
             # rejects a new user turn while a prior tool_use is
             # unresolved).
+            #
+            # Any other tools in the same turn run first, so a
+            # rank_players call made alongside the submit still counts
+            # when checking the submitted verdict against it below.
             tool_results = []
             for block in tool_uses:
                 if block is submit:
-                    tool_results.append(
-                        {"type": "tool_result", "tool_use_id": block.id, "content": "Recommendation recorded."}
-                    )
                     continue
                 result = dispatch_tool(block.name, block.input, ctx)
                 tool_calls.append({"name": block.name, "input": block.input, "result": result})
                 tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(result)})
+
+            contradiction = _verdict_contradiction(submit.input, tool_calls)
+            if contradiction is not None:
+                # The submitted verdict contradicts the deterministic
+                # ranking the model itself retrieved. Don't pass it
+                # through: hand the contradiction back as the
+                # submit_recommendation tool's result (is_error) and let
+                # the model resubmit. Recorded in tool_calls so a caller
+                # can see it happened. Bounded by max_turns like every
+                # other turn -- a model that keeps contradicting the
+                # ranking ends in the graceful max_turns_exceeded result,
+                # never in a wrong verdict presented as grounded.
+                tool_calls.append(
+                    {"name": "submit_recommendation", "input": submit.input, "result": {"error": contradiction}}
+                )
+                tool_results.append(
+                    {"type": "tool_result", "tool_use_id": submit.id, "content": contradiction, "is_error": True}
+                )
+                messages.append({"role": "user", "content": tool_results})
+                continue
+
+            tool_results.append(
+                {"type": "tool_result", "tool_use_id": submit.id, "content": "Recommendation recorded."}
+            )
             messages.append({"role": "user", "content": tool_results})
 
             return RecommendResult(

@@ -682,6 +682,207 @@ new tests: 3 in `tests/test_lookup.py`, 3 dispatch-level +
 - [ ] Not touched, deliberately out of scope: trade valuation itself
       (deferred to Phase 6), `src/scheduler/refresh.py`, `report.py`.
 
+## Fixed: Chat and the Feed's start_sit report could reach different verdicts on the same signals
+Not part of any phase's planned scope -- came out of real usage testing
+after PR #24 and sat in the Backlog as a product question until the
+decision was made (Chat's verdict on a head-to-head / start-sit
+comparison must come from the same deterministic ranking the Feed shows;
+Chat may add explanation and context on top; not up for re-litigation).
+This session implemented that decision. Scope was `src/reasoning/`
+only -- no `src/api/`, `design/` or `web/` changes.
+
+**What the investigation actually found (Step 1, before changing
+anything).** The observed case: asked "should I start Justin Herbert or
+Patrick Mahomes," Chat's reasoning said it was "defaulting to Mahomes
+based on his consistently elite performance history" once the
+current-season signal went stale. Reproduced the divergence with the
+real committed numbers: on the real 2025 season-end rows
+(`data/processed/signals/signals_2025_week19.parquet`), `report.py`'s
+opportunity score gives Herbert ~0.46 (EPA trend +0.19, red zone share
+3%) vs. Mahomes ~0.06 (red zone share 2%, target share ~0%, and NO
+computed EPA trend at all) -- so the Feed's start_sit report says
+Herbert, explicitly stale, and Chat said Mahomes from reputation. Two
+independent paths, confirmed, not assumed:
+- `report.py`'s verdict was `_opportunity_score()` (a fixed-weight
+  composite: 2 x EPA trend + 3 x red zone share + 2 x target share) plus
+  a descending stable sort inlined in `_start_sit_report()`, picking
+  `grounded[0]`. The score function was standalone, but the verdict
+  (load tables -> attach current-or-stale row -> score -> sort -> top,
+  with the "fewer than 2 grounded -> skip" rule) was only reachable by
+  running a whole-roster report. Nothing could ask it about an
+  arbitrary pair.
+- `recommend()` had no ranking tool and no prompt rule about comparison
+  questions at all. It answered a start/sit question from
+  `get_player_signals`' prose (which carries the numbers only inside a
+  sentence, plus a `[STALE -- ...]` prefix) and its own judgment. The
+  Phase 3.7 addendum's "every specific claim must be backed by a tool
+  call" rule was written for trade advice and never mentioned start/sit;
+  in practice a stale signal was exactly the opening for "performance
+  history" to fill the gap.
+- A wrinkle that shaped the fix: `report.py` imports `recommend.py` (to
+  reuse its tools), so `recommend.py` could not simply import
+  `report.py`'s scoring back -- circular import. The shared logic needed
+  its own module.
+
+**What changed (Step 2).**
+- [x] New `src/reasoning/ranking.py`: the weights, thresholds,
+      signals-table loading, prior-season fallback, `opportunity_score`,
+      `fmt_signal_row`, `weakness_reasons` and stale markers moved there
+      *verbatim* from `report.py` (no reimplementation -- one copy),
+      plus a `SignalTables` holder (load once, reuse per candidate) and
+      the one genuinely new function, `rank_candidates()`: the
+      sort-and-take-the-top step that was inlined in
+      `_start_sit_report`, now also reporting `verdict` as `"clear"` /
+      `"tied"` (top two scores within 1e-9) / `"insufficient_data"`
+      (fewer than 2 rankable -- the same condition under which the Feed
+      skips a position), with `recommended` set only on `"clear"`.
+- [x] `report.py` refactored onto it. `_start_sit_report` now calls
+      `rank_candidates()` for its verdict -- literally the same call
+      Chat makes -- and `generate_report()`'s output is unchanged
+      (every existing `tests/test_report.py` test passes untouched).
+      One deliberate non-change: on an exact tie the report keeps its
+      pre-existing behavior (stable sort, first candidate in roster
+      order is listed as the starter) rather than dropping the entry or
+      adding a note, because the instruction was not to change
+      `generate_report()`'s logic. Chat, by contrast, is told to say
+      "tied". That's the one edge where the two can still differ, and
+      it's a float-exact tie between different real players -- rare,
+      but documented rather than papered over. If it matters, the
+      report could surface `verdict == "tied"` in `notes` in a
+      follow-up; that's a report-output change, so it wasn't made here.
+- [x] New `rank_players` tool in `recommend.py` (`TOOLS` + `_DISPATCH`,
+      same wiring as every other tool). Takes `player_names` (2+),
+      resolves each name with the same `player_index.resolve_player()`
+      path `get_player_signals` uses (ambiguous/unknown names come back
+      in `unranked` with `reason: "ambiguous"` + candidates /
+      `"unresolved"`, never guessed), attaches the same current-or-stale
+      row the report would use, calls `rank_candidates()`, and returns
+      `verdict` / `recommended` / `ranked` (each entry with
+      `opportunity_score`, a `signals_summary` citing the actual numbers,
+      and the explicit `stale`/`source_season`/`source_as_of_week`
+      markers) / `tied_at_top` / `unranked` (`reason: "no_signal_data",
+      has_signals: false` for a resolved player with nothing computed).
+      Also `same_position`: the Feed's start_sit only compares within a
+      position and the score isn't position-normalized, so an RB-vs-WR
+      flex comparison is flagged as a raw cross-position comparison (the
+      same thing the Feed's waiver report does across positions), not
+      passed off as a within-position start/sit verdict.
+- [x] `RecommendContext` gained `signals_dir` (default: the same
+      `matchup_signals.PROCESSED_DIR` `generate_report()` reads -- Chat
+      and the Feed rank from the same files by construction) and a lazy
+      `signal_tables()` (parquet read once per context, only if a
+      comparison is actually asked). `recommend()` gained a matching
+      `signals_dir` parameter, defaulted, so `src/api/main.py` needed no
+      change.
+- [x] System prompt: a new paragraph, placed before the "always end with
+      submit_recommendation" paragraph. For any comparison between named
+      players, call `rank_players` once with every player, make the
+      recommendation and `player_id` its `recommended` player, and
+      explain with the `signals_summary` numbers; never reach a verdict
+      from general knowledge (the real failure phrase, "consistently
+      elite performance history," is named in the prompt as the thing
+      not to do); a verdict on `stale: true` entries is still the
+      verdict (the Feed shows the same one) -- say which season it rests
+      on, don't override it; on `"tied"` say the ranking can't separate
+      them and pick nobody; on `"insufficient_data"` say the comparison
+      can't be grounded, add a `no_signal_data` data_gaps entry per
+      player with no signals, and don't pick the one who happened to
+      have data. Same standard as Phase 3.7's trade rule.
+- [x] Code-level guard, because Phase 3.7's own addendum showed a prompt
+      alone is a documented non-safeguard: `recommend()`'s loop now
+      checks every `submit_recommendation` against the `rank_players`
+      results from the same call (`_verdict_contradiction()`). If the
+      submitted `player_id` is one of the compared players but is NOT
+      what the ranking supports -- a different player than
+      `recommended`, or any pick at all on `"tied"` /
+      `"insufficient_data"` -- the submit is not passed through: it's
+      recorded in `tool_calls` and handed back to the model as an
+      `is_error` tool_result saying exactly what contradicts what, and
+      the loop continues so the model resubmits. A model that keeps
+      contradicting the ranking ends in the existing graceful
+      `max_turns_exceeded` result, never in a wrong verdict presented as
+      grounded. Honest limit: the guard keys on `player_id`. A
+      recommendation that names the wrong player in prose with no
+      `player_id` set passes through -- that half is prompt-only, same
+      as Phase 3.7 (pinned by a test that says so).
+- [x] Not touched, deliberately: `generate_report()`'s logic/output
+      (source of truth, per the decision), `src/api/`, `design/`,
+      `web/`, the score's weights (aligning to the Feed's ranking was
+      the decision; whether the ranking is *good* is a separate
+      question -- see the flag below).
+
+**Validation (Step 3).** Full `pytest` suite is 266/266 (248 before
+this session; 18 new tests in `tests/test_verdict_alignment.py`, which
+reuses `tests/test_report.py`'s real 2024 week-5 fixtures).
+- [x] (a) Clear-cut: `rank_players` on Saquon Barkley vs. James Cook
+      (real 2024 wk5 rows) returns `"clear"`/Barkley, and
+      `generate_report("start_sit")` on a roster of the same two returns
+      the same `player_id`, the same ordering, and the identical
+      `signals_summary` text; a fake-client `recommend()` run that
+      submits Barkley passes straight through with `player_id` equal to
+      the ranking's; one that submits Cook is bounced (asserting the
+      recorded rejection, the `is_error` tool_result on the right
+      `tool_use_id`, and the corrected resubmit going through); a model
+      that never stops contradicting ends in `max_turns_exceeded` with no
+      Cook verdict.
+- [x] (b) Ambiguous: two players with identical rows -> `"tied"`,
+      `recommended: None`, both in `tied_at_top`; a pick on that tie is
+      bounced and an honest "it's a tie" answer without `player_id` is
+      accepted. One side with no signals -> `"insufficient_data"`,
+      Cook in `unranked` as `no_signal_data`, and the Feed skips the
+      position under the same condition; picking the only player with
+      data is bounced. Ambiguous ("McCaffrey") and unknown names come
+      back unranked with candidates / unresolved.
+- [x] (c) Real-signals path: with current-season rows for both AND a
+      prior-season file on disk with the numbers reversed, the ranking
+      uses current data (`stale: false` everywhere, no `[STALE` text),
+      matches the Feed, and a later-week file doesn't leak into a week-5
+      ranking (as-of-week filtering, same rule as the report).
+- [x] The real case, as far as this sandbox can take it: the real
+      Herbert/Mahomes 2025 season-end rows under an empty 2026 season.
+      `rank_players` and `generate_report("start_sit")` both say Herbert,
+      both explicitly `stale: true, source_season: 2025`, identical
+      cited numbers; a scripted replay of the original "defaulting to
+      Mahomes based on his consistently elite performance history"
+      submit (with Mahomes' `player_id`) is bounced and the Herbert
+      resubmit goes through.
+- [ ] **Needs real-model re-validation on Rohan's machine** (same
+      sandbox blockers as every prior phase: no `ANTHROPIC_API_KEY`, no
+      local Sleeper/Chroma data). Run the exact question through Chat
+      and the Feed side by side:
+      `python -m src.reasoning.recommend "should I start Justin Herbert or Patrick Mahomes?"`
+      and `python -m src.reasoning.recommend --report start_sit`, and
+      confirm (1) Chat's `tool_calls` include a `rank_players` call,
+      (2) its stated verdict is that call's `recommended` player and
+      matches the report's `recommended_starter` at QB, (3) the
+      reasoning names 2025 as the source season if the signal is still
+      stale and does not lean on reputation, and (4) no rejected
+      `submit_recommendation` shows up in `tool_calls` (if one does, the
+      guard worked but the prompt didn't -- worth knowing). Also worth
+      one try each: a tied pair and a rookie-vs-veteran pair to see the
+      model actually say "tied"/"can't ground" rather than pick.
+
+**Flags for follow-up, found along the way (not done here, out of
+scope).**
+- `src/api/main.py`'s `signals_consulted` (what the UI's stale chip
+  reads) only harvests `get_player_signals` results. A Chat comparison
+  answered via `rank_players` alone carries its stale markers inside
+  the `rank_players` result, which `signals_consulted` doesn't look at
+  -- so the UI may not show the stale chip on a comparison answer
+  unless the model also called `get_player_signals`. One-line-ish
+  `src/api/` change to also harvest `rank_players`' `ranked` entries;
+  not made here because `src/api/` was out of scope.
+- The ranking is now the single verdict for both surfaces, which makes
+  its quality matter more, and for QBs it is honestly thin: the score
+  is built from EPA trend, red zone share and target share, of which
+  only EPA trend says much about a QB (red zone *share* is ~2-3% for
+  any QB, target share ~0). The real Herbert/Mahomes verdict turns
+  almost entirely on Mahomes' 2025 row having no computed `epa_trend`.
+  That's a signals-quality question for `matchup_signals.py` /
+  the weights (candidates: a QB-appropriate composite, or Phase 6's
+  points-based proxy), not an alignment question, and it was
+  explicitly not this session's decision to re-litigate.
+
 ## Fixed: recommend()/generate_report() silently depended on the CLI's main() to load .env
 Not part of any phase's planned scope -- a real gap found by investigation
 (`python -c "from src.reasoning.recommend import recommend;
@@ -1443,17 +1644,14 @@ report payloads themselves already carry per-player entries.
 - [ ] Implement once designed
 
 ### Chat vs. Feed can recommend differently on the same signals
-Needs a product decision before any code changes -- flagged so it isn't
-lost, not resolved. Real usage testing found Chat (`recommend()`) and
-the Feed's start_sit report (`generate_report()`) reached different
-verdicts for the same real decision (one QB question), because they are
-two independent reasoning paths over the same signals: `report.py` uses
-a deterministic ranking/scoring formula, while `recommend()` is Claude
-reasoning freely and can fall back on general knowledge when
-current-season signals are stale (the same gap Phase 7's Tier 1 is
-aimed at). This is a real product-consistency question, not a bug:
-should the two paths be guaranteed to agree (e.g. Chat defers to
-`report.py`'s ranking and only adds explanation), or is disagreement
-acceptable and expected because they serve different purposes?
-- [ ] Product decision: guaranteed agreement vs. accepted divergence
-- [ ] Only then: any code change
+Resolved -- product decision made (guaranteed agreement on the
+*verdict*; Chat adds explanation on top) and implemented. See the
+"Fixed: Chat and the Feed's start_sit report could reach different
+verdicts on the same signals" section above for what was actually found
+and changed, including what is still only prompt-enforced and needs
+real-model re-validation.
+- [x] Product decision: guaranteed agreement vs. accepted divergence
+      -- guaranteed agreement on the verdict, Chat free to add context
+- [x] Code change: `src/reasoning/ranking.py` (shared), `rank_players`
+      tool + prompt rule + code-level verdict guard in `recommend.py`,
+      `report.py` refactored onto the shared module with unchanged output
