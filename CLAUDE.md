@@ -203,8 +203,21 @@ or monetized, it needs to genuinely work for more than one league.
   TODO.md's Phase 3.8 section for full detail, including the live-model
   validation gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
 - Phase 4 (coverage classification stretch): optional, not started
-- Phase 5 (productization — final deliverable): 5.1, 5.2 and 5.3
-  implemented, 5.4-5.6 not started. 5.3 (wire the mockup): the
+- Phase 5 (productization — final deliverable): 5.1-5.4
+  implemented, 5.5-5.6 not started. 5.4 (PWA installability):
+  `design/manifest.json` + `design/sw.js` + `design/icons/`
+  (programmatic Anton "AM" icon, `build_icons.py`) and the iOS
+  `apple-touch-icon` / `apple-mobile-web-app-*` head tags in the
+  mockup; iOS Safari was the priority target (verified against
+  Apple's Safari release notes: iOS 26 opens anything added to the
+  Home Screen as a web app, 16.4-18 need the manifest display member
+  or the legacy meta -- both set; icon always comes from
+  apple-touch-icon). Lighthouse 11 PWA audit scores 100 in headless
+  Chromium; `web/dev_server.py` now binds 0.0.0.0 so a phone on the
+  same WiFi can reach it. The real-phone "Add to Home Screen" is the
+  one thing only Rohan can confirm. Android's install prompt needs a
+  secure context, so over plain http://LAN-IP it's iOS-only until
+  5.6's HTTPS. See TODO.md's Phase 5.4 entry. 5.3 (wire the mockup): the
   mockup's `<script>` and hardcoded data markup now call the seven
   real routes (login, sessions, roster, three reports, multi-turn
   chat); three distinct chat chips (stale / no_signal_data /
@@ -267,7 +280,12 @@ The landing page's eval-numbers band shows labeled placeholders until
 real eval numbers exist (see TODO.md's 5.5 entry for what gates each).
 As of Phase 5.3 the file is wired to the real API and is served on the
 API's own origin by `web/dev_server.py` (no CORS needed); it keeps all
-state in JS for the life of the tab — no localStorage.
+state in JS for the life of the tab — no localStorage. As of Phase 5.4
+it is installable: `design/manifest.json`, `design/sw.js` (scope is
+the file's directory, so `/api/` is never intercepted; the HTML is
+network-first so edits show on reload), and `design/icons/`. Keep the
+manifest/icon hrefs relative so they survive 5.6's move to a static
+mount in `src/api/`.
 
 ## Key architectural principle — do not violate
 The signals table and RAG corpus are **league-agnostic** — computed

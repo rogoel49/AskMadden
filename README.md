@@ -146,7 +146,11 @@ needed):
 python -m web.dev_server
 ```
 then open http://127.0.0.1:8000/ — landing page, log in with your
-Sleeper username, pick a league.
+Sleeper username, pick a league. The server listens on 0.0.0.0, so a
+phone on the same WiFi can open `http://<your machine's LAN IP>:8000/`
+and add it to the Home Screen (Phase 5.4 — manifest, icons, and iOS
+head tags are in design/; see TODO.md's 5.4 entry for the exact
+real-device steps). Local network only; the public deployment is 5.6.
 
 Endpoints: `POST /api/leagues` (username → your leagues), `POST
 /api/sessions` (pick a league; its data is ingested on first use),

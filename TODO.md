@@ -743,8 +743,8 @@ signals-backed recommendations. No password/OAuth, no payments — a
 portfolio deliverable, not a business. See PROJECT_SPEC.md's Phase 5
 section for full detail, rationale, and success criteria.
 
-5.1, 5.2 and 5.3 are implemented (see their sections below); 5.4-5.6
-are not started.
+5.1, 5.2, 5.3 and 5.4 are implemented (see their sections below);
+5.5-5.6 are not started.
 Phase 4 is explicitly optional and not a blocker (see
 above) — the actual gate was Phases 1-3.8, which are done. Phase 3.7's
 anti-fabrication addendum and Phase 3.8's roster-composition tool
@@ -1322,11 +1322,115 @@ deploys, and it lives in src/reasoning/. And CORS/static serving belong
 in src/api/main.py for 5.6, per above.
 
 ### 5.4 — PWA installability
-- [ ] manifest.json (icons, theme-color, display: standalone)
-- [ ] Minimal service worker (cache-first static assets is enough)
-- [ ] Verify "Add to Home Screen" on iOS Safari and Android Chrome —
-      this is the actual mechanism for getting this on a phone, no
-      App Store submission
+Implemented. Static/frontend work only: four new files under design/
+(manifest.json, sw.js, icons/ with a generator script and three PNGs),
+a `<head>` + one registration block in design/askmadden-ui-mockup.html,
+and a one-line bind change in web/dev_server.py. No file under src/
+changed. Full `pytest` suite is 248/248 (unchanged -- nothing here is
+covered by pytest; validation is browser-level, see below).
+
+**What the investigation found before building (iOS first).**
+- iOS Safari, verified against Apple's own Safari release notes (the
+  JSON behind developer.apple.com, since the pages are JS-rendered and
+  webkit.org/MDN/web.dev are blocked by this sandbox's egress policy)
+  plus Apple's archived "Configuring Web Applications" doc: on iOS
+  16.4-18, a site added to the Home Screen launches standalone only if
+  it has either the manifest's `display: standalone` or the legacy
+  `<meta name="apple-mobile-web-app-capable">`; the Home Screen icon
+  is `<link rel="apple-touch-icon">` (Safari ignores manifest icons;
+  falls back to a page screenshot if the link is missing); the label
+  is `apple-mobile-web-app-title`. Safari 26's release notes say "Added
+  support for any website to become a web app on iOS or iPadOS" -- on
+  iOS 26 everything added to the Home Screen opens as a web app by
+  default ("Open as Web App" toggle in the add sheet), so the tags stop
+  being the gate but still control icon/title/status bar. The
+  historical "tags in the HTML head, independent of the manifest"
+  picture is still accurate for icon and title on every version, and
+  for standalone launch on 16.4-18. Both mechanisms are set so every
+  supported version behaves the same. No service worker or HTTPS is
+  needed for the iOS install: it works over plain http://<LAN IP>.
+- Android Chrome (secondary, per this session's scope): the install
+  prompt needs a manifest with name/short_name, start_url in scope,
+  display standalone, 192 + 512 icons, AND a secure context. A service
+  worker with a fetch handler has not been required for installation
+  since Chrome 108 (mobile) -- built anyway, per spec, for the
+  precached launch. **Secure context is the catch for a LAN test:**
+  `http://192.168.x.x:8000` is not one, so Chrome will not offer
+  "Install app" there and `navigator.serviceWorker` is absent
+  (registration is a silent no-op by design). Real Android testing
+  needs either USB port forwarding through chrome://inspect (then the
+  phone opens http://localhost:8000, which IS a secure context) or the
+  HTTPS deployment in 5.6. Documented in PR #25's test instructions.
+- web/dev_server.py bound to 127.0.0.1: unreachable from any other
+  device, so "Add to Home Screen" was untestable as shipped. Now
+  0.0.0.0 (still local-network-only).
+
+**What was built.**
+- [x] design/manifest.json: name/short_name "Ask Madden", `display:
+      standalone`, `background_color` --bg (#05070a, so the Android
+      splash matches the app's ground), `theme_color` --green
+      (#39e39a), relative `start_url`/`scope`/icon paths so it keeps
+      working when 5.6 moves the file under src/api/'s static mount,
+      a stable `id`, 192/512 `any` icons + a 512 `maskable` entry.
+- [x] design/icons/: `build_icons.py` renders the icon programmatically
+      with Pillow -- --bg square, green "AM" in the real Anton face
+      (fetched from Google Fonts at build time, never committed;
+      DejaVu Sans Bold fallback offline), monogram inside Android's
+      maskable safe zone. Outputs `icon-192.png`, `icon-512.png`, and
+      `apple-touch-icon.png` (180x180, the size iPhones use).
+- [x] design/sw.js: scope is the file's own directory (/ui/ today), so
+      /api/ is never intercepted -- verified, see below. Cache-first
+      for manifest/icons/Google Fonts; the HTML document is
+      network-first with cache fallback, a deliberate deviation from
+      "cache-first for everything" so an edit to the mockup (5.5 will
+      edit it) shows on reload instead of waiting for a worker update.
+      Versioned cache name, old caches dropped on activate. ~80 lines.
+- [x] Mockup `<head>`: manifest link, theme-color, favicon,
+      apple-touch-icon, apple-mobile-web-app-capable (+ the
+      standard mobile-web-app-capable), status-bar-style "black"
+      (matches --bg; "black-translucent" would need safe-area layout
+      work, which this session must not do), apple-mobile-web-app-
+      title. One registration block at the end of the existing
+      `<script>`; the 5.3 wiring and layout are untouched.
+- [x] web/dev_server.py binds 0.0.0.0.
+
+**Validation -- exactly what was run, and what it proves.**
+- Lighthouse 11.7.1 PWA category (the last Lighthouse line with a PWA
+  category -- 12 removed it because Chrome folded those checks into
+  DevTools; its `installable-manifest` audit is Chrome's own
+  installability engine, not a lint) against the real dev server in
+  the pre-installed Chromium 141, headless: **score 100**, all six
+  automated audits pass (installable-manifest, service worker +
+  start_url, splash-screen, themed-omnibox, content-width, viewport,
+  maskable-icon); the three remaining audits are manual by design.
+- A puppeteer-driven Chromium session against the same server: the
+  worker registers with scope `/ui/`, precaches exactly the five
+  assets, controls the page after one reload; a probe to `/api/...`
+  went through to the real API (404 in the server's own log, i.e. not
+  served from cache); the landing view still shows on load and
+  `goView('login')` still works; all three icons load at their stated
+  sizes.
+- Bind: the kernel's listening socket for :8000 is `00000000:1F40`
+  (0.0.0.0) in /proc/net/tcp, and all seven URLs were fetched over the
+  sandbox's real non-loopback interface (192.0.2.2), 200s logged from
+  that address. Not just read from the code.
+- Server-side serving: manifest as application/json, sw.js as
+  text/javascript, PNGs as image/png -- all from the existing
+  StaticFiles mount, no server change beyond the bind.
+- [ ] **Only Rohan can confirm, on a real phone -- iOS first:** open
+      `http://<Mac's LAN IP>:8000/` in iOS Safari on the same WiFi,
+      Share -> Add to Home Screen; the sheet should preview the green
+      "AM" icon and the name "Ask Madden"; the Home Screen tile should
+      be the icon (not a page screenshot); launching should be
+      full-screen with no Safari address bar, a black status bar, and
+      a dark launch background. Then Android Chrome via USB port
+      forwarding (see PR #25). Lighthouse says Chrome's engine deems it
+      installable; nothing automated here can stand in for the actual
+      iOS sheet.
+- Not done, on purpose: `apple-touch-startup-image` splash screens
+  (iOS wants one PNG per device size; the dark `background_color` and
+  icon are enough for a portfolio install), CORS/static in src/api/
+  (5.6), any layout change.
 
 ### 5.5 — Landing page (front door)
 Reframed from "static marketing site, separate from the app": the

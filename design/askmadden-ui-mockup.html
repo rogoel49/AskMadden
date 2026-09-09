@@ -4,6 +4,25 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ask Madden — Responsive UI</title>
+<!-- Phase 5.4: PWA / "Add to Home Screen". Relative hrefs on purpose: these
+     resolve next to this file wherever it is served from (/ui/ today,
+     src/api/'s static mount in Phase 5.6). -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#39e39a">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<!-- iOS Safari keys off these directly, not the manifest: the Home Screen
+     icon is apple-touch-icon (manifest icons are ignored), the label is
+     apple-mobile-web-app-title, and on iOS 16.4-18 standalone launch needs
+     either the manifest's display member or apple-mobile-web-app-capable
+     (iOS 26 opens everything added to the Home Screen as a web app). Both
+     are set so every supported iOS version behaves the same. Status bar
+     "black" matches --bg without the safe-area layout work
+     "black-translucent" would need. -->
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Ask Madden">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -796,6 +815,20 @@
   document.querySelectorAll('.tab-btn, .nav-item').forEach(btn => { btn.addEventListener('click', () => setTab(btn.dataset.tab)); });
   function showModal(){ renderLeagueList('modal-league-list', true); document.getElementById('leagueModal').classList.add('show'); }
   function hideModal(){ document.getElementById('leagueModal').classList.remove('show'); }
+
+  /* ---------------- Phase 5.4: service worker registration ---------------- */
+  // 'serviceWorker' only exists in a secure context (https://, or localhost),
+  // so over plain http://<LAN-IP> on a phone this is a silent no-op -- the
+  // Home Screen install still works there (iOS needs no worker at all), the
+  // page just isn't precached. Relative 'sw.js' keeps the scope at this
+  // file's directory, which leaves /api/ outside it.
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then((reg) => console.log('[askmadden] service worker registered, scope', reg.scope))
+        .catch((err) => console.warn('[askmadden] service worker registration failed:', err));
+    });
+  }
 </script>
 </body>
 </html>
