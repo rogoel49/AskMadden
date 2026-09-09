@@ -479,18 +479,23 @@ investigation, both prerequisites for a server.
 
 #### 5.3 — Wire the mockup to real data
 The mockup's responsive breakpoint CSS is already built in; this is
-data wiring only, not layout work.
-- [ ] Login, league picker, switch-league sheet to real /api/leagues
-- [ ] Feed, Roster tabs to real endpoints
-- [ ] Chat tab to real endpoint; add distinct chip styles for stale,
-      no_signal_data, and out_of_scope_capability (the mockup
-      currently collapses all three into one amber "stale" chip)
-- [ ] Moves to Trades: shows real composition/surplus-need data via
-      get_league_rosters (Phase 3.8, real-model validated) — weakest
-      position, which teams have surplus there, by name. Not a
-      placeholder. Labeled clearly as composition insight, with
-      valuation/fairness grading called out as Phase 6, not yet
-      built — never wired to a fabricated trade value
+data wiring only, not layout work. Implemented — see TODO.md's Phase
+5.3 entry for the investigation, the validation actually run (real
+headless browser at both breakpoints against the real server with
+boundary mocks), and what still needs a live run. Served same-origin
+by web/dev_server.py because src/api has no CORS/static mount yet
+(5.6's job).
+- [x] Login, league picker, switch-league sheet to real /api/leagues
+      and /api/sessions (errors shown in the UI, session in JS state)
+- [x] Feed (start_sit / drop / waiver_pickups reports, per-entry stale
+      chips) and Roster tabs to real endpoints
+- [x] Chat tab to real endpoint with multi-turn `messages` threading;
+      three distinct chips: stale (amber), no_signal_data (grey),
+      out_of_scope_capability (coral)
+- [x] Moves to Trades: composition via get_league_rosters through the
+      chat endpoint, on request (a fixed question the UI asks on the
+      user's behalf — no new endpoint), labeled composition-only with
+      Phase 6 named as not built; nothing wired to a trade value
 
 #### 5.4 — PWA installability
 - [ ] manifest.json, minimal service worker

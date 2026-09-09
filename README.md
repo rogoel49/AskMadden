@@ -139,6 +139,15 @@ API is public and read-only), pick one of your leagues, ask questions.
 ```
 uvicorn src.api.main:app --reload
 ```
+To use it through the actual UI (Phase 5.3 — the responsive frontend
+wired to these endpoints, served on the same origin so no CORS is
+needed):
+```
+python -m web.dev_server
+```
+then open http://127.0.0.1:8000/ — landing page, log in with your
+Sleeper username, pick a league.
+
 Endpoints: `POST /api/leagues` (username → your leagues), `POST
 /api/sessions` (pick a league; its data is ingested on first use),
 `GET /api/roster`, `GET /api/reports/{start_sit|drop|waiver_pickups}`,
