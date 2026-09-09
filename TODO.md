@@ -743,8 +743,8 @@ signals-backed recommendations. No password/OAuth, no payments — a
 portfolio deliverable, not a business. See PROJECT_SPEC.md's Phase 5
 section for full detail, rationale, and success criteria.
 
-5.1 and 5.2 are implemented (see their sections below); 5.3-5.6 are
-not started.
+5.1, 5.2 and 5.3 are implemented (see their sections below); 5.4-5.6
+are not started.
 Phase 4 is explicitly optional and not a blocker (see
 above) — the actual gate was Phases 1-3.8, which are done. Phase 3.7's
 anti-fabrication addendum and Phase 3.8's roster-composition tool
@@ -1088,29 +1088,156 @@ built into the mockup — wiring real data into it does not require
 building responsive layout from scratch, only replacing the hardcoded
 `leagues` array, rec-card/waiver-row/roster-row markup, and the chat
 transcript with real API renders:
-- [ ] Login screen to real /api/leagues call, replacing the mockup's
-      hardcoded two-league array
-- [ ] League picker + switch-league sheet to real league list (both
-      already share one render function in the mockup)
-- [ ] Feed tab to real recommendations endpoint
-- [ ] Chat tab to real chat endpoint; add distinct chip styles for
-      stale, no_signal_data, and out_of_scope_capability (the mockup
-      currently only has one amber "stale" chip covering what are,
-      per Phase 3.6/3.7, three different facts)
-- [ ] Roster tab to real roster endpoint
-- [ ] Moves to Trades: no longer a placeholder — Phase 3.8's
-      get_league_rosters tool is real-model validated (composition
-      and surplus-need across the league), so this tab should show
-      real data: your weakest position, which teams have surplus
-      there, by name. Label this clearly as composition/surplus
-      insight, not a trade grade or a specific proposal — the
-      mockup's dimmed "Grading not live yet" framing should be
-      replaced with something like "Who might trade with you"
-      (composition, real, live) plus a separate, clearly-secondary
-      note that valuation/fairness grading is Phase 6, not yet built.
-      Do not wire any UI element to a fabricated trade value or
-      fairness score — that data genuinely doesn't exist until Phase
-      6 lands.
+
+Implemented. A wiring pass on design/askmadden-ui-mockup.html (its
+`<script>` block and the hardcoded data markup only -- the CSS, the
+landing view, and the responsive shell are untouched) plus one new file,
+web/dev_server.py. No file under src/ changed. Full `pytest` suite is
+246/246 (unchanged: nothing here is covered by pytest -- the validation
+is browser-level, see below).
+
+**What the investigation found before wiring.**
+- The mockup's mock data was: a two-entry `leagues` array (id, avatar,
+  name, meta string, team, initials) that `selectLeague()` parsed the
+  header from; three hardcoded rec-cards ("Start today"), two waiver
+  rows, a hardcoded "Trade center" card, a one-exchange chat
+  transcript, roster rows with fabricated points/trend arrows and a
+  Starters/Bench toggle, and two more waiver rows under Moves.
+- The real API (read from src/api/main.py, not the docs): login
+  returns `{user, leagues:[{league_id, name, season, roster_id}]}`
+  **sorted by name** (storage's query does `ORDER BY name`); sessions
+  return the stored row + `league_name` + `scoring_settings`; roster
+  returns `{team_name, owner_display_name, players:[{player_id, name,
+  position, team}], counts_by_position}` -- **no starters/bench split
+  and no points**, so those mockup columns were removed rather than
+  faked; reports come back verbatim with per-entry
+  `stale`/`source_season`/`source_as_of_week`; chat returns
+  `data_gaps` + per-player `signals_consulted` + `messages` +
+  `queries_used_today`/`daily_query_cap`.
+- **CORS: none.** src/api/main.py has no middleware and no static
+  mount, so the mockup opened as a file:// page cannot call
+  localhost:8000. Since src/api/ was off limits this phase, the fix is
+  web/dev_server.py: a wrapper app (outside src/api/) that mounts
+  design/ as static under /ui and the untouched API app under / on ONE
+  origin -- `python -m web.dev_server`, open http://127.0.0.1:8000/ --
+  so the browser's fetches are same-origin and need no CORS. Phase 5.6
+  ("FastAPI mounts the one responsive frontend as a static route") is
+  where this folds into src/api/main.py; adding CORS there is only
+  needed if the UI is ever served from a different origin.
+
+**What was wired.**
+- [x] Login: real `POST /api/leagues`; an unknown username renders the
+      API's 404 detail in a visible error block (`#login-error`), a
+      502 says Sleeper is unreachable, a dead server says so too.
+      Never fails silently.
+- [x] Picker + switch-league sheet: one `renderLeagueList()` over the
+      real list (name, season, league ID, your roster #); selecting
+      calls `POST /api/sessions`, keeps `session_id` in JS state only
+      (no localStorage), and sets the header from the real
+      `league_name` + a scoring label derived from
+      `scoring_settings.rec` (0.5 -> "Half-PPR", 1 -> "PPR", absent/0
+      -> "Standard") + roster #. The "paste a league ID" box calls the
+      same endpoint and surfaces the API's 404 honestly -- the API only
+      opens leagues Sleeper lists for your username, and the UI says so.
+- [x] Feed: three real reports, mapped by the mockup's own labels --
+      "Start today" -> `/api/reports/start_sit` (starter card = START,
+      each alternative = SIT, `reasoning`/`signals_summary` as the
+      card text), a new "Drop candidates" section -> `drop`
+      (`weakness_reasons`), "Waiver targets" -> `waiver_pickups`
+      (`opportunity_score`, no "Add" button -- there is no write-back
+      API and Phase 5's spec is read-only). The amber stale chip is now
+      driven per entry by the real `stale`/`source_season` fields.
+      Report `notes` render as a notes card.
+- [x] Chat: `POST /api/chat` with `session_id` + question; renders
+      `recommendation` + `reasoning`; threads the returned `messages`
+      back into the next call (real multi-turn, nothing reimplemented);
+      shows `queries_used_today of daily_query_cap`; a 429 renders the
+      cap message as an error bubble. **Three distinct chips**: amber
+      `stale` (from `signals_consulted[].stale`, with source season +
+      player), grey `nodata` (from `data_gaps[].reason ==
+      no_signal_data` and from `signals_consulted[].has_signals ==
+      false`, deduped by player), coral `scope` (from
+      `out_of_scope_capability`). Suggestion chips send real questions.
+- [x] Roster: `GET /api/roster`, grouped by position with counts and
+      team name; no fabricated points/trend/starters.
+- [x] Moves -> Waivers: the same real waiver report, full list. Moves
+      -> Trades: **chose the "ask chat on the user's behalf" option**,
+      on request (a button), not automatic. Rationale: there is no
+      composition endpoint and this session must not add one;
+      `get_league_rosters` is only reachable through the chat agent;
+      and running it automatically on tab open would silently spend one
+      of the user's capped daily Claude queries every visit. The button
+      sends a fixed question ("What's my weakest position, and which
+      teams in the league have surplus there? Composition only -- don't
+      propose specific trades.") through the same chat renderer (same
+      chips, own message thread), under a "COMPOSITION · NOT A
+      VALUATION" label with Phase 6 named as not built. The Feed's
+      "Trade center" card now points here instead of showing a
+      hardcoded answer. Nothing anywhere is wired to a trade value or
+      fairness score.
+- [x] Landing page and anything PWA-related: untouched.
+
+**Validation -- exactly what was run.** The sandbox has no Anthropic
+key and Sleeper is blocked, so the boundary mocks are the same ones
+tests/test_api_main.py uses: Sleeper login mocked at
+`auth.resolve_user_leagues`, league ingest mocked to seed the two-team
+fixture + a real Chroma index (plus one unrostered real player, Justin
+Jefferson with his real 2024 week-5 numbers, so the waiver path has an
+entry), nflverse's player list mocked, and a scripted Claude that
+always calls real tools (`get_my_roster`, `get_player_signals`, and
+`get_league_rosters` when the question mentions "weakest") before
+submitting an answer carrying one `no_signal_data` and one
+`out_of_scope_capability` gap. Everything else was real: the actual
+web/dev_server.py wrapper serving the actual mockup file, the actual
+API app, SQLite, Phase 5.1 league verification, `recommend()`'s tool
+loop, report ranking. Then a real headless Chromium (Playwright)
+drove the page like a user, twice -- at 390px (phone frame, bottom tab
+bar) and 1280px (sidebar layout) -- with 58 assertions, all passing:
+root redirect -> landing; unknown username -> visible error; login ->
+two real leagues with real roster #s; select -> session -> header
+shows real name/"Half-PPR"/roster #; the correct layout for the
+viewport; start/sit renders Barkley START + Cook SIT from real report
+entries; drop renders weakness reasons; waivers render Jefferson
+(unrostered) and not Chase (rostered by the other team); no stale
+chip when signals are current; roster grouped by position with real
+counts and no fabricated columns; chat renders recommendation +
+reasoning + a grey no-signal-data chip naming the player + a coral
+out-of-scope chip; the cap status line; **the second question's first
+model call carried 6 prior messages (server-side log), i.e. real
+multi-turn threading**; Moves/Waivers real; Trades is on-request and
+labeled; the trades question reached the model verbatim and rendered
+through the chat path; switch-league sheet marks the active league,
+switching updates the header and the roster shows the OTHER league's
+players; the 6th query succeeds and the 7th is refused with the API's
+429 detail visible in the UI; no uncaught JS errors; and the browser
+actually hit all seven routes. (Two console errors are expected in the
+sandbox: Google Fonts is blocked by the network policy, and there's no
+favicon.) The harness and browser script live in this session's
+scratchpad, not the repo -- they're validation, not product.
+
+**Needs a real run on Rohan's machine:**
+```
+python -m web.dev_server      # then open http://127.0.0.1:8000/
+```
+1. The login flow through the actual browser UI against live Sleeper
+   (real username -> real league list -> first-use ingest, which will
+   take a while and is the first time this UI's "Loading league data"
+   state is seen for real).
+2. A real multi-turn chat with the real model -- the chips are driven
+   by the real `data_gaps`/`signals_consulted`, so this is also the
+   first real look at whether the model's gap entries read well as
+   chips.
+3. Moves -> Trades with the real model: whether it actually calls
+   `get_league_rosters` for the fixed question and names surplus teams
+   (Phase 3.8 validated this for the CLI; through the UI it's unverified).
+4. Google Fonts load (blocked here, so the sandbox rendered fallbacks).
+**Known, flagged, not fixed (all outside this session's scope):** the
+report endpoints rebuild the nflverse player index on every call
+(`player_index.build_player_index()` inside `generate_report()`), which
+is a network fetch per report on real data -- three reports per Feed
+load. Fine at friend scale, but it's the first thing to cache when 5.6
+deploys, and it lives in src/reasoning/. And CORS/static serving belong
+in src/api/main.py for 5.6, per above.
 
 ### 5.4 — PWA installability
 - [ ] manifest.json (icons, theme-color, display: standalone)

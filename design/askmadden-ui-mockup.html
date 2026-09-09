@@ -203,6 +203,16 @@
   .chip{ font-size:10.5px; color:var(--text-dim); background:var(--elevated); border:1px solid var(--border-soft); padding:4px 8px; border-radius:100px; white-space:nowrap; }
   .chip.pos{ color:var(--green); border-color:var(--green-line); background:var(--green-dim); }
   .chip.stale{ color:var(--amber); border-color:rgba(240,169,78,.35); background:var(--amber-dim); }
+  /* Phase 3.7's two data_gaps reasons, rendered distinctly from Phase 3.6's stale chip */
+  .chip.nodata{ color:var(--text-dim); border-color:var(--border); background:var(--surface-2); }
+  .chip.scope{ color:var(--coral); border-color:rgba(242,112,95,.35); background:var(--coral-dim); }
+  .form-error{ display:none; font-size:12px; color:var(--coral); background:var(--coral-dim); border:1px solid rgba(242,112,95,.35); border-radius:10px; padding:10px 12px; margin:-6px 0 14px; line-height:1.45; }
+  .form-error.show{ display:block; }
+  .primary-btn:disabled, .send-btn:disabled, .add-btn:disabled{ opacity:.55; cursor:default; }
+  .muted-note{ font-size:11.5px; color:var(--text-faint); line-height:1.5; margin:4px 2px 10px; }
+  .msg .bubble .why{ font-size:12px; color:var(--text-dim); margin-top:8px; line-height:1.5; white-space:pre-wrap; }
+  .msg.error .bubble{ border-left-color:var(--coral); }
+  .roster-mid .matchup{ text-transform:uppercase; letter-spacing:.03em; }
   .chip svg{ width:9px; height:9px; margin-right:3px; vertical-align:-1px; }
   .rec-why{ font-size:11.5px; color:var(--text-dim); line-height:1.45; margin-top:10px; }
 
@@ -365,8 +375,9 @@
   </div>
   <div class="sleeper-badge"><span class="sleeper-dot"></span>Connects to Sleeper — read-only</div>
   <div class="field-label">Sleeper username</div>
-  <div class="field-input"><span class="prefix">@</span><input type="text" id="username-input" placeholder="e.g. rgoel49" value="rgoel49"></div>
-  <button class="primary-btn" onclick="handleLogin()">Continue</button>
+  <div class="field-input"><span class="prefix">@</span><input type="text" id="username-input" placeholder="your Sleeper username" autocomplete="username" onkeydown="if(event.key==='Enter')handleLogin()"></div>
+  <div class="form-error" id="login-error"></div>
+  <button class="primary-btn" id="login-btn" onclick="handleLogin()">Continue</button>
   <div class="login-note">No password. We look up the leagues tied to this username through Sleeper's public API — nothing is ever written back to your team unless you make a move yourself.</div>
 </div>
 
@@ -376,11 +387,13 @@
     <div class="hi" id="picker-hi">Hey, @rgoel49</div>
     <h2>Pick a league</h2>
   </div>
+  <div class="form-error" id="picker-error"></div>
   <div class="league-list" id="league-list"></div>
   <div class="paste-toggle" onclick="togglePaste()">Don't see it? Paste a league ID instead</div>
   <div class="paste-box" id="paste-box">
-    <div class="field-input" style="margin-top:10px;"><input type="text" placeholder="Paste any Sleeper league ID"></div>
-    <button class="ghost-btn" onclick="selectLeague(2)">Load this league</button>
+    <div class="field-input" style="margin-top:10px;"><input type="text" id="paste-league-id" placeholder="Paste any Sleeper league ID"></div>
+    <button class="ghost-btn" onclick="loadPastedLeague()">Load this league</button>
+    <div class="muted-note">Only leagues Sleeper lists for your username can be opened today (the API checks) — pasting an ID you're not in returns a clear error, not a guess.</div>
   </div>
 </div>
 
@@ -433,62 +446,44 @@
           <div class="app-content">
 
             <section class="panel active" id="panel-feed">
-              <div class="section-label"><h2>Start today</h2><a href="#">Full lineup →</a></div>
-              <div class="hscroll">
-                <div class="rec-card">
-                  <div class="rec-top"><div class="player-id"><div class="avatar-ring rb">BI</div><div><div class="pname">Bucky Irving</div><div class="ppos">RB · TB</div></div></div><div class="verdict start">START</div></div>
-                  <div class="rec-why">Opponent allows the 4th-most rush yards to RBs. RYOE trending up 3 straight weeks.</div>
-                  <div class="chip-row"><span class="chip pos">Run-funnel def · 4th</span><span class="chip pos">RYOE +1.4</span></div>
-                </div>
-                <div class="rec-card">
-                  <div class="rec-top"><div class="player-id"><div class="avatar-ring wr">JR</div><div><div class="pname">Jayden Reed</div><div class="ppos">WR · GB</div></div></div><div class="verdict sit">SIT</div></div>
-                  <div class="rec-why">Target share dipped 3 weeks running against a top-6 zone coverage defense.</div>
-                  <div class="chip-row"><span class="chip">Target share ↓</span><span class="chip stale"><svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>Stale · 2024</span></div>
-                </div>
-                <div class="rec-card">
-                  <div class="rec-top"><div class="player-id"><div class="avatar-ring qb">JT</div><div><div class="pname">Jonathan Taylor</div><div class="ppos">RB · IND</div></div></div><div class="verdict start">START</div></div>
-                  <div class="rec-why">Implied team total is 26.5, 2nd-highest on the slate this week.</div>
-                  <div class="chip-row"><span class="chip pos">Game script ⇧</span><span class="chip pos">RZ share 31%</span></div>
-                </div>
-              </div>
-              <div class="section-label"><h2>Waiver targets</h2><a href="#">See all →</a></div>
-              <div class="waiver-row"><div class="priority">1</div><div class="avatar-ring wr" style="width:34px;height:34px;font-size:10px;">TF</div><div class="waiver-mid"><div class="pname">Tutu Atwell</div><div class="reason">Opportunity share up after Kupp's snap count fell</div></div><button class="add-btn">Add</button></div>
-              <div class="waiver-row"><div class="priority">2</div><div class="avatar-ring rb" style="width:34px;height:34px;font-size:10px;">JC</div><div class="waiver-mid"><div class="pname">Jaylen Warren</div><div class="reason">Trending toward every-down role</div></div><button class="add-btn">Add</button></div>
+              <div class="section-label"><h2>Start today</h2><a href="#" onclick="loadFeed(true);return false;">Refresh →</a></div>
+              <div class="hscroll" id="feed-start-sit"><div class="state-card"><p>Loading start/sit…</p></div></div>
+              <div class="section-label"><h2>Drop candidates</h2></div>
+              <div id="feed-drop"><div class="state-card"><p>Loading…</p></div></div>
+              <div class="section-label"><h2>Waiver targets</h2><a href="#" onclick="setTab('moves');return false;">See all →</a></div>
+              <div id="feed-waivers"><div class="state-card"><p>Loading…</p></div></div>
               <div class="section-label"><h2>Trade center</h2></div>
-              <div class="state-card"><div class="tag-mini">COMPOSITION · LIVE</div><p>Your weakest spot is TE. roopsie (Deshaun's Massage Parlor) has real surplus there — 3 rostered TEs. Valuation/fairness grading isn't built yet; this is composition only.</p></div>
+              <div class="state-card"><div class="tag-mini">COMPOSITION · ON REQUEST</div><p>Which teams have surplus at your weakest spot is answered by the chat agent's league-roster tool, not a report — open <a href="#" onclick="setTab('moves');switchMoves('trades');return false;">Moves → Trades</a> to ask. Valuation/fairness grading isn't built (Phase 6); this is composition only.</p></div>
             </section>
-
             <section class="panel" id="panel-chat">
-              <div class="chat-scroll">
-                <div class="msg user"><div class="msg-avatar">RF</div><div class="bubble">Start Bucky Irving or Javonte Williams this week?</div></div>
-                <div class="msg assistant"><div class="msg-avatar">AM</div><div class="bubble">Irving, and it's not close.
-                  <div class="chat-table"><div class="row"><span></span><span>Irving</span><span>Williams</span></div><div class="row win"><span>Opp run-funnel rank</span><span>4th</span><span>19th</span></div><div class="row win"><span>RYOE, last 3</span><span>+1.4</span><span>+0.2</span></div></div>
-                </div></div>
+              <div class="chat-scroll" id="chat-scroll">
+                <div class="msg assistant"><div class="msg-avatar">AM</div><div class="bubble">Ask about your roster, a matchup, or who to start. Every answer cites the tools it actually used, and says so when it can't ground something.</div></div>
               </div>
-              <div class="suggest-row"><div class="suggest-chip">Grade my Week 1 lineup</div><div class="suggest-chip">Any injury news on my RBs?</div><div class="suggest-chip">Best flex play this week</div></div>
-              <div class="chat-input-bar"><input type="text" placeholder="Ask about your roster…"><button class="send-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#05070a" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button></div>
+              <div class="suggest-row">
+                <div class="suggest-chip" onclick="askChat(this.textContent)">Who should I start at RB this week?</div>
+                <div class="suggest-chip" onclick="askChat(this.textContent)">What's my weakest position?</div>
+                <div class="suggest-chip" onclick="askChat(this.textContent)">What's my record and who do I play?</div>
+              </div>
+              <div class="chat-input-bar"><input type="text" id="chat-input" placeholder="Ask about your roster…" onkeydown="if(event.key==='Enter')sendChat()"><button class="send-btn" id="chat-send" onclick="sendChat()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#05070a" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button></div>
+              <div class="muted-note" id="chat-status"></div>
             </section>
 
             <section class="panel" id="panel-roster">
-              <div class="segmented"><button class="active">Starters</button><button>Bench</button></div>
-              <div class="pos-group"><div class="pos-label">QB</div>
-                <div class="roster-row"><div class="avatar-ring qb">JH</div><div class="roster-mid"><div class="pname">Jalen Hurts</div><div class="matchup">vs DAL · 1:00 PM</div></div><div class="roster-right"><div class="pts">21.4</div><div class="trend up">▲ efficiency</div></div></div>
-              </div>
-              <div class="pos-group"><div class="pos-label">RB</div>
-                <div class="roster-row"><div class="avatar-ring rb">BI</div><div class="roster-mid"><div class="pname">Bucky Irving</div><div class="matchup">vs ATL · 1:00 PM</div></div><div class="roster-right"><div class="pts">16.8</div><div class="trend up">▲ RYOE</div></div></div>
-                <div class="roster-row"><div class="avatar-ring rb">JT</div><div class="roster-mid"><div class="pname">Jonathan Taylor</div><div class="matchup">vs MIA · 4:05 PM</div></div><div class="roster-right"><div class="pts">18.1</div><div class="trend up">▲ game script</div></div></div>
-              </div>
-              <div class="pos-group"><div class="pos-label">WR</div>
-                <div class="roster-row"><div class="avatar-ring wr">PN</div><div class="roster-mid"><div class="pname">Puka Nacua</div><div class="matchup">vs SEA · 4:25 PM</div></div><div class="roster-right"><div class="pts">15.2</div><div class="trend up">▲ target share</div></div></div>
-                <div class="roster-row"><div class="avatar-ring wr">JR</div><div class="roster-mid"><div class="pname">Jayden Reed</div><div class="matchup">vs CHI · 1:00 PM</div></div><div class="roster-right"><div class="pts">9.4</div><div class="trend down">▼ targets</div></div></div>
-              </div>
+              <div class="muted-note" id="roster-meta">Loading roster…</div>
+              <div id="roster-groups"></div>
             </section>
-
             <section class="panel" id="panel-moves">
-              <div class="segmented"><button class="active">Waivers</button><button>Trades</button></div>
-              <div class="section-label" style="margin-top:4px;"><h2>This week's priority</h2></div>
-              <div class="waiver-row"><div class="priority">1</div><div class="avatar-ring wr" style="width:34px;height:34px;font-size:10px;">TF</div><div class="waiver-mid"><div class="pname">Tutu Atwell</div><div class="reason">Opportunity share proxy up 9pts week over week</div></div><button class="add-btn">Add</button></div>
-              <div class="waiver-row"><div class="priority">2</div><div class="avatar-ring rb" style="width:34px;height:34px;font-size:10px;">JC</div><div class="waiver-mid"><div class="pname">Jaylen Warren</div><div class="reason">Trending toward lead-back role in Pittsburgh</div></div><button class="add-btn">Add</button></div>
+              <div class="segmented" id="moves-seg"><button class="active" data-seg="waivers" onclick="switchMoves('waivers')">Waivers</button><button data-seg="trades" onclick="switchMoves('trades')">Trades</button></div>
+              <div id="moves-waivers">
+                <div class="section-label" style="margin-top:4px;"><h2>This week's priority</h2></div>
+                <div id="moves-waiver-list"><div class="state-card"><p>Loading…</p></div></div>
+              </div>
+              <div id="moves-trades" style="display:none;">
+                <div class="section-label" style="margin-top:4px;"><h2>Who might trade with you</h2></div>
+                <div class="state-card"><div class="tag-mini">COMPOSITION · NOT A VALUATION</div><p>Asks the chat agent which position you're thinnest at and which teams roster surplus there — real league roster data via its get_league_rosters tool. It counts as one of today's chat queries, so it runs on request. Fairness/valuation grading is Phase 6, not built.</p>
+                  <button class="ghost-btn" id="trades-ask-btn" onclick="askTradeComposition()">Ask about my weakest spot</button></div>
+                <div class="chat-scroll" id="trades-scroll" style="margin-top:12px;"></div>
+              </div>
             </section>
 
           </div>
@@ -517,67 +512,283 @@
 </div>
 
 <script>
-  const leagues = [
-    { id:'1389341490030862336', avatar:'VS', name:'Victorious Secret 3.0', meta:'12 teams · Half-PPR · Redraft', team:'Ready? Fetty', initials:'RF' },
-    { id:'9284710239481029384', avatar:'TC', name:'The Turf Cartel', meta:'10 teams · PPR · Dynasty', team:'Gridiron Gremlins', initials:'GG' },
-  ];
-  let currentLeagueIndex = 0;
+  /* ===================== Phase 5.3: real API wiring =====================
+     Same-origin by default (serve this file from the API's origin -- see
+     web/dev_server.py). Set window.ASKMADDEN_API_BASE before this script
+     to point elsewhere (that origin must then allow CORS, which the API
+     does not yet -- a Phase 5.6 change in src/api/). No localStorage: all
+     state lives in this page for the life of the tab. */
+  const API_BASE = window.ASKMADDEN_API_BASE || '';
+
+  const state = {
+    username: null, user: null,
+    leagues: [],            // from POST /api/leagues: [{league_id, name, season, roster_id}]
+    session: null,          // from POST /api/sessions: {session_id, league_id, roster_id, league_name, scoring_settings, ...}
+    roster: null,           // GET /api/roster
+    reports: {},            // report_type -> GET /api/reports/{type}
+    messages: null,         // multi-turn: the last /api/chat response's `messages`, sent back verbatim
+    tradeMessages: null,
+    busy: false,
+  };
+
+  class ApiError extends Error {
+    constructor(status, detail){ super(detail); this.status = status; this.detail = detail; }
+  }
+
+  async function api(path, opts = {}){
+    const init = { method: opts.method || 'GET', headers: {} };
+    if (opts.body !== undefined){ init.headers['content-type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+    let resp;
+    try { resp = await fetch(API_BASE + path, init); }
+    catch (e) { throw new ApiError(0, `Can't reach the Ask Madden API at ${API_BASE || 'this origin'} — is the server running?`); }
+    let data = null;
+    try { data = await resp.json(); } catch (e) { data = null; }
+    if (!resp.ok){
+      const detail = (data && (data.detail || data.message)) || `${resp.status} ${resp.statusText}`;
+      throw new ApiError(resp.status, typeof detail === 'string' ? detail : JSON.stringify(detail));
+    }
+    return data;
+  }
+
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0,2).map(w => w[0].toUpperCase()).join('') || '?';
+  const posClass = (pos) => ({RB:'rb', WR:'wr', QB:'qb'}[(pos || '').toUpperCase()] || '');
+  function scoringLabel(scoring){
+    const rec = scoring && scoring.rec;
+    if (rec === undefined || rec === null || rec === 0) return 'Standard';
+    if (rec === 1) return 'PPR';
+    if (rec === 0.5) return 'Half-PPR';
+    return `${rec} pt/rec`;
+  }
+  function showError(id, text){ const el = document.getElementById(id); el.textContent = text || ''; el.classList.toggle('show', !!text); }
+  const staleChip = (entry) => entry && entry.stale
+    ? `<span class="chip stale"><svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>Stale · ${esc(entry.source_season)}${entry.source_as_of_week ? ' wk ' + esc(entry.source_as_of_week) : ''}</span>`
+    : '';
+
+  /* ---------------- login + picker ---------------- */
+  async function handleLogin(){
+    const uname = document.getElementById('username-input').value.trim();
+    showError('login-error', '');
+    if (!uname){ showError('login-error', 'Enter your Sleeper username.'); return; }
+    const btn = document.getElementById('login-btn'); btn.disabled = true; btn.textContent = 'Looking up leagues…';
+    try {
+      const body = await api('/api/leagues', { method:'POST', body:{ username: uname } });
+      state.username = body.user.username || uname; state.user = body.user; state.leagues = body.leagues || [];
+      document.getElementById('picker-hi').textContent = `Hey, @${state.username}`;
+      showError('picker-error', state.leagues.length ? '' : 'Sleeper lists no leagues for this username this season.');
+      renderLeagueList('league-list', false);
+      goView('picker');
+    } catch (e) {
+      showError('login-error', e.status === 404 ? `No Sleeper user named "${uname}".`
+        : e.status === 502 ? `Sleeper is unreachable right now: ${e.detail}` : e.detail);
+    } finally { btn.disabled = false; btn.textContent = 'Continue'; }
+  }
 
   function renderLeagueList(targetId, withCheck){
     const el = document.getElementById(targetId);
-    el.innerHTML = leagues.map((lg, i) => `
-      <div class="league-card ${withCheck && i===currentLeagueIndex ? 'active-marker' : ''}" onclick="selectLeague(${i})">
-        <div class="lg-avatar">${lg.avatar}</div>
-        <div class="lg-mid"><div class="lg-name">${lg.name}</div><div class="lg-meta">${lg.meta}</div><div class="lg-team">Your team · ${lg.team}</div></div>
-        ${withCheck && i===currentLeagueIndex ? '<span class="check-pill">ACTIVE</span>' : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>`}
-      </div>`).join('');
+    const active = state.session && state.session.league_id;
+    el.innerHTML = state.leagues.map((lg) => {
+      const isActive = withCheck && lg.league_id === active;
+      const team = lg.roster_id != null ? `Your roster · #${esc(lg.roster_id)}` : 'No roster for you in this league';
+      return `
+      <div class="league-card ${isActive ? 'selected' : ''}" onclick="selectLeague('${esc(lg.league_id)}')">
+        <div class="lg-avatar">${esc(initials(lg.name))}</div>
+        <div class="lg-mid"><div class="lg-name">${esc(lg.name)}</div><div class="lg-meta">Season ${esc(lg.season)} · ID ${esc(lg.league_id)}</div><div class="lg-team">${team}</div></div>
+        ${isActive ? '<span class="check-pill">ACTIVE</span>' : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>`}
+      </div>`; }).join('');
   }
 
-  function handleLogin(){
-    const uname = document.getElementById('username-input').value || 'rgoel49';
-    document.getElementById('picker-hi').textContent = `Hey, @${uname}`;
-    renderLeagueList('league-list', false);
-    goView('picker');
+  async function selectLeague(leagueId){
+    if (state.busy) return;
+    state.busy = true; showError('picker-error', '');
+    const label = document.getElementById('picker-hi'); const prev = label.textContent; label.textContent = 'Loading league data (first use ingests from Sleeper)…';
+    try {
+      const session = await api('/api/sessions', { method:'POST', body:{ username: state.username, league_id: leagueId } });
+      state.session = session; state.roster = null; state.reports = {}; state.messages = null; state.tradeMessages = null;
+      applyHeader();
+      hideModal();
+      goView('app');
+      setTab('feed');
+      loadFeed(); loadRoster();
+    } catch (e) {
+      const msg = e.status === 502 ? `Couldn't ingest that league's data: ${e.detail}` : e.detail;
+      showError('picker-error', msg);
+      if (document.getElementById('view-app').classList.contains('show')) alert(msg);
+    } finally { state.busy = false; label.textContent = prev; }
   }
 
-  function selectLeague(i){
-    currentLeagueIndex = Math.min(i, leagues.length - 1);
-    const lg = leagues[currentLeagueIndex];
-    ['hdr-avatar','hdr-avatar-d'].forEach(id => document.getElementById(id).textContent = lg.avatar);
-    ['hdr-name','hdr-name-d'].forEach(id => document.getElementById(id).textContent = lg.name);
-    document.getElementById('hdr-sub').textContent = 'Week 1 · ' + lg.meta.split(' · ').slice(1).join(' · ');
-    document.getElementById('hdr-sub-d').textContent = lg.meta.split(' · ').slice(1).join(' · ');
-    document.getElementById('hdr-team-initials').textContent = lg.initials;
-    hideModal();
-    goView('app');
-    setTab('feed');
+  async function loadPastedLeague(){
+    const id = document.getElementById('paste-league-id').value.trim();
+    if (!id) return;
+    if (!state.leagues.some(l => l.league_id === id)) state.leagues.push({ league_id: id, name: `League ${id}`, season: '', roster_id: null });
+    await selectLeague(id);
+  }
+
+  function applyHeader(){
+    const s = state.session;
+    const name = s.league_name || `League ${s.league_id}`;
+    const sub = `${scoringLabel(s.scoring_settings)} · roster #${s.roster_id}`;
+    ['hdr-avatar','hdr-avatar-d'].forEach(id => document.getElementById(id).textContent = initials(name));
+    ['hdr-name','hdr-name-d'].forEach(id => document.getElementById(id).textContent = name);
+    document.getElementById('hdr-sub').textContent = sub;
+    document.getElementById('hdr-sub-d').textContent = sub;
+    document.getElementById('hdr-team-initials').textContent = initials(state.username);
   }
 
   function togglePaste(){ document.getElementById('paste-box').classList.toggle('show'); }
 
+  /* ---------------- roster ---------------- */
+  async function loadRoster(force){
+    if (!state.session) return;
+    if (state.roster && !force) return renderRoster();
+    document.getElementById('roster-meta').textContent = 'Loading roster…';
+    try { state.roster = await api(`/api/roster?session_id=${encodeURIComponent(state.session.session_id)}`); renderRoster(); }
+    catch (e) { document.getElementById('roster-meta').textContent = `Couldn't load roster: ${e.detail}`; }
+  }
+  function renderRoster(){
+    const r = state.roster;
+    document.getElementById('hdr-team-initials').textContent = initials(r.team_name || state.username);
+    document.getElementById('roster-meta').textContent = `${r.team_name || 'Your team'} · ${r.players.length} players · ${Object.entries(r.counts_by_position || {}).map(([p,n]) => `${n} ${p}`).join(', ')}`;
+    const order = ['QB','RB','WR','TE','K','DEF'];
+    const groups = {};
+    r.players.forEach(p => { const pos = (p.position || 'OTHER').toUpperCase(); (groups[pos] = groups[pos] || []).push(p); });
+    const keys = Object.keys(groups).sort((a,b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
+    document.getElementById('roster-groups').innerHTML = keys.map(pos => `
+      <div class="pos-group"><div class="pos-label">${esc(pos)}</div>
+        ${groups[pos].map(p => `<div class="roster-row"><div class="avatar-ring ${posClass(pos)}">${esc(initials(p.name))}</div><div class="roster-mid"><div class="pname">${esc(p.name || p.player_id)}</div><div class="matchup">${esc(p.team || '—')}</div></div></div>`).join('')}
+      </div>`).join('');
+  }
+
+  /* ---------------- reports (feed + moves) ---------------- */
+  async function fetchReport(type, force){
+    if (state.reports[type] && !force) return state.reports[type];
+    const data = await api(`/api/reports/${type}?session_id=${encodeURIComponent(state.session.session_id)}`);
+    state.reports[type] = data;
+    return data;
+  }
+  const errorCard = (e, what) => `<div class="state-card"><div class="tag-mini">COULDN'T LOAD ${esc(what.toUpperCase())}</div><p>${esc(e.detail || e.message)}</p></div>`;
+  const notesCard = (report) => (report.notes && report.notes.length)
+    ? `<div class="state-card"><div class="tag-mini">NOTES</div><p>${report.notes.map(esc).join('<br>')}</p></div>` : '';
+
+  async function loadFeed(force){
+    if (!state.session) return;
+    const ss = document.getElementById('feed-start-sit'), dr = document.getElementById('feed-drop'), wv = document.getElementById('feed-waivers');
+    fetchReport('start_sit', force).then(rep => {
+      const cards = [];
+      rep.entries.forEach(entry => {
+        const st = entry.recommended_starter;
+        cards.push(recCard(st.name, entry.position, st.team, 'start', entry.reasoning, st));
+        (entry.alternatives_considered || []).forEach(alt => cards.push(recCard(alt.name, entry.position, alt.team, 'sit', alt.signals_summary, alt)));
+      });
+      ss.innerHTML = cards.length ? cards.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
+      if (cards.length && rep.notes && rep.notes.length) ss.insertAdjacentHTML('beforeend', notesCard(rep));
+    }).catch(e => ss.innerHTML = errorCard(e, 'start/sit'));
+    fetchReport('drop', force).then(rep => {
+      dr.innerHTML = (rep.entries.length ? rep.entries.map(dropRow).join('') : `<div class="state-card"><p>No drop candidates could be ranked.</p></div>`) + notesCard(rep);
+    }).catch(e => dr.innerHTML = errorCard(e, 'drop candidates'));
+    fetchReport('waiver_pickups', force).then(rep => {
+      wv.innerHTML = renderWaivers(rep, 5);
+      document.getElementById('moves-waiver-list').innerHTML = renderWaivers(rep, 25);
+    }).catch(e => { wv.innerHTML = errorCard(e, 'waiver targets'); document.getElementById('moves-waiver-list').innerHTML = errorCard(e, 'waiver targets'); });
+  }
+  function recCard(name, pos, team, verdict, why, entry){
+    return `<div class="rec-card">
+      <div class="rec-top"><div class="player-id"><div class="avatar-ring ${posClass(pos)}">${esc(initials(name))}</div><div><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div></div><div class="verdict ${verdict}">${verdict.toUpperCase()}</div></div>
+      <div class="rec-why">${esc(why || '')}</div>
+      <div class="chip-row"><span class="chip pos">${esc(pos)}</span>${staleChip(entry)}</div>
+    </div>`;
+  }
+  function dropRow(entry){
+    return `<div class="waiver-row"><div class="avatar-ring ${posClass(entry.position)}" style="width:34px;height:34px;font-size:10px;">${esc(initials(entry.name))}</div>
+      <div class="waiver-mid"><div class="pname">${esc(entry.name)} <span class="ppos">${esc(entry.position)} · ${esc(entry.team || '—')}</span></div><div class="reason">${(entry.weakness_reasons || []).map(esc).join('; ')}</div><div class="chip-row">${staleChip(entry)}</div></div></div>`;
+  }
+  function renderWaivers(rep, limit){
+    if (!rep.entries.length) return `<div class="state-card"><p>${esc((rep.notes || []).join(' ') || 'No unrostered players with computed signals.')}</p></div>`;
+    return rep.entries.slice(0, limit).map((e, i) => `<div class="waiver-row"><div class="priority">${i+1}</div><div class="avatar-ring ${posClass(e.position)}" style="width:34px;height:34px;font-size:10px;">${esc(initials(e.name))}</div>
+      <div class="waiver-mid"><div class="pname">${esc(e.name)} <span class="ppos">${esc(e.position)} · ${esc(e.team || '—')}</span></div><div class="reason">${esc(e.reasoning)}</div><div class="chip-row"><span class="chip">score ${esc(e.opportunity_score)}</span>${staleChip(e)}</div></div></div>`).join('') + notesCard(rep);
+  }
+
+  /* ---------------- chat ---------------- */
+  function bubble(container, role, html, extraClass){
+    const div = document.createElement('div');
+    div.className = `msg ${role}${extraClass ? ' ' + extraClass : ''}`;
+    div.innerHTML = `<div class="msg-avatar">${role === 'user' ? esc(initials(state.username)) : 'AM'}</div><div class="bubble">${html}</div>`;
+    container.appendChild(div); container.scrollTop = container.scrollHeight;
+    return div;
+  }
+  function gapChips(body){
+    const chips = [];
+    (body.data_gaps || []).forEach(g => {
+      const who = g.player_name ? ` · ${esc(g.player_name)}` : '';
+      if (g.reason === 'no_signal_data') chips.push(`<span class="chip nodata" title="${esc(g.detail)}">No signal data${who}</span>`);
+      else if (g.reason === 'out_of_scope_capability') chips.push(`<span class="chip scope" title="${esc(g.detail)}">Out of scope${who}</span>`);
+      else chips.push(`<span class="chip" title="${esc(g.detail)}">${esc(g.reason)}${who}</span>`);
+    });
+    const flaggedNoData = new Set((body.data_gaps || []).filter(g => g.reason === 'no_signal_data').map(g => g.player_name));
+    (body.signals_consulted || []).forEach(sc => {
+      if (sc.stale) chips.push(`<span class="chip stale"><svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>Stale · ${esc(sc.source_season)} · ${esc(sc.player_name)}</span>`);
+      else if (sc.has_signals === false && !flaggedNoData.has(sc.player_name)) chips.push(`<span class="chip nodata">No signal data · ${esc(sc.player_name)}</span>`);
+    });
+    return chips.length ? `<div class="chip-row">${chips.join('')}</div>` : '';
+  }
+  function answerHtml(body){
+    const why = body.reasoning ? `<div class="why">${esc(body.reasoning)}</div>` : '';
+    const err = body.error ? `<div class="why">(${esc(body.error)})</div>` : '';
+    return `${esc(body.recommendation)}${why}${err}${gapChips(body)}`;
+  }
+  async function runChat(question, container, historyKey){
+    if (!state.session) { bubble(container, 'assistant', 'Pick a league first.', 'error'); return null; }
+    bubble(container, 'user', esc(question));
+    const pending = bubble(container, 'assistant', 'Thinking…');
+    try {
+      const body = await api('/api/chat', { method:'POST', body:{ session_id: state.session.session_id, question, messages: state[historyKey] } });
+      state[historyKey] = body.messages;   // threaded back into the next turn
+      pending.querySelector('.bubble').innerHTML = answerHtml(body);
+      document.getElementById('chat-status').textContent = `${body.queries_used_today} of ${body.daily_query_cap} chat queries used today.`;
+      return body;
+    } catch (e) {
+      pending.classList.add('error');
+      pending.querySelector('.bubble').innerHTML = esc(e.status === 429 ? `Daily chat limit reached: ${e.detail}` : e.detail);
+      return null;
+    }
+  }
+  async function sendChat(){
+    const input = document.getElementById('chat-input'); const q = input.value.trim();
+    if (!q || state.busy) return;
+    state.busy = true; document.getElementById('chat-send').disabled = true; input.value = '';
+    try { await runChat(q, document.getElementById('chat-scroll'), 'messages'); }
+    finally { state.busy = false; document.getElementById('chat-send').disabled = false; }
+  }
+  function askChat(text){ document.getElementById('chat-input').value = text; sendChat(); }
+
+  /* ---------------- moves ---------------- */
+  function switchMoves(seg){
+    document.querySelectorAll('#moves-seg button').forEach(b => b.classList.toggle('active', b.dataset.seg === seg));
+    document.getElementById('moves-waivers').style.display = seg === 'waivers' ? '' : 'none';
+    document.getElementById('moves-trades').style.display = seg === 'trades' ? '' : 'none';
+  }
+  const TRADE_QUESTION = "What's my weakest position, and which teams in the league have surplus there? Composition only — don't propose specific trades.";
+  async function askTradeComposition(){
+    if (state.busy) return;
+    const btn = document.getElementById('trades-ask-btn'); btn.disabled = true; state.busy = true;
+    try { await runChat(TRADE_QUESTION, document.getElementById('trades-scroll'), 'tradeMessages'); }
+    finally { state.busy = false; btn.disabled = false; btn.textContent = 'Ask again'; }
+  }
+
+  /* ---------------- views + tabs (unchanged from the mockup) ---------------- */
   function goView(name){
     document.querySelectorAll('.view').forEach(v => v.classList.remove('show'));
     document.getElementById('view-' + name).classList.add('show');
     if(name === 'app'){ renderLeagueList('modal-league-list', true); }
   }
-
   function setTab(tab){
     document.querySelectorAll('.tab-btn, .nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+    if (tab === 'roster') loadRoster();
   }
-  document.querySelectorAll('.tab-btn, .nav-item').forEach(btn => {
-    btn.addEventListener('click', () => setTab(btn.dataset.tab));
-  });
-
+  document.querySelectorAll('.tab-btn, .nav-item').forEach(btn => { btn.addEventListener('click', () => setTab(btn.dataset.tab)); });
   function showModal(){ renderLeagueList('modal-league-list', true); document.getElementById('leagueModal').classList.add('show'); }
   function hideModal(){ document.getElementById('leagueModal').classList.remove('show'); }
-
-  document.querySelectorAll('.segmented').forEach(seg => {
-    seg.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
-      seg.querySelectorAll('button').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-    }));
-  });
 </script>
 </body>
 </html>

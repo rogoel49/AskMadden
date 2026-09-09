@@ -203,8 +203,19 @@ or monetized, it needs to genuinely work for more than one league.
   TODO.md's Phase 3.8 section for full detail, including the live-model
   validation gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
 - Phase 4 (coverage classification stretch): optional, not started
-- Phase 5 (productization — final deliverable): 5.1 and 5.2
-  implemented, 5.3-5.6 not started. 5.2 (API + storage): `src/api/`
+- Phase 5 (productization — final deliverable): 5.1, 5.2 and 5.3
+  implemented, 5.4-5.6 not started. 5.3 (wire the mockup): the
+  mockup's `<script>` and hardcoded data markup now call the seven
+  real routes (login, sessions, roster, three reports, multi-turn
+  chat); three distinct chat chips (stale / no_signal_data /
+  out_of_scope_capability); Moves→Trades asks chat a fixed
+  composition question on request rather than inventing an endpoint.
+  Served same-origin by `web/dev_server.py` (`python -m
+  web.dev_server`) because `src/api/` has no CORS/static mount yet —
+  5.6 folds that in. Validated in a real headless browser at both
+  breakpoints against the real server with boundary mocks (58
+  checks); live login / real-model chat still need Rohan's machine.
+  See TODO.md's Phase 5.3 entry. 5.2 (API + storage): `src/api/`
   — `auth.py` (Sleeper username → user_id → leagues, documented
   shapes, mocked in tests, live run outstanding), `storage.py`
   (SQLite: users, leagues, sessions, daily query counts),
@@ -247,6 +258,9 @@ media queries only. There is no separate static marketing site and no
 second build target — the landing page is a view inside the same file.
 The landing page's eval-numbers band shows labeled placeholders until
 real eval numbers exist (see TODO.md's 5.5 entry for what gates each).
+As of Phase 5.3 the file is wired to the real API and is served on the
+API's own origin by `web/dev_server.py` (no CORS needed); it keeps all
+state in JS for the life of the tab — no localStorage.
 
 ## Key architectural principle — do not violate
 The signals table and RAG corpus are **league-agnostic** — computed
