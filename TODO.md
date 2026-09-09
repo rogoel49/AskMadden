@@ -1215,6 +1215,88 @@ sandbox: Google Fonts is blocked by the network policy, and there's no
 favicon.) The harness and browser script live in this session's
 scratchpad, not the repo -- they're validation, not product.
 
+**Bugfix pass after Rohan's first live run (four observed bugs).**
+Scope was bug fixes only: no src/reasoning/ or src/rag/ changes, no
+new features. Full `pytest` suite 248/248 (246 + 2 new). Every fix
+below was reproduced first, then fixed, then re-checked in the same
+way it was reproduced.
+- **Bug 1 -- Feed's start_sit and drop 500'd, waiver_pickups loaded.**
+  Reproduced by running the real dev server (real nflverse player
+  index, Sleeper/ingest mocked at the API boundary as always) with the
+  league already on disk, restarting the process cold, and firing the
+  three Feed requests concurrently the way the browser does: on the
+  third cold restart, start_sit and drop both returned 500 and
+  waiver_pickups 200 -- the exact symptom. The server's own traceback
+  was NOT the player-index fetch (that was the suspect; with the real
+  nflverse fetch three concurrent requests were fine, cold and warm)
+  but chromadb: `AttributeError: 'RustBindingsAPI' object has no
+  attribute 'bindings'` -> `ValueError: Could not connect to tenant
+  default_tenant`. Cause, confirmed in chromadb 1.5.9's source:
+  `SharedSystemClient._create_system_if_not_exists` caches the new
+  per-path System in a class dict BEFORE calling `start()`, with no
+  lock, so when two request threads open `PersistentClient` on the same
+  league directory at the same moment (src/rag/retrieve.py opens one
+  per query), the second thread gets a cached-but-unstarted client.
+  That explains every clue: start_sit and drop resolve every rostered
+  player's signals through Chroma, waiver_pickups reads only the
+  parquet table; a single curl never races; and it only bites in a
+  process that has never opened that path (deployed case: league
+  ingested earlier by the CLI, server started later -- which is also
+  why PR #23's own browser validation never saw it: its harness
+  ingested in-process and had already opened the client). Fix (in
+  src/api/leagues.py, the allowed layer): `warm_chroma(persist_dir)`
+  opens the shared client once per path under a `threading.Lock`,
+  called from `ensure_league_data()`, which every league-scoped request
+  already goes through -- so the first open is serialized and every
+  later concurrent open reuses the started System. Not "fetch
+  sequentially in the Feed": the Feed still fires all three at once.
+  Re-checked: six more cold restarts with concurrent requests, 0 500s,
+  0 tracebacks. Regression test `tests/test_api_concurrency.py` builds
+  the league's Chroma index in a subprocess (so the test process is
+  genuinely cold), widens chromadb's start window with a short sleep so
+  the race is deterministic rather than 1-in-3, fires the three reports
+  concurrently through TestClient, and asserts all 200 + exactly one
+  chromadb start; with `warm_chroma` neutralized it fails (verified).
+  **Flagged, not fixed (src/rag/):** retrieve.py creating a new
+  `PersistentClient` per query is the deeper cause -- one shared client
+  per path there would remove the hazard at the source.
+- **Bug 2 -- picker and app view visible at once.** Cause: CSS
+  specificity, not the JS. `goView()` toggles `.show` correctly and
+  `#view-app` never had it before a league was selected, but the rule
+  `#view-app{ display:flex }` (an ID selector, specificity 1-0-0)
+  outranks `.view{ display:none }` (0-1-0) regardless of `.show`, so
+  the app shell rendered on every view -- including under the landing
+  page, which is why the phone frame and "Loading start/sit…" card
+  bled below the login/picker card. Present in the mockup file as
+  delivered in Part 1, not introduced by #23's wiring. Fix:
+  `#view-app{ display:none }` + `#view-app.show{ display:flex }`.
+  Verified in headless Chromium at both breakpoints: the set of
+  visible `.view` elements is exactly `[view-landing]` on load,
+  `[view-picker]` after login, `[view-app]` after selecting a league;
+  against origin/main's file the same check showed `[view-landing,
+  view-app]` on load.
+- **Bug 3 -- desktop rendered as a boxed card.** Cause: the ≥900px
+  media query kept the phone-mockup chrome (`max-width:1180px`,
+  `height:740px`, `border-radius:20px`, a box-shadow and border, and
+  36px/24px padding around it). Fix, in that media query only:
+  `#view-app{padding:0}`, `.app-shell{width:100%; max-width:none;
+  height:100vh; border-radius:0; box-shadow:none; border:none}`,
+  `.screen{border-radius:0}`. The sidebar/content layout underneath is
+  untouched and the mobile phone frame is untouched. Verified at 1280px:
+  the shell's bounding box starts at x=0 with width == viewport width
+  and height == viewport height, computed radius 0px, no shadow, no
+  border; at 390px the phone-frame radius and shadow are still present.
+- **Bug 4 -- dead bell and avatar buttons.** Chose a split: the bell is
+  REMOVED (there is no notifications system anywhere in the project,
+  so an icon for it is a promise the product can't keep), and the team
+  avatar is KEPT as a static indicator -- it shows your team's initials
+  from the real roster response, which is information the header
+  otherwise lacks -- with `cursor:default`, no handler, and a
+  `title="Your team: <name>"` tooltip so it reads as a label, not a
+  button. Verified in the browser: zero `.icon-btn` elements in the
+  header; the avatar's computed cursor is `default`, it has no onclick,
+  and its title starts with "Your team".
+
 **Needs a real run on Rohan's machine:**
 ```
 python -m web.dev_server      # then open http://127.0.0.1:8000/

@@ -36,7 +36,10 @@ Phase 5.2 entry for the live re-run.
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
+
+import chromadb
 
 from src.ingest import sleeper
 from src.rag import embed
@@ -44,6 +47,42 @@ from src.rag.embed import CHROMA_DIR, RAW_DIR, SIGNALS_DIR
 from src.reasoning.league import LeagueConfig, load_league
 
 LEAGUES_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "leagues"
+
+# ---- Chroma client warm-up (Phase 5.3 bugfix) ----
+# src/rag/retrieve.py opens `chromadb.PersistentClient(path)` on every
+# query. chromadb caches one shared System per path, but it registers the
+# new System in its cache BEFORE `start()` finishes and takes no lock
+# (SharedSystemClient._create_system_if_not_exists). So the first two
+# requests to touch a league's Chroma index in a fresh server process can
+# race: thread A is still starting the Rust bindings while thread B finds
+# the cached-but-unstarted System and dies with
+# "AttributeError: 'RustBindingsAPI' object has no attribute 'bindings'"
+# -> "Could not connect to tenant default_tenant" -> HTTP 500. Observed
+# for real: the Feed fires start_sit + drop + waiver_pickups together;
+# start_sit and drop both read Chroma (per-player signal lookups) and
+# 500'd, waiver_pickups reads only parquet and succeeded. A single curl
+# never races. Once a path's System has started, later concurrent
+# PersistentClient calls reuse it safely -- so the fix is to create the
+# first client for each league path exactly once, under a lock, before
+# any request-thread reaches retrieve.py. (The deeper fix, one shared
+# client per path inside src/rag/retrieve.py, is a src/rag/ change and
+# was out of scope for the bugfix pass that added this.)
+_chroma_warm_lock = threading.Lock()
+_chroma_warmed: set[str] = set()
+
+
+def warm_chroma(persist_dir: Path) -> None:
+    """Open (and thereby fully start) the shared Chroma client for
+    persist_dir once per process, serialized across threads. Idempotent
+    and cheap after the first call."""
+    key = str(persist_dir)
+    if key in _chroma_warmed:
+        return
+    with _chroma_warm_lock:
+        if key in _chroma_warmed:
+            return
+        chromadb.PersistentClient(path=key)
+        _chroma_warmed.add(key)
 
 
 def league_dirs(league_id: str) -> tuple[Path, Path]:
@@ -79,4 +118,6 @@ def ensure_league_data(league_id: str, refresh: bool = False) -> LeagueConfig:
     if refresh or not is_ingested(league_id):
         ingest_league(league_id)
     raw_dir, persist_dir = league_dirs(league_id)
-    return load_league(str(league_id), raw_dir=raw_dir, persist_dir=persist_dir)
+    config = load_league(str(league_id), raw_dir=raw_dir, persist_dir=persist_dir)
+    warm_chroma(config.persist_dir)  # see the note above -- must happen before any request thread queries Chroma
+    return config
