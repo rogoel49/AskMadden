@@ -581,6 +581,100 @@ of pure invention.
 **Explicitly out of scope**: real position-scarcity modeling,
 `src/scheduler/refresh.py`, `report.py`.
 
+## Phase 7: Coaching-scheme fit signal
+
+Sequenced after Phase 6 (trade-value proxy), since both are new,
+speculative signal work rather than productization — Phase 5's
+frontend work and Phase 6's trade proxy stay the priority.
+
+### Motivation
+
+Today, when current-season data is stale or hasn't been computed yet
+(the exact situation at the start of a season), the reasoning agent
+falls back on unlabeled general knowledge — e.g. reasoning "Mahomes'
+consistently elite performance history" instead of anything grounded
+in a real signal. That's an honest thing for the model to say when it
+has nothing else, but it's also exactly the kind of ungrounded claim
+Phase 3.7's addendum exists to catch in other contexts (trade advice).
+A real coaching-scheme signal gives the model something concrete to
+reach for instead — e.g. "new offensive coordinator this season" as a
+plain fact, or eventually a computed scheme-fit score — rather than
+defaulting to parametric memory dressed up as reasoning.
+
+### Why this is signals-layer work, not RAG
+
+Per the existing architecture, RAG (`rag/embed.py`, ChromaDB) is
+semantic-similarity retrieval — the wrong tool for "look up this exact
+player's exact scheme-fit value." This belongs in the signals table
+(`matchup_signals.py` or a new sibling module) and the
+`get_player_signals` tool output, the same pattern every other signal
+already follows: a structured, deterministic lookup, not a fuzzy
+match. It inherits the existing `stale`/`source_season` honesty
+labeling for free.
+
+### Two tiers, shipped separately
+
+**Tier 1 — coaching-change flag (cheap, near-zero fabrication risk,
+shippable well before the rest of this phase):**
+- A small reference table: team, season, offensive/defensive
+  coordinator name. Hand-maintained is fine here — this is public
+  reference metadata (like a schedule), not eval ground truth, so it
+  doesn't fall under the "never hand-authored" rule (that rule guards
+  `ground_truth.jsonl`'s fantasy points, not static roster-of-record
+  facts).
+- Computed signal: "new OC this season" (boolean + OC name), joined
+  onto the existing player signals by team.
+- Surfaces as a plain chip/fact in `get_player_signals` output — no
+  score, no prediction, just a fact the model (or a person) can
+  reason from instead of falling back on unlabeled memory.
+- [ ] Build the reference table (team, season, OC name)
+- [ ] Join onto `matchup_signals.py`'s existing per-team output
+- [ ] Add to `get_player_signals`' returned fields
+- [ ] Update system prompt: when this flag is true, the model may
+      note it as a fact, but any claim about *how* the scheme affects
+      a specific player still needs Tier 2's real signal to back it —
+      until Tier 2 exists, the model should not speculate about fit,
+      only note the change occurred
+
+**Tier 2 — real scheme-fit signal (comparable scope to Phase 4,
+its own eval-gated validation before it's trusted):**
+- Extend the coordinator-history table across multiple prior seasons
+  per OC (where else has this OC called plays before).
+- Compute scheme profiles from `nflverse` play-by-play for each prior
+  stint: shotgun rate, play-action rate, personnel groupings,
+  no-huddle rate, aDOT tendency — same feature-engineering pattern
+  already used for matchup signals, applied to a coach's play-calling
+  history instead of a single week's matchup.
+- Compute each player's own career splits against those same scheme
+  dimensions from their own play-by-play history.
+- Fit score: a real function comparing the two, labeled explicitly as
+  a **modeled proxy** — same treatment as the existing Matchup-fit
+  score, not presented with the confidence of a measured signal like
+  target share.
+- [ ] Extend coordinator table with multi-season history per OC
+- [ ] Compute scheme profiles from nflverse play-by-play per stint
+- [ ] Compute player career splits against the same scheme dimensions
+- [ ] Compute the fit score, explicitly labeled as a modeled proxy
+- [ ] As-of-date filtering applies here too: no signal may use data
+      from after the eval week's kickoff, same rule as everything else
+- [ ] Eval check before this is trusted in a real recommendation: does
+      including this signal actually move decision accuracy, scored
+      the same way every other signal-quality question gets answered
+      in this project — don't add complexity speculatively
+- [ ] Update `get_player_signals` and the system prompt once validated
+
+### What ships when
+
+Tier 1 can ship as a small, fast, low-risk addition well ahead of
+Tier 2 — it directly fixes the exact gap that prompted this (the model
+falling back on unlabeled memory when current-season signals are
+stale). Tier 2 is real new data-engineering work with its own eval
+gate, sequenced as Phase 7 proper, after Phase 6. Once validated, it
+ships as an update to the existing signals table and tool output — no
+architecture change needed in `recommend()`, `report.py`, the API, or
+the frontend, all of which already handle "one more labeled signal
+field" as an existing pattern.
+
 ## Eval methodology
 - **Qualitative seed set**: real, researched pregame dilemmas (e.g. Week 5 2025
   Dobbins/Harvey flex split, Addison vs. Jeudy) — verified, not invented,
@@ -709,3 +803,25 @@ rationale (Phase 3.8's real-model validation confirmed a complete,
 honestly-bounded product is demo-ready now; trade valuation is a
 value-add, not a blocker).
 - [ ] Not started
+
+### Phase 7: Coaching-scheme fit signal
+Sequenced after Phase 6 -- see Phase 7's section above for the
+rationale (a real signal for the model to reach for when current-season
+data is stale, instead of unlabeled general knowledge). Two tiers,
+shipped separately.
+
+Tier 1 -- coaching-change flag:
+- [ ] Build the reference table (team, season, OC name)
+- [ ] Join onto `matchup_signals.py`'s existing per-team output
+- [ ] Add to `get_player_signals`' returned fields
+- [ ] Update system prompt: the model may note the change as a fact,
+      but must not speculate about fit until Tier 2 exists
+
+Tier 2 -- real scheme-fit signal (eval-gated before it's trusted):
+- [ ] Extend coordinator table with multi-season history per OC
+- [ ] Compute scheme profiles from nflverse play-by-play per stint
+- [ ] Compute player career splits against the same scheme dimensions
+- [ ] Compute the fit score, explicitly labeled as a modeled proxy
+- [ ] As-of-date filtering applies here too
+- [ ] Eval check before this is trusted in a real recommendation
+- [ ] Update `get_player_signals` and the system prompt once validated

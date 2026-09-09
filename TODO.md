@@ -1375,3 +1375,85 @@ as-of-date filtered -- explicitly not a real trade-value model, labeled
 as a proxy everywhere it appears, same pattern as `report.py`'s waiver
 `opportunity_score`).
 - [ ] Not started
+
+## Backlog -- future phases, not yet started
+
+Parked items that came out of real usage testing after PR #24 (the
+Phase 5.3 bugfix pass). None of these is active work and none blocks
+the remaining Phase 5 items (5.4-5.6); they are recorded here so they
+aren't lost, not because they're next.
+
+### Phase 7: Coaching-scheme fit signal
+Not started. Sequenced after Phase 6 (trade-value proxy): both are new,
+speculative signal work, and Phase 5's remaining frontend/deployment
+items plus Phase 6 stay the priority. See `PROJECT_SPEC.md`'s Phase 7
+section for the full write-up. The gap it closes: when current-season
+signals are stale or not yet computed (the exact situation at the start
+of a season), the reasoning agent falls back on unlabeled general
+knowledge ("consistently elite performance history") instead of a real
+signal -- the same class of ungrounded claim Phase 3.7's addendum
+guards against in the trade context. This is signals-layer work (a
+structured, deterministic per-player lookup through `get_player_signals`,
+inheriting the existing `stale`/`source_season` labeling), not RAG.
+
+Tier 1 -- coaching-change flag (cheap, near-zero fabrication risk,
+shippable well before Tier 2). Hand-maintained reference metadata is
+fine here: it's a roster-of-record fact like a schedule, not eval
+ground truth, so the "never hand-authored" rule (which guards
+`ground_truth.jsonl`) doesn't apply.
+- [ ] Build the reference table (team, season, OC name)
+- [ ] Join onto `matchup_signals.py`'s existing per-team output
+- [ ] Add to `get_player_signals`' returned fields
+- [ ] Update system prompt: when this flag is true, the model may
+      note it as a fact, but any claim about *how* the scheme affects
+      a specific player still needs Tier 2's real signal to back it --
+      until Tier 2 exists, the model should not speculate about fit,
+      only note the change occurred
+
+Tier 2 -- real scheme-fit signal (comparable scope to Phase 4, its own
+eval-gated validation before it's trusted in a real recommendation).
+- [ ] Extend coordinator table with multi-season history per OC
+- [ ] Compute scheme profiles from nflverse play-by-play per stint
+      (shotgun rate, play-action rate, personnel groupings, no-huddle
+      rate, aDOT tendency)
+- [ ] Compute player career splits against the same scheme dimensions
+- [ ] Compute the fit score, explicitly labeled as a modeled proxy
+      (same treatment as the matchup-fit score, never presented with
+      the confidence of a measured signal like target share)
+- [ ] As-of-date filtering applies here too: no signal may use data
+      from after the eval week's kickoff, same rule as everything else
+- [ ] Eval check before this is trusted in a real recommendation: does
+      including this signal actually move decision accuracy, scored
+      the same way every other signal-quality question gets answered
+      in this project -- don't add complexity speculatively
+- [ ] Update `get_player_signals` and the system prompt once validated
+
+### Feed card redesign + position filters
+Not scoped yet -- needs its own design session before implementation.
+Real usage testing found the Feed's rec-cards render as inconsistent-
+length walls of text: a single card's text includes full comparisons
+to 3-4 other players concatenated together, rather than just that
+card's own player. Likely shape of the fix: truncate each card to its
+own player with an expandable "why" section, and add position filter
+chips (QB/RB/WR/etc.) above the Start Today section so a long list can
+be narrowed. Frontend only (`design/askmadden-ui-mockup.html`); the
+report payloads themselves already carry per-player entries.
+- [ ] Design session: card content boundary + expandable "why" +
+      position filter chips
+- [ ] Implement once designed
+
+### Chat vs. Feed can recommend differently on the same signals
+Needs a product decision before any code changes -- flagged so it isn't
+lost, not resolved. Real usage testing found Chat (`recommend()`) and
+the Feed's start_sit report (`generate_report()`) reached different
+verdicts for the same real decision (one QB question), because they are
+two independent reasoning paths over the same signals: `report.py` uses
+a deterministic ranking/scoring formula, while `recommend()` is Claude
+reasoning freely and can fall back on general knowledge when
+current-season signals are stale (the same gap Phase 7's Tier 1 is
+aimed at). This is a real product-consistency question, not a bug:
+should the two paths be guaranteed to agree (e.g. Chat defers to
+`report.py`'s ranking and only adds explanation), or is disagreement
+acceptable and expected because they serve different purposes?
+- [ ] Product decision: guaranteed agreement vs. accepted divergence
+- [ ] Only then: any code change
