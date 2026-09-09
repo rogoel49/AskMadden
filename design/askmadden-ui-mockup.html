@@ -153,7 +153,11 @@
   .paste-box.show{ display:block; }
 
   /* ================= APP SHELL (responsive: phone -> desktop) ================= */
-  #view-app{ display:flex; justify-content:center; padding:40px 20px; }
+  /* Bug fix: an ID selector (#view-app) outranks .view{display:none}, so a bare
+     `#view-app{display:flex}` made the app shell render on EVERY view (landing,
+     login, picker). Only the .show state may display it. */
+  #view-app{ display:none; justify-content:center; padding:40px 20px; }
+  #view-app.show{ display:flex; }
   .app-shell{
     position:relative; background:linear-gradient(180deg,#0b0f14,#070a0d);
     border:1px solid #262e3a; overflow:hidden; display:flex; flex-direction:column;
@@ -175,8 +179,8 @@
   .league-meta .lname{ font-size:13.5px; font-weight:600; line-height:1.15; }
   .league-meta .lsub{ font-size:11.5px; color:var(--text-faint); }
   .header-actions{ display:flex; align-items:center; gap:12px; }
-  .icon-btn{ width:34px; height:34px; border-radius:10px; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; color:var(--text-dim); }
-  .team-avatar{ width:34px; height:34px; border-radius:50%; background:linear-gradient(145deg,#2a3340,#151b23); border:1.5px solid var(--green-line); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:var(--green); }
+  /* Static indicator (your team's initials), not a control: no cursor/hover affordance. */
+  .team-avatar{ width:34px; height:34px; border-radius:50%; background:linear-gradient(145deg,#2a3340,#151b23); border:1.5px solid var(--green-line); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:var(--green); cursor:default; user-select:none; }
 
   .app-content{ flex:1 1 auto; overflow-y:auto; padding:16px 16px 90px; min-width:0; }
   .panel{ display:none; animation:rise .28s ease; }
@@ -277,13 +281,15 @@
 
   /* ============ DESKTOP BREAKPOINT: reflow the same shell ============ */
   @media (min-width:900px){
-    #view-app{ padding:36px 24px; }
+    /* Bug fix: at desktop widths the app is the page, not a card floating on one --
+       no padding, no max-width, no radius, no shadow, no border; fill the viewport. */
+    #view-app{ padding:0; }
     .app-shell{
-      width:100%; max-width:1180px; height:740px; border-radius:20px; padding:0;
-      box-shadow:0 30px 80px -30px rgba(0,0,0,.7); border:1px solid var(--border);
+      width:100%; max-width:none; height:100vh; min-height:100vh; border-radius:0; padding:0;
+      box-shadow:none; border:none; background:var(--bg);
     }
     .notch, .statusbar, .tabbar-mobile{ display:none; }
-    .screen{ border-radius:20px; flex-direction:row; }
+    .screen{ border-radius:0; flex-direction:row; }
     .body-row{ flex-direction:row; width:100%; }
 
     .sidebar-desktop{
@@ -438,8 +444,7 @@
               <div class="league-meta"><div class="lname" id="hdr-name">Victorious Secret 3.0</div><div class="lsub" id="hdr-sub">Week 1 · Half-PPR · 12 teams</div></div>
             </div>
             <div class="header-actions">
-              <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
-              <div class="team-avatar" id="hdr-team-initials">RF</div>
+              <div class="team-avatar" id="hdr-team-initials" title="Your team" aria-label="Your team">RF</div>
             </div>
           </div>
 
@@ -647,7 +652,9 @@
   }
   function renderRoster(){
     const r = state.roster;
-    document.getElementById('hdr-team-initials').textContent = initials(r.team_name || state.username);
+    const avatar = document.getElementById('hdr-team-initials');
+    avatar.textContent = initials(r.team_name || state.username);
+    avatar.title = `Your team: ${r.team_name || state.username}`;
     document.getElementById('roster-meta').textContent = `${r.team_name || 'Your team'} · ${r.players.length} players · ${Object.entries(r.counts_by_position || {}).map(([p,n]) => `${n} ${p}`).join(', ')}`;
     const order = ['QB','RB','WR','TE','K','DEF'];
     const groups = {};
