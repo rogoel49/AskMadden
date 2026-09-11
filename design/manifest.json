@@ -1,0 +1,17 @@
+{
+  "id": "/askmadden",
+  "name": "Ask Madden",
+  "short_name": "Ask Madden",
+  "description": "AI fantasy football assistant: start/sit, drops, and waiver pickups with real matchup reasoning for your Sleeper league.",
+  "start_url": "askmadden-ui-mockup.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05070a",
+  "theme_color": "#39e39a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

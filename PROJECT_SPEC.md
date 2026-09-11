@@ -498,10 +498,19 @@ by web/dev_server.py because src/api has no CORS/static mount yet
       Phase 6 named as not built; nothing wired to a trade value
 
 #### 5.4 — PWA installability
-- [ ] manifest.json, minimal service worker
+Implemented — see TODO.md's Phase 5.4 entry for the iOS-first
+investigation (Apple's release notes, not assumed), what was built,
+and exactly what the Lighthouse audit and headless-browser checks
+proved versus what needs a real phone.
+- [x] manifest.json, minimal service worker, programmatic icons, iOS
+      head tags; web/dev_server.py reachable from the LAN (0.0.0.0)
+- [x] Automated installability check: Lighthouse 11 PWA category 100
+      in headless Chromium (Chrome's own installability engine)
 - [ ] Verify "Add to Home Screen" on iOS Safari and Android Chrome —
       the actual mechanism for a phone install, no App Store
-      submission
+      submission. iOS works over plain http on the same WiFi; Android
+      Chrome needs a secure context (USB port forwarding, or 5.6's
+      HTTPS). Only a real phone can close this box.
 
 #### 5.5 — Landing page (front door)
 The `#view-landing` view inside the same responsive mockup file, not

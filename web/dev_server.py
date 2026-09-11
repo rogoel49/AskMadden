@@ -1,7 +1,8 @@
 """Phase 5.3 dev server: the Phase 5.2 API and the responsive frontend on
 ONE origin, so the browser's fetch() calls need no CORS.
 
-    python -m web.dev_server            # http://127.0.0.1:8000/
+    python -m web.dev_server            # http://127.0.0.1:8000/ on this machine,
+                                        # http://<this machine's LAN IP>:8000/ from a phone on the same WiFi
 
 Why this exists (and why it's outside src/api/): src/api/main.py has no
 CORS middleware and no static mount, so opening
@@ -15,6 +16,13 @@ src/api/main.py itself; until then this is the way to run the UI.
 
 Starlette does not propagate a mounted app's lifespan, so the API's
 once-per-process .env load is triggered here explicitly.
+
+Binds to 0.0.0.0 (Phase 5.4), not 127.0.0.1: "Add to Home Screen" can only
+be tested on a real phone, and a phone on the same WiFi can only reach a
+server that listens on the machine's network interface. 0.0.0.0 is still
+local-network-only -- nothing here is exposed to the internet unless the
+router forwards the port, which it doesn't by default. Phase 5.6 is the
+public, HTTPS deployment; this is not it.
 """
 from __future__ import annotations
 
@@ -56,4 +64,4 @@ app = build_app()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("web.dev_server:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("web.dev_server:app", host="0.0.0.0", port=8000, reload=False)
