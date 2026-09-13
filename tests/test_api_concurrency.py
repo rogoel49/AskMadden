@@ -70,7 +70,7 @@ def cold_league(tmp_path, monkeypatch):
     assert out.returncode == 0 and "seeded" in out.stdout, out.stderr[-2000:]
     assert leagues.is_ingested(VS30_ID)
     # Forget any warm-up from earlier tests in this process, so this test is a real cold start.
-    monkeypatch.setattr(leagues, "_chroma_warmed", set())
+    monkeypatch.setattr(leagues, "_chroma_warmed", {})
 
     signals_dir = tmp_path / "signals"
     signals_dir.mkdir()
@@ -97,7 +97,7 @@ def cold_league(tmp_path, monkeypatch):
     # three concurrent report requests are the first Chroma openers -- the worst case.
     session_id = client.post("/api/sessions", json={"username": "rogoel49", "league_id": VS30_ID}).json()["session_id"]
     _forget_chroma(persist_dir)
-    monkeypatch.setattr(leagues, "_chroma_warmed", set())
+    monkeypatch.setattr(leagues, "_chroma_warmed", {})
     yield client, session_id, persist_dir
     main.app.dependency_overrides.clear()
 
@@ -161,7 +161,7 @@ def test_warm_chroma_is_idempotent_and_serialized(tmp_path, monkeypatch):
     chromadb once, and later calls are no-ops."""
     persist_dir = tmp_path / "chroma"
     persist_dir.mkdir()
-    monkeypatch.setattr(leagues, "_chroma_warmed", set())
+    monkeypatch.setattr(leagues, "_chroma_warmed", {})
     starts = _widen_the_race(monkeypatch, seconds=0.2)
 
     threads = [threading.Thread(target=leagues.warm_chroma, args=(persist_dir,)) for _ in range(6)]

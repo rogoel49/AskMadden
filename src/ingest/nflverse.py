@@ -50,6 +50,15 @@ def save_pbp(season: int, out_dir: Path = RAW_DIR) -> Path:
     return path
 
 
+def current_season() -> int:
+    """nflverse's own notion of the current NFL season -- the calendar
+    year from the Thursday after Labor Day onward, the previous year
+    before that (so January playoffs still resolve to the right season).
+    Used by src/scheduler/refresh.py to decide which season to refresh
+    without hardcoding a year."""
+    return int(nfl.get_current_season())
+
+
 def fetch_schedules(season: int) -> pl.DataFrame:
     """Game schedules for `season`, including closing Vegas lines
     (spread_line, total_line, moneylines) and weather fields (temp, wind,
