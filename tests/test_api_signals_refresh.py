@@ -10,11 +10,19 @@ and chat paths serve after that?
 The investigation found three separate answers, one per layer, and only
 the third was actually broken -- so all three are pinned here:
 
-  1. warm_chroma()'s cached client is NOT a staleness source. A warmed
-     client sees rows a SEPARATE PROCESS wrote to the same path on its
-     very next query (test_warmed_chroma_client_sees_another_process_rewrite).
-     This was the original suspicion and it is wrong; the test exists so a
-     future reader doesn't re-suspect it.
+  1. warm_chroma()'s cached client is a staleness source for ONE of
+     chromadb's two read paths, and not the one this unit's gap lives in.
+     collection.get() (metadata lookups -- query_player_signal, so
+     get_player_signals) reads SQLite and sees a separate process's rewrite
+     on the very next call. collection.query() (semantic search --
+     retrieve.query, so search_league_info) answers from a per-process
+     in-memory vector index that a warmed process does NOT refresh, and
+     returns removed ids with documents/metadatas of None. Both are pinned
+     below, because the original suspicion was half right and which half
+     matters: the semantic staleness is real but separate (PR #28 fixes it
+     with an mtime/size stamp on warm_chroma), and it is neither introduced
+     nor relied on here -- this unit's resync re-embeds IN-process, which
+     leaves that process's own semantic index correct.
   2. Reports read the parquet fresh on every request
      (ranking.load_signals_table re-globs), so refreshed numbers are
      served with no restart -- but only within the as-of-week bound, and
@@ -40,7 +48,7 @@ import polars as pl
 import pytest
 
 from src.api import leagues, main
-from src.rag import retrieve
+from src.rag import embed, retrieve
 from tests.test_api_main import _login_and_session, api  # noqa: F401  (fixture)
 from tests.test_league import _ALL_SIGNALS, _SEASON, _WEEK, VS30_ID
 
@@ -100,6 +108,28 @@ embed.embed(embed.build_signal_chunks(rows), persist_dir=Path({persist_dir!r}))
 """
 
 
+_MATCHUP_CHUNK_IN_SUBPROCESS = r"""
+import sys
+sys.path.insert(0, {repo!r})
+from pathlib import Path
+from src.rag import embed
+embed.embed(
+    [{{"id": "c{week}", "text": "Week {week} matchup 1: Team A vs Team B",
+      "metadata": {{"type": "matchup", "week": {week}}}}}],
+    persist_dir=Path({persist_dir!r}),
+)
+"""
+
+
+def _embed_matchup_chunk_in_subprocess(persist_dir: Path, week: int) -> None:
+    """Replace the collection with a single matchup chunk for `week`, from a
+    genuinely separate process (embed() clears then re-adds, so this both
+    removes the old id and adds a new one)."""
+    code = _MATCHUP_CHUNK_IN_SUBPROCESS.format(repo=str(REPO), persist_dir=str(persist_dir), week=week)
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-2000:]
+
+
 def _embed_in_subprocess(persist_dir: Path, target_share: float) -> None:
     code = _REEMBED_IN_SUBPROCESS.format(
         repo=str(REPO), persist_dir=str(persist_dir), target_share=target_share
@@ -108,14 +138,19 @@ def _embed_in_subprocess(persist_dir: Path, target_share: float) -> None:
     assert done.returncode == 0, done.stderr[-2000:]
 
 
-def test_warmed_chroma_client_sees_another_process_rewrite(tmp_path):
-    """warm_chroma()'s cached client is not a staleness source.
+def test_warmed_client_metadata_lookups_see_another_process_rewrite(tmp_path):
+    """chromadb's METADATA path stays fresh in a warmed process.
 
-    This is the negative result that redirected the whole investigation:
-    the suspicion was that PR #24's warmed per-league client would keep
-    serving the embeddings it first saw. It does not -- retrieve.py opens a
-    PersistentClient per query against a SQLite-backed store, so a rewrite
-    from a different process is visible on the next read."""
+    query_player_signal() -- and therefore the get_player_signals chat tool
+    and the prior-season fallback -- goes through collection.get(), which
+    reads SQLite directly. A warmed per-league client sees another
+    process's rewrite on the next call, so this path needed no fix.
+
+    The semantic path does NOT share that property; see
+    test_warmed_client_semantic_queries_go_stale_after_another_process_rewrite
+    immediately below. Keeping both pinned is the point: the original
+    suspicion about warm_chroma() was half right, and conflating the two
+    paths is what made it look wholly wrong."""
     persist_dir = tmp_path / "chroma"
     _embed_in_subprocess(persist_dir, 0.111)
 
@@ -130,6 +165,48 @@ def test_warmed_chroma_client_sees_another_process_rewrite(tmp_path):
         "a warmed client failed to see another process's rewrite -- if this ever fails, "
         "the warm_chroma note in src/api/leagues.py needs revisiting"
     )
+
+
+def test_warmed_client_semantic_queries_go_stale_after_another_process_rewrite(tmp_path):
+    """chromadb's SEMANTIC path DOES go stale in a warmed process.
+
+    collection.query() answers from a per-process in-memory vector index.
+    After a separate process re-embeds, a warmed process keeps returning the
+    ids it first indexed -- now with documents/metadatas of None, because
+    those rows are gone from SQLite. retrieve.query() surfaces that as
+    {"text": None, "metadata": None}, and a caller doing
+    r["metadata"].get("type") (search_league_info does) raises
+    AttributeError.
+
+    Pinned here as a KNOWN LIMITATION this unit neither introduces nor
+    fixes: the resync added in this PR re-embeds in-process, which leaves
+    that process's own index correct (asserted at the end). PR #28 fixes
+    the out-of-process case by stamping the index's mtime/size in
+    warm_chroma(). If that lands and this test starts failing, the
+    limitation is gone -- update it rather than working around it."""
+    persist_dir = tmp_path / "chroma"
+    _embed_matchup_chunk_in_subprocess(persist_dir, 3)
+
+    leagues.warm_chroma(persist_dir)
+    before = retrieve.query("what is my matchup", n_results=3, persist_dir=persist_dir)
+    assert [r["text"] for r in before] == ["Week 3 matchup 1: Team A vs Team B"], before
+
+    _embed_matchup_chunk_in_subprocess(persist_dir, 8)  # deletes c3, adds c8
+
+    after = retrieve.query("what is my matchup", n_results=3, persist_dir=persist_dir)
+    assert [r["text"] for r in after] == [None], (
+        "the semantic index refreshed after an out-of-process re-embed -- if PR #28's "
+        "warm_chroma stamp landed, delete this test and the limitation note it guards"
+    )
+    assert after[0]["metadata"] is None
+
+    # ...but an IN-process re-embed (this PR's resync) leaves it correct:
+    embed.embed(
+        [{"id": "c9", "text": "Week 9 matchup 1: Team A vs Team B", "metadata": {"type": "matchup", "week": 9}}],
+        persist_dir=persist_dir,
+    )
+    fixed = retrieve.query("what is my matchup", n_results=3, persist_dir=persist_dir)
+    assert [r["text"] for r in fixed] == ["Week 9 matchup 1: Team A vs Team B"], fixed
 
 
 # ---------------------------------------------------------------- finding 2

@@ -1528,20 +1528,35 @@ re-running `src.ingest.nflverse` + `src.signals.matchup_signals` for a
 new week while the API server keeps running, does the server serve the
 new signals, or stale data from the per-league Chroma client PR #24
 warms? Investigated with real repros before assuming either answer.
-Full `pytest` suite 273/273 (266 before this unit + 7 new in
+Full `pytest` suite 274/274 (266 before this unit + 8 new in
 `tests/test_api_signals_refresh.py`). One file changed under src/:
 `src/api/leagues.py`.
 
-**The suspicion was wrong, and that mattered.** `warm_chroma()`'s
-cached client is NOT a staleness source. Reproduced directly: embed a
-signal chunk in a subprocess, `warm_chroma()` the path in this process
-and read it, re-embed different numbers from a SECOND subprocess, read
-again from the same warm process -- the new value comes back
-immediately (11.10% -> 99.90%). `retrieve.py` opens a
-`PersistentClient` per query against a SQLite-backed store, so another
-process's writes are visible on the next read. Pinned as
-`test_warmed_chroma_client_sees_another_process_rewrite` so nobody
-re-suspects the warming.
+**The suspicion was half right, and which half matters.** chromadb has
+two read paths and they behave differently under `warm_chroma()`; the
+first draft of this entry claimed the warming was wholly innocent, which
+was wrong and is corrected here (caught by PR #28, then re-verified
+directly rather than taken on faith):
+- **`collection.get()` -- metadata lookups, i.e. `query_player_signal`
+  and so `get_player_signals`** -- reads SQLite directly and DOES see
+  another process's rewrite on the next call. Reproduced: embed in a
+  subprocess, warm + read here, re-embed different numbers from a SECOND
+  subprocess, read again -- 11.10% -> 99.90%, no restart. This is the
+  path this unit's gap lives in, and it needed no cache fix. Pinned as
+  `test_warmed_client_metadata_lookups_see_another_process_rewrite`.
+- **`collection.query()` -- semantic search, i.e. `retrieve.query` and
+  so `search_league_info`** -- answers from a per-process in-memory
+  vector index that a warmed process does NOT refresh. Reproduced: after
+  an out-of-process re-embed the warm process returns the OLD ids with
+  `documents`/`metadatas` of `None`, so a caller doing
+  `r["metadata"].get("type")` raises `AttributeError` (PR #28 measured
+  this as a real HTTP 500 on `/api/chat`). That is a genuine defect, but
+  a separate one: it is neither introduced nor fixed here, and the resync
+  below re-embeds IN-process, which leaves that process's own semantic
+  index correct (asserted in the same test). PR #28's mtime/size stamp on
+  `warm_chroma()` is the fix. Pinned as a known limitation in
+  `test_warmed_client_semantic_queries_go_stale_after_another_process_rewrite`,
+  which says in its docstring to delete it once that lands.
 
 **What the three layers actually do**, each reproduced end-to-end
 through `TestClient` against the real endpoints with the league already
@@ -1563,8 +1578,10 @@ ingested and the server already warm:
   directory would be a weaker definition. Pinned as
   `test_default_report_stays_pinned_to_the_leagues_own_state_week` so
   changing it is a deliberate act.
-- **Chat (Chroma): genuinely broken, and a restart would NOT have
-  fixed it.** Chroma is only ever written by `embed()`, and
+- **Chat (Chroma): genuinely broken for a different reason, and a
+  restart would NOT have fixed it.** (Distinct from the semantic-index
+  staleness above -- that one a restart *would* fix; this one it would
+  not.) Chroma is only ever written by `embed()`, and
   `ensure_league_data()` skipped ingest entirely whenever
   `is_ingested()` was true -- which stays true across restarts. So for
   an already-ingested league `embed()` never ran again and the

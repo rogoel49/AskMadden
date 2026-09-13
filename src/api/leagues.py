@@ -116,14 +116,27 @@ def warm_chroma(persist_dir: Path) -> None:
 #     true on the next boot -- so the stale chunks were permanent until
 #     someone re-ran the embed by hand or passed refresh=True.
 #
-# Note this is NOT the warm_chroma() client above going stale: a warmed
-# client picks up rows written to the same path by a separate process
-# immediately (verified -- see tests/test_api_signals_refresh.py). The gap
-# was purely "nothing re-ran embed", which is what _resync_signals_if_changed
-# closes, by fingerprinting the signals files the collection was built from.
-# (Leagues ingested before that fingerprint existed adopt it on first sight
-# rather than rebuilding -- see the function's docstring for why, and for
-# the one-time migration that leaves behind.)
+# This gap is NOT warm_chroma()'s cached client going stale, though the two
+# are easy to confuse and chromadb's two read paths behave differently
+# (both verified in tests/test_api_signals_refresh.py):
+#   - collection.get() -- metadata lookups, which is what
+#     query_player_signal()/get_player_signals use -- reads SQLite directly
+#     and DOES see another process's rewrite on the next call.
+#   - collection.query() -- semantic search, which is what retrieve.query()/
+#     search_league_info use -- answers from a per-process in-memory vector
+#     index that a warmed process does NOT refresh after an out-of-process
+#     re-embed. It returns removed ids with documents/metadatas of None,
+#     which callers doing r["metadata"].get(...) turn into an AttributeError.
+#     That is a real, separate defect; it is NOT introduced or fixed here
+#     (the resync below re-embeds IN-process, which leaves that process's
+#     own index correct -- verified), and PR #28's mtime/size stamp on
+#     warm_chroma() is the fix for the out-of-process case.
+# The gap this closes is purely "nothing re-ran embed", which
+# _resync_signals_if_changed handles by fingerprinting the signals files the
+# collection was built from. (Leagues ingested before that fingerprint
+# existed adopt it on first sight rather than rebuilding -- see the
+# function's docstring for why, and for the one-time migration that leaves
+# behind.)
 _SIGNALS_STAMP = ".askmadden_signals_fingerprint"
 _signals_resync_lock = threading.Lock()
 
