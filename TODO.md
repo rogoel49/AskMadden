@@ -1522,6 +1522,120 @@ load. Fine at friend scale, but it's the first thing to cache when 5.6
 deploys, and it lives in src/reasoning/. And CORS/static serving belong
 in src/api/main.py for 5.6, per above.
 
+### Signals refresh on a running server (investigation + fix)
+Prompted by a manual-testing question, not a known bug: after
+re-running `src.ingest.nflverse` + `src.signals.matchup_signals` for a
+new week while the API server keeps running, does the server serve the
+new signals, or stale data from the per-league Chroma client PR #24
+warms? Investigated with real repros before assuming either answer.
+Full `pytest` suite 273/273 (266 before this unit + 7 new in
+`tests/test_api_signals_refresh.py`). One file changed under src/:
+`src/api/leagues.py`.
+
+**The suspicion was wrong, and that mattered.** `warm_chroma()`'s
+cached client is NOT a staleness source. Reproduced directly: embed a
+signal chunk in a subprocess, `warm_chroma()` the path in this process
+and read it, re-embed different numbers from a SECOND subprocess, read
+again from the same warm process -- the new value comes back
+immediately (11.10% -> 99.90%). `retrieve.py` opens a
+`PersistentClient` per query against a SQLite-backed store, so another
+process's writes are visible on the next read. Pinned as
+`test_warmed_chroma_client_sees_another_process_rewrite` so nobody
+re-suspects the warming.
+
+**What the three layers actually do**, each reproduced end-to-end
+through `TestClient` against the real endpoints with the league already
+ingested and the server already warm:
+- **Reports (parquet): fresh, no restart needed.**
+  `ranking.load_signals_table()` re-globs `signals_dir` on every single
+  call -- there is no cached DataFrame anywhere. Asking
+  `GET /api/reports/drop?as_of_week=<new week>` right after the refresh
+  returns the new numbers from the same running process.
+- **Reports (default week): pinned to Sleeper, and that is correct.**
+  `generate_report()` infers `as_of_week` from
+  `recommend._infer_season_and_week()`, which reads the league's
+  `nfl_state.json` -- written by the *Sleeper* ingest, which a
+  signals-only refresh doesn't re-run. So the default report keeps
+  showing the old week, because the newer rows are future data relative
+  to the league's own state. That is CLAUDE.md's as-of-date rule
+  working, not a cache, so it is documented rather than "fixed":
+  inferring the current week from whatever happens to be in the signals
+  directory would be a weaker definition. Pinned as
+  `test_default_report_stays_pinned_to_the_leagues_own_state_week` so
+  changing it is a deliberate act.
+- **Chat (Chroma): genuinely broken, and a restart would NOT have
+  fixed it.** Chroma is only ever written by `embed()`, and
+  `ensure_league_data()` skipped ingest entirely whenever
+  `is_ingested()` was true -- which stays true across restarts. So for
+  an already-ingested league `embed()` never ran again and the
+  refreshed week was never embedded at all: `query_player_signal(...,
+  as_of_week=<new week>)` returned `None` forever, and
+  `get_player_signals` would keep answering from the old week's chunk.
+  The only escapes were re-running the embed by hand or
+  `POST /api/sessions {"refresh": true}` (which also re-hits Sleeper).
+  This is the reason a "just restart the server after refreshing"
+  operational note would have been actively wrong.
+
+**The fix** (`src/api/leagues.py`, ~40 lines): stamp each league's
+Chroma directory with a fingerprint of the signals files its collection
+was built from (name + size + mtime of every `signals_*.parquet`), and
+have `ensure_league_data()` re-embed that league when the fingerprint
+no longer matches. Local only -- it re-runs `embed()` against the
+already-ingested `raw_dir`, never Sleeper. Serialized on a lock and
+called from `ensure_league_data()`, which every league-scoped request
+already passes through before touching Chroma, so a request arriving
+mid-resync waits rather than reading a half-rebuilt collection.
+Fingerprint-gated, so a warm server does not re-embed per request:
+`test_resync_runs_once_per_refresh_not_once_per_request` asserts three
+requests with no change cause zero re-embeds and three requests after
+one refresh cause exactly one.
+
+**One deliberate trade, found by breaking two existing tests.** A league
+with no stamp at all -- i.e. every league already on disk before this
+landed -- adopts the current fingerprint WITHOUT re-embedding, rather
+than treating "unknown" as "stale". Treating it as stale would make the
+first request after upgrading silently re-embed every existing league,
+and it turned a partially-written `raw_dir` into a *failed* request
+where today it is merely incomplete: `is_ingested()` only checks that
+`league.json` exists, so a raw_dir missing `teams.json` passes it and
+then blows up inside `build_chunks()` (exactly what
+`test_ensure_league_data_does_not_re_ingest_when_data_exists` caught).
+The cost is that a league whose signals were refreshed BEFORE this code
+landed stays stale until the next refresh -- a one-time migration,
+fixed by one `POST /api/sessions {"refresh": true}` (or
+`python -m src.rag.embed`), documented here and in README rather than
+left to be discovered. Pinned by
+`test_a_league_with_no_stamp_adopts_it_instead_of_rebuilding`.
+- [x] Reproduce the scenario end-to-end (already-ingested league, warm
+      server, out-of-band refresh, no restart)
+- [x] Locate the staleness precisely (nothing re-ran `embed()`; not the
+      warmed client, not a cached DataFrame)
+- [x] Close it cheaply (fingerprint + resync-on-demand), no scheduler
+- [x] Regression tests, verified load-bearing: with the fix reverted,
+      `test_chat_signals_are_reembedded_after_a_refresh` fails and the
+      three tests documenting already-correct behaviour still pass
+- Explicitly NOT built here: `src/scheduler/refresh.py`. Automating
+  *when* the refresh runs is still the separate, already-tracked Phase
+  3.5 gap; this unit only makes a manual refresh land correctly.
+
+**Operational note (how Rohan refreshes signals from now on).** With
+the server running, in another terminal:
+```
+python -m src.ingest.nflverse --season 2025
+python -m src.signals.matchup_signals --season 2025 --as-of-week N
+python -m src.ingest.sleeper          # only needed to move onto week N
+```
+No server restart. The first request after that is slower (it re-embeds
+that league). The third command is what advances `nfl_state.json` so
+the default reports actually move to week N; without it the reports
+stay on the previous week by design, and only an explicit
+`?as_of_week=N` shows the new numbers. Also in README.md.
+
+One-time only, for leagues that were already on disk before this change:
+do a single `POST /api/sessions` with `{"refresh": true}` for each (or
+re-run `python -m src.rag.embed`) so their Chroma collection starts from
+a known-good fingerprint. Every refresh after that is automatic.
+
 ### 5.4 — PWA installability
 - [ ] manifest.json (icons, theme-color, display: standalone)
 - [ ] Minimal service worker (cache-first static assets is enough)

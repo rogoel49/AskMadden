@@ -28,7 +28,10 @@ was flagged, not done, in Phase 5.1.)
 
 ensure_league_data() runs the existing ingest + embed for a league the
 first time it's needed (network: Sleeper + nflverse's player list),
-then just verifies it via Phase 5.1's load_league(). Sleeper is blocked
+then just verifies it via Phase 5.1's load_league(). It also re-embeds
+that league when the shared signals table has changed on disk since the
+league's Chroma collection was last built -- see the signals-resync note
+below for why that is needed and what it does NOT fix. Sleeper is blocked
 in the sandbox this was built in, so the ingest path here is exercised
 in tests only with the ingest/embed functions mocked -- see TODO.md's
 Phase 5.2 entry for the live re-run.
@@ -85,6 +88,127 @@ def warm_chroma(persist_dir: Path) -> None:
         _chroma_warmed.add(key)
 
 
+# ---- Signals resync (investigated and added after a manual-refresh report) ----
+# The signals table (data/processed/signals/*.parquet) is shared by every
+# league and is refreshed OUT OF BAND, by re-running `python -m
+# src.ingest.nflverse` + `python -m src.signals.matchup_signals` while the
+# API server keeps running. Two different layers read it, and only one of
+# them noticed the refresh:
+#
+#   - Reports read the parquet directly (ranking.load_signals_table
+#     re-globs signals_dir on EVERY call), so a new week's file is picked
+#     up with no restart and no cache to invalidate. What can still hide it
+#     is the as-of-week bound: generate_report() infers as_of_week from
+#     Sleeper's own nfl_state.json (recommend._infer_season_and_week), and
+#     a signals-only refresh doesn't advance that file -- so the newer
+#     week's rows are correctly filtered out as "future" until the Sleeper
+#     ingest is re-run too. That is the as-of-date rule working, not a bug;
+#     it is documented in README/TODO rather than "fixed" here, because
+#     inferring the current week from the signals directory instead of the
+#     league's own state would be a different (and weaker) definition.
+#
+#   - Chat reads the SAME numbers out of Chroma (get_player_signals ->
+#     retrieve.query_player_signal), and Chroma is only ever written by
+#     embed(). ensure_league_data() used to skip ingest entirely whenever
+#     is_ingested() was true, so for an already-ingested league embed()
+#     never ran again and the refreshed weeks were never embedded at all.
+#     Restarting the server did NOT fix that -- is_ingested() is still
+#     true on the next boot -- so the stale chunks were permanent until
+#     someone re-ran the embed by hand or passed refresh=True.
+#
+# Note this is NOT the warm_chroma() client above going stale: a warmed
+# client picks up rows written to the same path by a separate process
+# immediately (verified -- see tests/test_api_signals_refresh.py). The gap
+# was purely "nothing re-ran embed", which is what _resync_signals_if_changed
+# closes, by fingerprinting the signals files the collection was built from.
+# (Leagues ingested before that fingerprint existed adopt it on first sight
+# rather than rebuilding -- see the function's docstring for why, and for
+# the one-time migration that leaves behind.)
+_SIGNALS_STAMP = ".askmadden_signals_fingerprint"
+_signals_resync_lock = threading.Lock()
+
+
+def signals_fingerprint(signals_dir: Path) -> str:
+    """Identity of the signals table as it currently sits on disk: every
+    parquet's name, size and mtime. Changes whenever matchup_signals.py
+    adds a week or rewrites one; empty string when there are no signals
+    at all (which is a valid state -- see ingest_league)."""
+    if not signals_dir.exists():
+        return ""
+    parts = []
+    for path in sorted(signals_dir.glob("signals_*.parquet")):
+        try:
+            stat = path.stat()
+        except OSError:  # file vanished mid-scan (a refresh writing right now)
+            continue
+        parts.append(f"{path.name}:{stat.st_size}:{stat.st_mtime_ns}")
+    return "|".join(parts)
+
+
+def _read_stamp(persist_dir: Path) -> str | None:
+    try:
+        return (persist_dir / _SIGNALS_STAMP).read_text()
+    except OSError:
+        return None
+
+
+def _write_stamp(persist_dir: Path, fingerprint: str) -> None:
+    try:
+        persist_dir.mkdir(parents=True, exist_ok=True)
+        (persist_dir / _SIGNALS_STAMP).write_text(fingerprint)
+    except OSError:
+        pass  # a stamp we can't persist just means we re-check next time
+
+
+def _resync_signals_if_changed(league_id: str, raw_dir: Path, persist_dir: Path, signals_dir: Path) -> bool:
+    """Re-embed league_id when signals_dir has changed since its Chroma
+    collection was built. Returns True if a re-embed actually happened.
+
+    Local only -- this re-runs embed() against the ALREADY-ingested
+    raw_dir, so it never re-hits Sleeper; it is the embed half of
+    ingest_league(), not the network half.
+
+    Serialized on _signals_resync_lock, and called from
+    ensure_league_data() -- which every league-scoped request goes through
+    before it touches Chroma -- so a request arriving mid-resync waits for
+    it rather than reading the half-rebuilt collection. (embed() clears the
+    collection before re-adding, so a reader that got past
+    ensure_league_data() before the resync started could still see a
+    partial collection for that moment; at friend-group scale, once per
+    refresh, that is a far smaller problem than serving permanently stale
+    signals, but it is the reason this is a resync-on-demand and not a
+    background job.)
+
+    A league with NO stamp at all -- one ingested before this check
+    existed -- adopts the current fingerprint WITHOUT re-embedding. The
+    alternative (treat "unknown" as "stale" and rebuild) would make the
+    first request after upgrading silently re-embed every existing
+    league, and would turn a partially-written raw_dir -- which
+    is_ingested() happily accepts, it only looks for league.json -- into
+    a failed request where today it is merely incomplete. The cost is
+    that a league whose signals were refreshed BEFORE this code landed
+    stays stale until the next refresh; that one-time migration is
+    documented in README/TODO as a single `refresh: true` session, not
+    left for someone to discover."""
+    fingerprint = signals_fingerprint(signals_dir)
+    stamp = _read_stamp(persist_dir)
+    if stamp == fingerprint:
+        return False
+    if stamp is None:
+        _write_stamp(persist_dir, fingerprint)
+        return False
+    with _signals_resync_lock:
+        if _read_stamp(persist_dir) == fingerprint:  # another thread just did it
+            return False
+        embed.embed(
+            persist_dir=persist_dir,
+            raw_dir=raw_dir,
+            signals_dir=signals_dir if signals_dir.exists() else None,
+        )
+        _write_stamp(persist_dir, fingerprint)
+        return True
+
+
 def league_dirs(league_id: str) -> tuple[Path, Path]:
     """(raw_dir, persist_dir) for league_id -- the flat CLI dirs for the
     developer's own SLEEPER_LEAGUE_ID league, a per-league directory for
@@ -114,10 +238,24 @@ def ingest_league(league_id: str, week: int | None = None) -> tuple[Path, Path]:
 def ensure_league_data(league_id: str, refresh: bool = False) -> LeagueConfig:
     """The verified LeagueConfig for league_id, ingesting it first if it
     isn't on disk yet (or if refresh=True). Raises LeagueMismatchError
-    via load_league() if the directory somehow holds a different league."""
+    via load_league() if the directory somehow holds a different league.
+
+    For a league that IS already ingested, re-embeds it when the shared
+    signals table has changed on disk since its collection was built, so
+    an out-of-band `matchup_signals` refresh reaches the chat path without
+    a restart (which would not have helped anyway) -- see the
+    signals-resync note above. SIGNALS_DIR is read through the module
+    global at call time, not bound as a default, so tests and any future
+    per-deployment override can point it elsewhere."""
+    raw_dir, persist_dir = league_dirs(league_id)
+    signals_dir = SIGNALS_DIR
     if refresh or not is_ingested(league_id):
         ingest_league(league_id)
-    raw_dir, persist_dir = league_dirs(league_id)
+        # Stamp here rather than inside ingest_league() so a fresh ingest
+        # is never immediately followed by a redundant re-embed.
+        _write_stamp(persist_dir, signals_fingerprint(signals_dir))
+    else:
+        _resync_signals_if_changed(league_id, raw_dir, persist_dir, signals_dir)
     config = load_league(str(league_id), raw_dir=raw_dir, persist_dir=persist_dir)
     warm_chroma(config.persist_dir)  # see the note above -- must happen before any request thread queries Chroma
     return config

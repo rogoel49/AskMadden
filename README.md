@@ -157,6 +157,38 @@ conversation). Chat responses carry `data_gaps` and per-player
 chat is capped per user per day (`ASKMADDEN_DAILY_QUERY_CAP`, default
 25); reports are free. Interactive docs at `/docs` once it's running.
 
+### Refreshing signals while the server is running
+New games get played, so the signals table needs recomputing. Run the
+two ingest/compute commands from the Setup section above for the new
+week:
+```
+python -m src.ingest.nflverse --season 2025
+python -m src.signals.matchup_signals --season 2025 --as-of-week N
+```
+You do **not** need to restart the server. Reports re-read the signals
+parquet on every request, and the server now re-embeds each league's
+Chroma collection automatically the first time it sees the signals
+table has changed, so the chat path picks the new numbers up too (the
+one request that triggers the re-embed is slower than usual).
+
+One thing the signals refresh alone does *not* change: which week the
+reports are bounded to. `as_of_week` is inferred from Sleeper's own
+`nfl_state.json`, so until you also re-run
+```
+python -m src.ingest.sleeper
+```
+the newly computed week is treated as future data and filtered out of
+the default report — which is the as-of-week rule doing its job, not a
+cache. Re-run the Sleeper ingest (or pass `?as_of_week=N` explicitly)
+to move the reports onto the new week.
+
+One-time, if a league was already ingested before this auto-re-embed
+existed: give it a single `POST /api/sessions` with `{"refresh": true}`
+(or re-run `python -m src.rag.embed`) so its collection starts from a
+known-good state. Refreshes after that are picked up on their own. See
+TODO.md's "Signals refresh on a running server" entry for the full
+investigation.
+
 ## Evals
 Pull real weekly box scores from nflverse and turn them into ground
 truth (fantasy points computed using the league's actual scoring
