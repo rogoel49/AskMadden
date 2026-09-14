@@ -183,9 +183,14 @@ chat is capped per user per day (`ASKMADDEN_DAILY_QUERY_CAP`, default
 25); reports are free. Interactive docs at `/docs` once it's running.
 
 ### Refreshing signals while the server is running
-New games get played, so the signals table needs recomputing. Run the
-two ingest/compute commands from the Setup section above for the new
-week:
+New games get played, so the signals table needs recomputing. Normally
+the Phase 5.7 scheduler does this for you on its own cadence (see
+`src/scheduler/refresh.py` above) — this section is about the times you
+do it by hand: a refresh you want *now* rather than at the next cycle,
+or a deployment running with `ASKMADDEN_REFRESH_ENABLED=0`.
+
+Run the two ingest/compute commands from the Setup section above for the
+new week:
 ```
 python -m src.ingest.nflverse --season 2025
 python -m src.signals.matchup_signals --season 2025 --as-of-week N
@@ -212,7 +217,10 @@ existed: give it a single `POST /api/sessions` with `{"refresh": true}`
 (or re-run `python -m src.rag.embed`) so its collection starts from a
 known-good state. Refreshes after that are picked up on their own. See
 TODO.md's "Signals refresh on a running server" entry for the full
-investigation.
+investigation, including how this and the scheduler's own re-embed fit
+together (they are the trigger and read halves of the same guarantee,
+and a scheduler cycle deliberately records the fingerprint so the next
+request does not rebuild what it already built).
 
 ## Evals
 Pull real weekly box scores from nflverse and turn them into ground

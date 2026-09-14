@@ -316,22 +316,35 @@ def refresh_league(
         LOGGER.warning("league %s: re-embed failed: %s", league_id, e)
         return result
 
-    _invalidate_server_cache(persist_dir)
+    _note_reembedded(persist_dir, signals_dir)
     return result
 
 
-def _invalidate_server_cache(persist_dir: Path) -> None:
-    """Point a same-process API server's Chroma client at the rewritten
-    index. Imported lazily so a cron-only run never pays for importing
-    the API layer, and never fatal: warm_chroma()'s own stamp check
-    catches the change on the next request anyway (that is the mechanism
-    an out-of-process refresh relies on)."""
+def _note_reembedded(persist_dir: Path, signals_dir: Path) -> None:
+    """Tell the API layer this league's collection was just rebuilt, on
+    both of the axes it tracks separately:
+
+    - invalidate_chroma() points a SAME-PROCESS server's cached Chroma
+      client at the rewritten index. (An out-of-process run needs
+      nothing here -- warm_chroma()'s own (mtime, size) stamp catches
+      the change on that server's next request.)
+    - record_signals_fingerprint() updates the on-disk stamp that
+      ensure_league_data() compares against to decide whether a league
+      needs re-embedding at all. Skipping it would leave the stamp
+      describing the PREVIOUS signals table, so the first request after
+      every cycle would redundantly rebuild an already-current
+      collection -- reproduced before this call existed.
+
+    Imported lazily so a cron-only run never pays for importing the API
+    layer, and never fatal: the worst case without it is the redundant
+    rebuild above, not a wrong answer."""
     try:
         from src.api import leagues
 
         leagues.invalidate_chroma(persist_dir)
+        leagues.record_signals_fingerprint(persist_dir, signals_dir)
     except Exception as e:  # pragma: no cover - defensive
-        LOGGER.debug("could not invalidate the API's Chroma cache for %s: %s", persist_dir, e)
+        LOGGER.debug("could not tell the API layer about the re-embed of %s: %s", persist_dir, e)
 
 
 def _league_targets(league_ids: list[str] | None) -> list[tuple[str, Path, Path]]:

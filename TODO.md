@@ -1531,9 +1531,12 @@ re-running `src.ingest.nflverse` + `src.signals.matchup_signals` for a
 new week while the API server keeps running, does the server serve the
 new signals, or stale data from the per-league Chroma client PR #24
 warms? Investigated with real repros before assuming either answer.
-Full `pytest` suite 274/274 (266 before this unit + 8 new in
+Full `pytest` suite 274/274 at the time (266 before this unit + 8 new in
 `tests/test_api_signals_refresh.py`). One file changed under src/:
-`src/api/leagues.py`.
+`src/api/leagues.py`. **Superseded in part by the merge write-up at the
+end of this section** -- PR #28 landed first, so the "separate defect,
+not fixed here" notes below are now historical: both halves live in
+`src/api/leagues.py` today.
 
 **The suspicion was half right, and which half matters.** chromadb has
 two read paths and they behave differently under `warm_chroma()`; the
@@ -1655,6 +1658,89 @@ One-time only, for leagues that were already on disk before this change:
 do a single `POST /api/sessions` with `{"refresh": true}` for each (or
 re-run `python -m src.rag.embed`) so their Chroma collection starts from
 a known-good fingerprint. Every refresh after that is automatic.
+
+#### Merging this with Phase 5.7 (PR #28) — what it actually required
+
+PR #28 merged first (`bde259f`), so this branch was brought up to date
+and the overlap in `src/api/leagues.py` resolved deliberately rather
+than mechanically. **This closes the loop: trigger-side and read-side
+freshness are both handled now**, and neither is redundant with the
+other.
+
+The two fixes are complementary halves of one guarantee:
+
+| | what it fixes | without it |
+|---|---|---|
+| **#28 — read side** (`warm_chroma()`'s `(mtime, size)` stamp) | once `embed()` has re-run **by any means**, a warm server notices | an out-of-process re-embed is invisible; `collection.query()` returns removed ids with `documents`/`metadatas` of `None` → `AttributeError` → HTTP 500 on `/api/chat` |
+| **#27 — trigger side** (`_resync_signals_if_changed()`'s fingerprint) | `embed()` re-runs **at all** for an already-ingested league | `is_ingested()` stays true forever, so a manual/fast/`ASKMADDEN_REFRESH_ENABLED=0` refresh is never embedded — and a restart doesn't help |
+
+Git auto-merged the file cleanly (the two changes sit in different
+regions), but a clean textual merge was not a correct one. Three things
+needed doing by hand:
+
+1. **A real defect in the combination, reproduced before fixing.**
+   `refresh_league()` re-embeds each league every cycle but never wrote
+   this unit's fingerprint stamp, so the stamp kept describing the
+   *previous* signals table and the first request after **every**
+   scheduler cycle hit a mismatch and rebuilt an already-current
+   collection. Measured: the cycle embedded once, the next request
+   embedded again — a full rebuild charged to whichever user's request
+   landed first. Fixed with a new public
+   `leagues.record_signals_fingerprint()`, called from refresh.py's
+   `_note_reembedded()` (renamed from `_invalidate_server_cache`, which
+   now does both post-embed jobs). Kept separate from
+   `invalidate_chroma()` on purpose: that one is about this process's
+   in-memory client (a no-op in a cron run), this one about durable
+   on-disk state every future process reads.
+2. **The limitation test became a regression test.**
+   `test_warmed_client_semantic_queries_go_stale_after_another_process_rewrite`
+   carried a docstring saying to delete it once #28 landed. Inverted
+   instead of deleted, as
+   `..._semantic_queries_are_fresh_after_another_process_rewrite`: a
+   test proving the freshness we now depend on is worth more than the
+   absence of a test documenting a limitation we no longer have. It
+   still pins the *boundary* — querying without going through
+   `warm_chroma()` is still stale, because chromadb's per-process vector
+   index has no way to know — which is what keeps it visible *why* #28's
+   fix sits in `warm_chroma()` specifically.
+3. **The prose that said #28 was unlanded.** `leagues.py`'s resync note
+   and the test module docstring both described the semantic staleness
+   as "a real, separate defect, not fixed here, PR #28 is the fix".
+   True when written, misleading now; rewritten as the read/trigger
+   split above.
+
+**Tests for the combination**, which neither PR had (each only tested
+its own half):
+- `test_a_refresh_reaches_semantic_search_on_a_warm_server` — refresh on
+  disk → one ordinary request → the resync fires and semantic search
+  serves the new chunks.
+- `test_an_out_of_process_cycle_reaches_semantic_search_without_a_restart`
+  — the Phase 5.6 cron shape, and **the only test where both halves are
+  strictly required**. An in-process `embed()` goes through the same
+  cached System, so that process's vector index is correct for free;
+  that convenient property disappears once the scheduler is its own
+  process. Verified by neutering each half in turn: without #28's stamp
+  it fails with *"a warm server never saw the out-of-process re-embed"*,
+  without the fingerprint recording it fails with *"re-embedded work the
+  out-of-process cycle had already done"*.
+- `test_a_scheduler_cycle_does_not_leave_a_redundant_re_embed_behind` —
+  pins finding 1 above.
+
+**Validation.** Full suite **319 passed** with both fixes present
+together (308 on `main` after #28 + 11 in
+`tests/test_api_signals_refresh.py`). PR #24's concurrency guard
+explicitly re-run and still green (`test_api_concurrency.py`, 2 passed)
+— three fixes now share this file's neighbourhood. Every new and
+converted test checked load-bearing by neutering the fix it guards, not
+assumed.
+
+- [x] Merge `main` (post-#28) into this branch, resolve `leagues.py` so
+      both mechanisms coexist
+- [x] Reproduce and fix the redundant per-cycle re-embed the merge
+      created
+- [x] Convert (not delete) the known-limitation test
+- [x] Test the combination end-to-end, in-process and out-of-process
+- [x] Full suite + PR #24's concurrency guard green together
 
 ### 5.4 — PWA installability
 - [ ] manifest.json (icons, theme-color, display: standalone)

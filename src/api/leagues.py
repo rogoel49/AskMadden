@@ -205,27 +205,37 @@ def invalidate_chroma(persist_dir: Path) -> None:
 #     true on the next boot -- so the stale chunks were permanent until
 #     someone re-ran the embed by hand or passed refresh=True.
 #
-# This gap is NOT warm_chroma()'s cached client going stale, though the two
-# are easy to confuse and chromadb's two read paths behave differently
-# (both verified in tests/test_api_signals_refresh.py):
+# This is the TRIGGER half of freshness, and it is not the same thing as
+# warm_chroma()'s stamp check above -- the two are complementary, and
+# conflating them is what made the original investigation look wrong in
+# both directions. chromadb has two read paths and they behave differently
+# in a warmed process (both pinned in tests/test_api_signals_refresh.py):
 #   - collection.get() -- metadata lookups, which is what
 #     query_player_signal()/get_player_signals use -- reads SQLite directly
 #     and DOES see another process's rewrite on the next call.
 #   - collection.query() -- semantic search, which is what retrieve.query()/
 #     search_league_info use -- answers from a per-process in-memory vector
-#     index that a warmed process does NOT refresh after an out-of-process
-#     re-embed. It returns removed ids with documents/metadatas of None,
-#     which callers doing r["metadata"].get(...) turn into an AttributeError.
-#     That is a real, separate defect; it is NOT introduced or fixed here
-#     (the resync below re-embeds IN-process, which leaves that process's
-#     own index correct -- verified), and PR #28's mtime/size stamp on
-#     warm_chroma() is the fix for the out-of-process case.
-# The gap this closes is purely "nothing re-ran embed", which
-# _resync_signals_if_changed handles by fingerprinting the signals files the
-# collection was built from. (Leagues ingested before that fingerprint
-# existed adopt it on first sight rather than rebuilding -- see the
-# function's docstring for why, and for the one-time migration that leaves
-# behind.)
+#     index. Left alone it returns removed ids with documents/metadatas of
+#     None, which callers doing r["metadata"].get(...) turn into an
+#     AttributeError. That is what warm_chroma()'s (mtime, size) stamp
+#     fixes, per request.
+# So: warm_chroma() is the READ side -- once embed() has re-run by ANY
+# means, a warm server notices. _resync_signals_if_changed() is the
+# TRIGGER side -- it is what makes embed() re-run at all for an
+# already-ingested league when no scheduler cycle happens to be forcing
+# it (a manual refresh, a fast one between cycles, or ASKMADDEN_REFRESH_
+# ENABLED=0). Neither substitutes for the other: without the read side a
+# re-embed is invisible to a warm process, and without the trigger side
+# there is no re-embed to notice.
+#
+# The gap this half closes is purely "nothing re-ran embed", handled by
+# fingerprinting the signals files the collection was built from.
+# (Leagues ingested before that fingerprint existed adopt it on first
+# sight rather than rebuilding -- see the function's docstring for why,
+# and for the one-time migration that leaves behind. Anything else that
+# re-embeds a league -- src/scheduler/refresh.py -- must record the
+# fingerprint too, via record_signals_fingerprint(), or the next request
+# would rebuild a collection that is already current.)
 _SIGNALS_STAMP = ".askmadden_signals_fingerprint"
 _signals_resync_lock = threading.Lock()
 
@@ -260,6 +270,28 @@ def _write_stamp(persist_dir: Path, fingerprint: str) -> None:
         (persist_dir / _SIGNALS_STAMP).write_text(fingerprint)
     except OSError:
         pass  # a stamp we can't persist just means we re-check next time
+
+
+def record_signals_fingerprint(persist_dir: Path, signals_dir: Path | None = None) -> None:
+    """Record that persist_dir's collection was just rebuilt from the
+    signals table as it currently stands.
+
+    For embedders OUTSIDE this module -- today that means
+    src/scheduler/refresh.py, whose every cycle re-embeds each league
+    itself. Without this, that cycle leaves the fingerprint stamp
+    describing the PREVIOUS signals table, so the next request through
+    ensure_league_data() sees a mismatch and re-embeds a collection that
+    is already current: a full rebuild per cycle, paid for by whichever
+    user's request happens to arrive first. Reproduced before it was
+    fixed; pinned by
+    test_a_scheduler_cycle_does_not_leave_a_redundant_re_embed_behind.
+
+    Deliberately separate from invalidate_chroma() rather than folded
+    into it: that one is about THIS process's in-memory client (a no-op
+    in a cron run), this one is about durable on-disk state every future
+    process reads. A caller that re-embeds wants both, and refresh.py
+    calls both."""
+    _write_stamp(persist_dir, signals_fingerprint(SIGNALS_DIR if signals_dir is None else signals_dir))
 
 
 def _resync_signals_if_changed(league_id: str, raw_dir: Path, persist_dir: Path, signals_dir: Path) -> bool:
