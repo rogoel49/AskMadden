@@ -64,7 +64,7 @@ ask-madden/
 │   ├── reasoning/
 │   │   └── recommend.py         # retrieval + signals + per-league roster/scoring → recommendation + explanation
 │   ├── scheduler/
-│   │   └── refresh.py           # runs ingest → signals → embed on a schedule (shared across all leagues); realtime.py on a tighter cadence
+│   │   └── refresh.py           # runs ingest → signals → embed on a schedule (shared across all leagues) — built in Phase 5.7; realtime.py's tighter cadence deliberately NOT wired (nothing downstream reads it yet — see 5.7)
 │   ├── api/
 │   │   ├── main.py              # FastAPI (or similar) app: register league, ask question, get recommendation
 │   │   ├── auth.py              # minimal — league ID + display name is enough for v1, no password/OAuth needed
@@ -536,6 +536,69 @@ construction.
 - [ ] README: "started as one league, generalized to a product," with
       real eval numbers from run_decision_eval.py
 
+#### 5.7 — Automated data refresh (the scheduler)
+Implemented. `src/scheduler/refresh.py` is the component this document's
+repo structure has listed since Phase 1 and that TODO.md has flagged as
+not-built since Phase 2: a cycle that computes the shared,
+league-agnostic signals table once, then refreshes every ingested
+league's Sleeper data and re-embeds its RAG corpus. Numbered 5.7 because
+5.4 (PWA installability) already exists as its own item; done before
+5.6 because a deployed server nobody is re-running ingest on is exactly
+what makes it necessary.
+
+Two things worth recording here rather than only in TODO.md:
+
+**nflverse — not Sleeper — is the authority for the as-of week.** The
+target week is the last fully-completed week plus one, with completeness
+read off nflverse's own `result` column (null until a game is final).
+Sleeper's `display_week` advances on its own clock, so trusting it would
+let a cycle compute week N while part of week N-1 was still being
+played — a direct violation of this project's as-of-date rule. The
+resolver also walks up from week 1 rather than taking `max(completed) +
+1`, so a week still in play can never be jumped over, and it has an
+explicit grace clause so one postponed game can't pin the target week
+for the rest of the season.
+
+**The refresh exposed a real defect in the API layer, not just a
+staleness annoyance.** chromadb answers `collection.query()` from a
+per-process in-memory vector index, and Phase 5.3's `warm_chroma()`
+guarantees every league's path is warmed at session time. After a
+re-embed, a long-running server therefore never saw chunks the refresh
+added and got the ids of chunks it removed back with `None` documents
+and metadata — which makes `_tool_search_league_info` raise and the
+whole `/api/chat` request return HTTP 500. Reproduced and fixed against
+a real running server (`warm_chroma()` now re-checks the index's on-disk
+stamp per request and rebuilds that one path's client when it changed).
+The structured paths — parquet signal tables, raw Sleeper JSON, and
+Chroma's metadata-filtered `get()` — were already fresh, confirmed live.
+
+- [x] `src/scheduler/refresh.py`: shared signals once per cycle, then
+      per-league Sleeper pull + re-embed, reusing the existing
+      ingest/signals/embed functions
+- [x] Cadence derived from nflverse's measured build schedule (pbp at
+      most twice a day, NGS once a day) rather than guessed: 6 hours,
+      configurable via `ASKMADDEN_REFRESH_INTERVAL_SECONDS`
+- [x] Wired into `web/dev_server.py` as a daemon thread, with `python -m
+      src.scheduler.refresh --once` as the entry point 5.6 should use
+      from a cron job / worker / scheduled function instead (documented
+      in both modules — the in-process thread is wrong for a host that
+      runs multiple replicas or sleeps idle ones)
+- [x] API freshness fix in `src/api/leagues.py` (the one `src/api/`
+      change the investigation justified)
+- [x] Status visibility: `data/processed/refresh_status.json` with
+      last-run outcome, per-league detail and a consecutive-failure
+      count, plus `--status` and log lines
+- [ ] Real game-day observation on Rohan's machine — confirm a cycle
+      picks up a finished game at the right moment. The week logic is
+      verified against real completed seasons and the real in-progress
+      2026 season, but "it advanced live, at the right moment" is a
+      multi-day check no sandbox session can make.
+- [ ] Live Sleeper refresh (stubbed here, same gap 5.2 carries)
+- [ ] `src/ingest/realtime.py`'s tighter cadence — deliberately not
+      wired: nothing downstream consumes it yet (no signal, no chunk), so
+      refreshing it would write data no answer can reach. Signals-layer
+      work, not scheduling work.
+
 ## Phase 6: A crude, explicitly-labeled trade-value proxy
 **Deferred past Phase 5, not dropped**: Phase 3.8's real-model validation
 confirmed a complete, honestly-bounded product (composition + signals +
@@ -805,6 +868,17 @@ into this pattern, just not the model for anything new.
 - [ ] Cost/query caps
 - [ ] Deploy to free-tier host
 - [ ] Get real multi-league usage
+
+### Phase 5.7: Automated data refresh (the scheduler)
+- [x] `src/scheduler/refresh.py`: shared signals once, then every
+      ingested league's Sleeper pull + re-embed; as-of week taken from
+      nflverse's completed-game data, never Sleeper's display_week
+- [x] 6-hour cadence from nflverse's measured build schedule;
+      configurable, with a status file and `--status`
+- [x] Wired into web/dev_server.py; `--once` documented as 5.6's hook
+- [x] Fixed the API serving a stale (and crashing) Chroma vector index
+      after a re-embed
+- [ ] Real game-day observation; live Sleeper run; realtime.py's tier
 
 ### Phase 6: A crude, explicitly-labeled trade-value proxy
 Deferred past Phase 5, not dropped -- see Phase 6's section above for the

@@ -87,6 +87,23 @@ collection at `data/chroma/`:
 python -m src.rag.embed
 ```
 
+Or let the scheduler do all three on a cadence (Phase 5.7) — the
+signals table once, then every ingested league's Sleeper pull and
+re-embed. On a new machine, backfill the season's earlier weeks first,
+then run the loop (or just start the server, which runs it for you):
+```
+python -m src.scheduler.refresh --once --backfill   # first run
+python -m src.scheduler.refresh --once              # one cycle (what a cron job calls)
+python -m src.scheduler.refresh                     # the loop, foreground
+python -m src.scheduler.refresh --status            # did it work?
+```
+It picks the as-of week from nflverse's own completed-game data (last
+fully-completed week + 1), never from Sleeper's clock, so a cycle can
+never compute a week whose history is still being played. Cadence
+defaults to 6 hours — nflverse rebuilds play-by-play at most twice a
+day and Next Gen Stats once a day, so polling faster is wasted work —
+and is configurable via `ASKMADDEN_REFRESH_INTERVAL_SECONDS`.
+
 Every command below answers for one specific Sleeper league: pass
 `--league-id <id>`, or set `SLEEPER_LEAGUE_ID` in `.env` (the same
 variable the ingest step uses) and omit the flag. The league ID is
@@ -151,6 +168,14 @@ phone on the same WiFi can open `http://<your machine's LAN IP>:8000/`
 and add it to the Home Screen (Phase 5.4 — manifest, icons, and iOS
 head tags are in design/; see TODO.md's 5.4 entry for the exact
 real-device steps). Local network only; the public deployment is 5.6.
+
+The dev server also runs the Phase 5.7 refresh in a background thread,
+so data stays current while it's up (`ASKMADDEN_REFRESH_ENABLED=0` to
+turn that off; check on it with `python -m src.scheduler.refresh
+--status`). A real deployment should run `python -m
+src.scheduler.refresh --once` from a cron job or worker instead — an
+in-process thread is the wrong shape for a host that runs more than one
+replica or sleeps idle ones.
 
 Endpoints: `POST /api/leagues` (username → your leagues), `POST
 /api/sessions` (pick a league; its data is ingested on first use),

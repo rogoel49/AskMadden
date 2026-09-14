@@ -106,8 +106,9 @@ def query_player_signal_with_fallback(
     This does NOT fall back within the same season -- if any chunk exists
     for `season` at or before as_of_week (e.g. a signals refresh that's a
     week behind), that's used as-is and is_stale is False. That's a
-    `src/scheduler/refresh.py` cadence gap (a different, smaller problem,
-    already tracked in TODO.md), not the "no current-season data exists
+    `src/scheduler/refresh.py` cadence gap (a different, smaller problem
+    -- and since Phase 5.7 that scheduler exists and recomputes the
+    current week every cycle), not the "no current-season data exists
     yet" gap this fallback exists for -- conflating the two would blend a
     merely-slightly-outdated number with a genuinely-different-season one
     under the same "stale" label. The same-season check is bounded to

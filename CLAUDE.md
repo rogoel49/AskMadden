@@ -86,11 +86,9 @@ or monetized, it needs to genuinely work for more than one league.
   groups by position rather than a league's full Sleeper roster-slot
   structure; waiver_pickups' "rising" target share is a point-in-time
   value, not an actual week-over-week delta the project doesn't compute
-  yet). **Known gap, flagged not built:** `src/scheduler/refresh.py`
-  doesn't exist — every report and `recommend()` call is only as current
-  as the last manual ingest/signals/embed run. See TODO.md's Phase 3.5
-  section for detail; deliberately left for its own scoped session
-  (scheduling/infra, not reasoning-layer work).
+  yet). The `src/scheduler/refresh.py` gap this phase flagged — every
+  report and `recommend()` call only as current as the last manual
+  ingest/signals/embed run — is **closed by Phase 5.7**.
 - Phase 3.6 (prior-season signal fallback): implemented. Discovered
   during Phase 3.5's real-data validation, not planned ahead of time:
   every signal is trailing/current-season by construction, so a
@@ -150,7 +148,8 @@ or monetized, it needs to genuinely work for more than one league.
   `has_signals: false` (genuinely zero 2025 involvement) — strongly
   suggesting the original live symptom was a stale local Chroma index
   (missing the 2025 chunks, a `src/scheduler/refresh.py`-shaped gap,
-  deliberately not touched here) rather than a defect in the fallback
+  deliberately not touched there; built in Phase 5.7, which makes this
+  kind of stale index self-correcting) rather than a defect in the fallback
   logic itself; either way, `has_signals: false` is exactly the signal
   this fix now requires the model to act on explicitly. See TODO.md's
   Phase 3.7 section for full detail, including the live-model validation
@@ -253,6 +252,42 @@ or monetized, it needs to genuinely work for more than one league.
   (now pinned by a test), `matchup_signals.py` has no scoring concept.
   `MY_ROSTER_ID` is still env-implicit inside `src/rag/lookup.py`
   (out of 5.1's scope) — 5.2's job. See TODO.md's Phase 5.1 entry.
+- Phase 5.7 (automated refresh — `src/scheduler/refresh.py`):
+  implemented, closing the project's longest-standing gap (listed in
+  PROJECT_SPEC.md's repo structure since Phase 1, flagged not-built
+  since Phase 2). Numbered 5.7, not 5.4 — 5.4 (PWA installability) is
+  a separate item, done on its own branch. One cycle = the shared, league-agnostic
+  signals table computed **once**, then every ingested league's Sleeper
+  pull, then each league's re-embed; it reuses `sleeper.run()` /
+  `build_signals_table()` / `embed.embed()` rather than reimplementing
+  them. **nflverse, not Sleeper, is the authority for the as-of week**:
+  the target is `last fully-completed week + 1` with completeness read
+  off nflverse's `result` column, because Sleeper's `display_week`
+  advances on its own clock and would let a cycle compute week N while
+  week N-1 was still being played. Cadence is 6 hours, derived from
+  nflverse's measured build schedule (pbp at most twice a day, NGS once
+  a day — checked against the live repos, not guessed), configurable via
+  `ASKMADDEN_REFRESH_INTERVAL_SECONDS`. Wired into `web/dev_server.py`
+  as a daemon thread; Phase 5.6 must use `python -m
+  src.scheduler.refresh --once` from a cron job/worker instead (an
+  in-process thread is wrong for a host with multiple replicas or one
+  that sleeps idle processes) — documented in both modules. The
+  investigation also found and fixed a **real API bug, not just
+  staleness**: chromadb answers `collection.query()` from a per-process
+  in-memory vector index, so after a re-embed a warmed server returned
+  phantom hits with `None` documents/metadata and `/api/chat` 500'd on
+  `search_league_info` — reproduced and fixed against a real running
+  server (`warm_chroma()` re-checks the index's on-disk stamp per
+  request). The structured paths (parquet signal tables, Sleeper JSON,
+  Chroma's metadata-filtered `get()`) were already fresh — confirmed
+  live, not assumed. Status visibility is
+  `data/processed/refresh_status.json` + `--status`. **Flagged not
+  done:** a real game-day observation on Rohan's machine (the week logic
+  is verified against real completed seasons and the real in-progress
+  2026 season, but "it advanced live at the right moment" is a multi-day
+  check), the live Sleeper call (still blocked in this sandbox), and
+  `src/ingest/realtime.py`'s tighter cadence (deliberately skipped —
+  nothing downstream consumes it yet). See TODO.md's 5.7 entry.
 - Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
   Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
   confirmed a complete, honestly-bounded product (composition + signals +
