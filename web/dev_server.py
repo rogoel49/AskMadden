@@ -15,6 +15,17 @@ src/api/main.py itself; until then this is the way to run the UI.
 
 Starlette does not propagate a mounted app's lifespan, so the API's
 once-per-process .env load is triggered here explicitly.
+
+Phase 5.7 also starts src/scheduler/refresh.py's background refresh from
+this lifespan, so a server left running keeps its signals/roster data and
+RAG index current instead of serving whatever the last manual ingest
+wrote. It is a daemon thread in this one process: fine for local dev and
+for a single long-running uvicorn, NOT the answer for Phase 5.6's
+hosting, where more than one web replica would each run their own cycle
+and a sleeping replica would run none. 5.6 should call `python -m
+src.scheduler.refresh --once` from a cron job, a separate worker, or a
+scheduled cloud function instead, and turn this one off with
+ASKMADDEN_REFRESH_ENABLED=0. See refresh.py's module docstring.
 """
 from __future__ import annotations
 
@@ -27,6 +38,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.api.main import app as api_app
 from src.reasoning import recommend
+from src.scheduler import refresh
 
 DESIGN_DIR = Path(__file__).resolve().parents[1] / "design"
 UI_PATH = "/ui/askmadden-ui-mockup.html"
@@ -34,8 +46,14 @@ UI_PATH = "/ui/askmadden-ui-mockup.html"
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    recommend.load_dotenv_once()
-    yield
+    recommend.load_dotenv_once()  # before refresh reads its own env vars
+    started = refresh.start_background_refresh()
+    try:
+        yield
+    finally:
+        if started is not None:
+            _thread, stop = started
+            stop.set()  # let the loop end between cycles rather than mid-write
 
 
 def build_app() -> FastAPI:

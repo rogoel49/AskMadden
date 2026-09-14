@@ -14,3 +14,15 @@ data/chroma/
 
 # Phase 5.2 API: per-user/session state (SQLite) -- local, rebuildable
 data/*.sqlite3
+
+# Phase 5.7: the refresh scheduler's last-run record -- machine-local runtime
+# state, rewritten every cycle
+data/processed/refresh_status.json
+
+# Phase 5.7: signals tables are now regenerated on a cadence, so a running
+# server would otherwise leave a growing pile of untracked parquet in every
+# `git status`. The two reference tables the tests and the prior-season
+# fallback rely on (signals_2024_week5, signals_2025_week19) were committed
+# before this rule and stay tracked -- an ignore rule does not untrack a
+# tracked file. To commit a new reference table on purpose, `git add -f` it.
+data/processed/signals/*.parquet
