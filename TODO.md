@@ -350,23 +350,23 @@ confirm against the actual league, not the stand-in.
       trigger an actual clarifying question (e.g. "who should I start
       at flex" without naming anyone), to confirm the real model's own
       conversational behavior, not just the plumbing.
-- [ ] **Known gap, flagged not built:** `src/scheduler/refresh.py` doesn't
-      exist yet -- `src/scheduler/` is an empty `__init__.py` only. Every
-      report from `generate_report()` and every `recommend()` call is
-      only as current as whenever someone last manually ran
-      `matchup_signals.py` + `embed.py` by hand (and `sleeper.py` for the
-      roster side). This is fine for this session's real-data validation
-      (a fixed, already-computed week-5 signals table is exactly what's
-      being validated against) but is a real gap before any of this is
-      useful against a live, in-progress season -- signals would go
-      stale the moment a week passes without someone remembering to
-      re-run the pipeline. Deliberately NOT attempted this session:
-      building a scheduler is an infra/scheduling problem, a different
-      kind of work from this session's reasoning-layer scope, and
-      deserves its own scoped session (deciding a cadence, an
-      idempotent/incremental refresh strategy for `embed.py`'s current
-      full-rebuild-on-every-run design, and where it runs in Phase 5's
-      hosted deployment) rather than being bolted onto this one.
+- [x] **Known gap, flagged not built -- now CLOSED by Phase 5.7, see its
+      entry below.** At the time: `src/scheduler/refresh.py` didn't exist
+      (`src/scheduler/` was an empty `__init__.py`), so every report and
+      every `recommend()` call was only as current as whenever someone
+      last ran `matchup_signals.py` + `embed.py` + `sleeper.py` by hand.
+      Fine for this session's real-data validation (a fixed,
+      already-computed week-5 signals table was exactly what was being
+      validated against), a real gap against a live season. Deliberately
+      deferred to its own scoped session -- deciding a cadence, an
+      idempotent refresh strategy for `embed.py`'s full-rebuild design,
+      and where it runs in Phase 5's hosted deployment -- which is what
+      Phase 5.7 did. (All three questions got answered there: 6 hours
+      from nflverse's measured build cadence; `embed.py`'s full rebuild
+      turned out to be exactly the right shape for repeated runs and
+      needed no change; a daemon thread for dev with `--once` for 5.6's
+      cron/worker. It also turned up a real bug the scheduler would
+      otherwise have triggered -- see 5.7's investigation notes.)
 
 ## Phase 3.6: Prior-season signal fallback
 See `PROJECT_SPEC.md`'s Phase 3.6 section for the full writeup. Not
@@ -454,7 +454,8 @@ player with neither current- nor prior-season data anywhere degrades to
       data also exists.
 - [ ] Not touched, deliberately (explicitly out of scope for this unit):
       trade suggestions (still Phase 3.5's own deferred item), the
-      `src/scheduler/refresh.py` gap below (still not built), and
+      `src/scheduler/refresh.py` gap below (not built at the time;
+      built in Phase 5.7), and
       `report.py`'s existing signal-weight constants (`_EPA_TREND_WEIGHT`
       etc. -- unchanged).
 - [x] Live validation gap -- **closed**: this sandbox still has no
@@ -490,7 +491,9 @@ pbp involvement and correctly gets `has_signals: false`. This strongly
 suggests Rohan's original live symptom (both players getting generic,
 uncited reasoning) was a stale local Chroma index at the time he ran it
 (missing the 2025 chunks -- a `src/scheduler/refresh.py`-shaped gap,
-deliberately not touched in this unit) rather than a defect in the
+deliberately not touched in this unit; built in Phase 5.7, which also
+makes exactly this kind of stale index self-correcting) rather than a
+defect in the
 fallback logic itself. Either way, `has_signals: false` is exactly the
 structured signal this fix now requires the model to act on explicitly
 instead of silently reasoning from its own background knowledge --
@@ -1557,6 +1560,266 @@ it shares the app's design tokens by construction.
 - [ ] Get 2-3 friends in different leagues to actually use it
 - [ ] README: document the "started as one league, generalized to a
       product" story, with real eval numbers from run_decision_eval.py
+
+### 5.7 — Automated data refresh (`src/scheduler/refresh.py`)
+**Closes the longest-standing gap in the project.** `src/scheduler/
+refresh.py` has been in `PROJECT_SPEC.md`'s repo structure since Phase 1
+and flagged as not-built since Phase 2 (see Phase 3.5's entry above, and
+`retrieve.py`'s own "a `src/scheduler/refresh.py` cadence gap" note):
+until now every report and every `recommend()` answer was only as current
+as whenever someone last ran `matchup_signals.py` + `embed.py` +
+`sleeper.py` by hand. Numbered 5.7 rather than 5.4 because 5.4 (PWA
+installability) already exists and is unstarted; implemented out of
+numeric order because it is a real prerequisite for 5.6 (a deployed
+server nobody is babysitting), not something to do after it.
+
+#### What the Step 1 investigation actually found (measured, not assumed)
+
+- [x] **Does a running server notice updated data on disk without a
+      restart? Mostly yes -- with one real, serious exception.**
+      Reproduced directly against a real `python -m web.dev_server`
+      (fixture league on the flat dirs, real 2025 signals computed live
+      from nflverse): with the server untouched, a separate process
+      advanced `nfl_state.json` from week 3 to 4, added a player to
+      `teams.json`, wrote `signals_2025_week4.parquet` and re-embedded --
+      and `GET /api/roster` immediately showed the new player (Jaxon
+      Smith-Njigba), `GET /api/reports/drop` moved from `as_of_week` 3 to
+      4 and switched to the week-4 numbers (Nacua's red-zone share
+      4% -> 3%, opponent PHI -> IND). Nothing in `src/rag/lookup.py`,
+      `ranking.SignalTables.load()` or `_infer_season_and_week()` caches:
+      they re-read JSON/parquet per call.
+- [x] **The exception: the semantic path went stale AND crashed.**
+      chromadb answers `collection.query()` from a per-process in-memory
+      vector index, and PR #24's `warm_chroma()` guarantees every league's
+      path is warmed at session time. So after a re-embed, a warmed
+      process never surfaces a chunk the refresh ADDED and returns the
+      ids of chunks the refresh REMOVED -- with `documents`/`metadatas`
+      of `None`. `collection.get()` (the metadata path:
+      `query_player_signal`, so `get_player_signals`) reads SQLite
+      directly and stays fresh; only `collection.query()` (so
+      `retrieve.query`, so the `search_league_info` chat tool) is
+      affected. Isolated to a reader-only warm process, not just a
+      process that did its own writing.
+- [x] **And the user-visible symptom is worse than stale data: an HTTP
+      500.** `_tool_search_league_info` does
+      `r["metadata"].get("type")`, so a phantom hit whose metadata is
+      `None` raises `AttributeError` and the whole `/api/chat` request
+      fails. Demonstrated end to end on the real server with only the
+      Claude model faked (the project's established boundary): before a
+      refresh, `HTTP 200` + `'Week 3 matchup 1: ...'`; after a separate
+      process re-embedded to week 8 with no restart, `HTTP 500 Internal
+      Server Error`. With the fix in place the same sequence returns
+      `HTTP 200` + `'Week 8 matchup 1: ...'`. **This means building the
+      scheduler without fixing this would have started 500ing every chat
+      that reached for `search_league_info`** -- the fix is not optional
+      polish.
+- [x] **nflverse's real data latency** (checked against the live
+      repositories and release assets, 2026-09-13, not from memory):
+      `nflverse-pbp`'s `update_data.yaml` cron is daily at 09:00 UTC plus
+      Fri 05:30 (post-TNF), Sun 22:00 (early window), Mon 00:05 (late
+      window), Mon 05:30 (SNF) and Tue 05:30 (MNF) -- at most two builds
+      on any calendar day. `ngs-data`'s `update_ngs.yaml` is once a day
+      at 07:00 UTC. Schedules rebuild every 5 minutes. nflreadr's own
+      schedule article adds that raw pbp JSON is available ~15 min after
+      a game but `load_pbp()` is the nightly build, and that the NFL's
+      stat corrections land Monday-Wednesday, so Thursday's pull is the
+      cleanest. Corroborated against the live assets: `play_by_play_2026.parquet`
+      Last-Modified Sat 12 Sep 12:50 UTC, `ngs_receiving.parquet` Sat 12
+      Sep 11:23 UTC, both containing exactly the two games finished at
+      that point.
+- [x] **Both pipeline steps are already safe to re-run repeatedly.**
+      `sleeper.run()` rewrites each JSON file whole (`_save_json` ->
+      `write_text`), one file per week for matchups/transactions so weeks
+      accumulate rather than collide; `save_signals_table()` overwrites
+      `signals_{season}_week{N}.parquet`; `embed.embed()` deletes every
+      existing id then re-adds, by documented design. Pinned now by
+      `test_running_a_cycle_twice_changes_nothing` and
+      `test_repeated_embeds_of_the_same_data_do_not_accumulate_chunks`.
+      One real finding: the signals parquet is NOT byte-identical across
+      identical runs -- polars' `group_by`/`join` don't promise a stable
+      row order -- so idempotency is asserted on content, which is all
+      any consumer reads (everything keys by `player_id`).
+- [x] **How many leagues can be registered: no limit, and the SQLite
+      `leagues` table is the wrong list to refresh from.** It holds every
+      league Sleeper listed for everyone who has logged in, including
+      ones nobody ever opened. A league gets local data the first time a
+      session selects it (`ensure_league_data`), so the refresh
+      enumerates disk instead: new `leagues.ingested_league_ids()` returns
+      the flat `SLEEPER_LEAGUE_ID` league plus every
+      `data/raw/leagues/<id>/` that is actually ingested. Side benefit
+      that matters for 5.6: the scheduler needs no database access at all.
+
+#### What was built
+- [x] `src/scheduler/refresh.py`: one cycle = (a) the shared,
+      league-agnostic signals table computed ONCE (asserted by
+      `test_the_signals_table_is_computed_once_per_cycle_not_once_per_league`
+      -- three leagues, one nflverse pull), (b) every ingested league's
+      Sleeper pull, (c) every league's Chroma collection re-embedded,
+      then the running server's Chroma cache invalidated and a status
+      record written. Reuses `sleeper.run()` / `build_signals_table()` /
+      `save_signals_table()` / `embed.embed()` rather than
+      reimplementing any of them.
+- [x] **The as-of-date rule decides the target week, and nflverse -- not
+      Sleeper -- is the authority.** `target_as_of_week()` = last
+      fully-completed week + 1, completeness read off nflverse's
+      `result` column (null until a game is final). Sleeper's
+      `display_week` advances on its own clock and would let a cycle
+      compute week N while week N-1 was still being played. Two
+      deliberate details: it walks up from week 1 rather than taking
+      `max(completed) + 1`, so a week still in play can never be jumped
+      over (week 3 done, week 4 live, week 5 somehow scored -> target 4,
+      not 6); and a `COMPLETION_GRACE_DAYS = 7` clause stops one
+      postponed game from pinning the target week for the rest of the
+      season. Verified against real live schedules: 2024 -> 19, 2025 ->
+      19, 2026 (week 1 in progress today) -> 1.
+      The only week-N data a cycle reads is the upcoming opponent and the
+      Vegas implied total, both published before kickoff -- documented in
+      the module docstring as accepted, not hidden.
+- [x] **Cadence: every 6 hours**, derived from the latency findings above
+      rather than guessed -- pbp builds at most twice a day and NGS once,
+      so polling faster is wasted work, and six hours picks up every pbp
+      build within a few hours. Configurable via
+      `ASKMADDEN_REFRESH_INTERVAL_SECONDS` (floored at 60 so a typo can't
+      busy-loop nflverse); `ASKMADDEN_REFRESH_ENABLED=0` turns it off.
+      Both documented in `.env.example`. The target week's table is
+      recomputed every cycle rather than skipped when the file exists --
+      that is how the NFL's Monday-Wednesday stat corrections land.
+- [x] Wired into `web/dev_server.py`'s lifespan as a daemon thread that
+      runs a cycle at startup and then on the interval, stopped cleanly
+      on shutdown via a `threading.Event`. **Documented clearly, in both
+      `refresh.py` and `dev_server.py`, that this is NOT the answer for
+      5.6**: on a host that runs more than one web replica every replica
+      would run its own cycle, and a host that sleeps idle processes
+      would run none. `python -m src.scheduler.refresh --once` is the
+      entry point for whatever 5.6 picks (cron, a worker process, a
+      scheduled cloud function) -- idempotent, no database, non-zero exit
+      on failure. Deliberately no distributed lock, queue or retry
+      backoff: that is building for a hosting setup that doesn't exist yet.
+- [x] **The API freshness fix** (`src/api/leagues.py`, the one `src/api/`
+      change the investigation justified): `warm_chroma()` now records the
+      on-disk index's `(mtime, size)` stamp and re-checks it on every
+      request (it is already called per request by `ensure_league_data`),
+      forgetting chromadb's cached System for that path when it changed
+      so the next client reads the index off disk. Works for a refresh in
+      this process OR in a cron job. Three deliberate choices:
+      per-path rather than chromadb's public `clear_system_cache()`
+      (which drops every path, letting another league's request thread
+      re-create its System outside the warm-up lock -- exactly PR #24's
+      race); nothing is stopped, only forgotten, so a query already in
+      flight on the old System keeps working (verified under four
+      concurrent query threads, zero errors); and the stamp is read
+      AFTER the open, because opening a `PersistentClient` itself bumps
+      the SQLite mtime (measured) -- a pre-open stamp would make every
+      request rebuild the client.
+- [x] **Status visibility**: `data/processed/refresh_status.json`
+      (gitignored), written atomically via temp file + `os.replace`, with
+      last-run start/finish/duration, outcome (`ok` / `partial` / `error`),
+      season and as-of-week, per-table row counts, per-league
+      sleeper/embed status and error text, `next_run_after`, and a
+      `consecutive_failures` counter -- one failed cycle is a blip, six in
+      a row is an outage. `python -m src.scheduler.refresh --status`
+      prints it and exits non-zero when the last cycle wasn't `ok`.
+      Plus `logging` lines on every step.
+- [x] `--once` / `--status` / `--season` / `--as-of-week` / `--backfill` /
+      `--league-id` / `--interval-seconds` / `--status-path` CLI.
+      `--backfill` exists for first use: `ranking.load_signals_table()`
+      unions every week <= as_of_week when deciding whether a player has
+      ANY current-season data, so a fresh deployment wants the earlier
+      weeks too.
+
+#### Two real defects found in this unit's own code while validating it
+- [x] `run_cycle`/`main()` took `signals_dir=SIGNALS_DIR` as a *signature
+      default*, which binds once at import -- so reassigning the module
+      constant (tests do) silently didn't apply and the CLI path wrote
+      into the real `data/processed/signals/`. Caught by spotting a
+      fixture table (`signals_2024_week3.parquet`) in `git status` after
+      a test run. Every public function now resolves `signals_dir` /
+      `status_path` from the module constants at call time, with a real
+      `_UNSET` sentinel so an explicit `status_path=None` ("don't write a
+      status file") stays distinguishable from "argument omitted".
+- [x] A failure enumerating the leagues set `record["error"]` but left
+      `outcome` as `"ok"`, because the outcome was derived only from
+      per-league failures. It now counts as `"partial"`, so the status
+      file can't report a clean cycle alongside an error message.
+- [x] Also added a `.gitignore` rule for `data/processed/signals/*.parquet`:
+      the scheduler now regenerates these on a cadence, so a running
+      server would otherwise leave a growing pile of untracked parquet in
+      every `git status`. The two reference tables the tests and Phase
+      3.6's fallback rely on were committed before the rule and stay
+      tracked (an ignore rule doesn't untrack a tracked file); a new
+      reference table needs `git add -f`.
+
+#### Validation actually run
+- [x] **A real cycle, end to end, outcome `ok`**: real nflverse pbp/NGS/
+      schedules, real signals computation (452 rows for 2025 week 7), real
+      `sleeper.run()` writing 8 files, real re-embed of 3078 chunks, 64
+      seconds -- with ONLY Sleeper's HTTP boundary stubbed from the
+      fixture on disk, because Sleeper is blocked in this sandbox.
+- [x] **Real signal files updated for real**: `signals_2025_week{3,4,5,6,7}`
+      and `signals_2026_week1` all computed live from nflverse during this
+      session (the week 3/4 pair is what the server-freshness
+      reproduction used).
+- [x] **The background loop actually ticks inside the real dev server**:
+      `python -m web.dev_server` with a 75-second interval logged
+      `background refresh started: every 75s`, ran a cycle at startup and
+      again on the interval, each completing the full signals -> Sleeper
+      -> embed sequence and rewriting the status file.
+- [x] **The API-freshness fix proved the same way Step 1 reproduced the
+      bug**: the real server, no restart, `HTTP 500` before the fix and
+      `HTTP 200` with the refreshed week-8 chunk after it (see above).
+- [x] **Full suite green**: 306 passed, including 40 new tests in
+      `tests/test_refresh.py` (week resolution incl. the never-jump-a-live-week
+      and grace cases, env config, the whole cycle, shared-signals-once,
+      backfill, partial/total failure handling, idempotency, the status
+      file and exit codes, `ingested_league_ids()`, and the Chroma
+      freshness fix including a subprocess test of the real
+      `warm_chroma` + `retrieve.query` path). `tests/test_api_concurrency.py`
+      updated for `_chroma_warmed`'s new dict type.
+
+#### Flagged, not done
+- [ ] **Needs a real game day on Rohan's machine** -- the one thing no
+      sandbox session can prove: let the server run across an actual NFL
+      Sunday/Monday and confirm a cycle picks up a finished game, i.e.
+      that `target_as_of_week()` advances exactly once the last game of
+      the week goes final in nflverse and that the newly-computed table
+      really does contain that game's plays. The logic is verified against
+      real completed seasons and real in-progress 2026 data, but "it
+      advanced at the right moment, live" is a multi-day observation.
+      Check it with `python -m src.scheduler.refresh --status`; watch for
+      `consecutive_failures` climbing.
+- [ ] **The live Sleeper refresh is still stubbed**, same gap Phase 5.2
+      already carries: `sleeper.run()` runs for real here but against a
+      stubbed `_get`, because Sleeper is blocked in this sandbox. One real
+      run on Rohan's machine closes it (and is implicit in the game-day
+      observation above).
+- [ ] **First-run command to remember on a new machine**: `python -m
+      src.scheduler.refresh --once --backfill` before relying on the loop,
+      so the season's earlier weeks exist, not just the current one.
+- [ ] **A narrow, documented window in the freshness stamp**: if a
+      refresh's final commit lands inside the server's own
+      `PersistentClient` construction, the recorded stamp already covers
+      a write the new System may have opened just before, and nothing
+      re-warms until the next refresh. Milliseconds wide;
+      `invalidate_chroma()` closes it outright for an in-process refresh.
+      Closing it for an out-of-process one too would mean a generation
+      marker written by `src/rag/embed.py` itself -- a `src/rag/` change,
+      out of this unit's scope.
+- [ ] **`src/ingest/realtime.py`'s "tighter cadence" tier is not wired
+      in**, and not because the data is missing: nflverse's injury feed is
+      live again (182 rows for 2026 as of 2026-09-13, despite nflreadr's
+      docs still saying the source died after 2024). It's that nothing
+      downstream consumes `realtime.py` -- no signal in
+      `matchup_signals.py` reads it, no chunk in `embed.py` carries it --
+      so refreshing it would write data no report or answer can reach.
+      Wiring injuries into the signals table is signal-computation work,
+      not scheduling work, and belongs with Phase 2's remaining gaps.
+- [ ] **A 0-row signals table is written before a season's first game**
+      (real today: `signals_2026_week1.parquet`, 0 rows). Verified
+      harmless -- `load_signals_table` returns `{}`, Phase 3.6's
+      prior-season fallback takes over with the real 2025 numbers, and
+      `load_signal_chunks` builds nothing -- and honest (it records that
+      we looked and there was nothing), so it is left as is rather than
+      special-cased.
 
 ## Phase 6: A crude, explicitly-labeled trade-value proxy
 Not started. Deferred past Phase 5, not dropped: Phase 3.8's real-model
