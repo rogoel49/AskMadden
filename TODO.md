@@ -1525,6 +1525,223 @@ load. Fine at friend scale, but it's the first thing to cache when 5.6
 deploys, and it lives in src/reasoning/. And CORS/static serving belong
 in src/api/main.py for 5.6, per above.
 
+### Signals refresh on a running server (investigation + fix)
+Prompted by a manual-testing question, not a known bug: after
+re-running `src.ingest.nflverse` + `src.signals.matchup_signals` for a
+new week while the API server keeps running, does the server serve the
+new signals, or stale data from the per-league Chroma client PR #24
+warms? Investigated with real repros before assuming either answer.
+Full `pytest` suite 274/274 at the time (266 before this unit + 8 new in
+`tests/test_api_signals_refresh.py`). One file changed under src/:
+`src/api/leagues.py`. **Superseded in part by the merge write-up at the
+end of this section** -- PR #28 landed first, so the "separate defect,
+not fixed here" notes below are now historical: both halves live in
+`src/api/leagues.py` today.
+
+**The suspicion was half right, and which half matters.** chromadb has
+two read paths and they behave differently under `warm_chroma()`; the
+first draft of this entry claimed the warming was wholly innocent, which
+was wrong and is corrected here (caught by PR #28, then re-verified
+directly rather than taken on faith):
+- **`collection.get()` -- metadata lookups, i.e. `query_player_signal`
+  and so `get_player_signals`** -- reads SQLite directly and DOES see
+  another process's rewrite on the next call. Reproduced: embed in a
+  subprocess, warm + read here, re-embed different numbers from a SECOND
+  subprocess, read again -- 11.10% -> 99.90%, no restart. This is the
+  path this unit's gap lives in, and it needed no cache fix. Pinned as
+  `test_warmed_client_metadata_lookups_see_another_process_rewrite`.
+- **`collection.query()` -- semantic search, i.e. `retrieve.query` and
+  so `search_league_info`** -- answers from a per-process in-memory
+  vector index that a warmed process does NOT refresh. Reproduced: after
+  an out-of-process re-embed the warm process returns the OLD ids with
+  `documents`/`metadatas` of `None`, so a caller doing
+  `r["metadata"].get("type")` raises `AttributeError` (PR #28 measured
+  this as a real HTTP 500 on `/api/chat`). That is a genuine defect, but
+  a separate one: it is neither introduced nor fixed here, and the resync
+  below re-embeds IN-process, which leaves that process's own semantic
+  index correct (asserted in the same test). PR #28's mtime/size stamp on
+  `warm_chroma()` is the fix. Pinned as a known limitation in
+  `test_warmed_client_semantic_queries_go_stale_after_another_process_rewrite`,
+  which says in its docstring to delete it once that lands.
+
+**What the three layers actually do**, each reproduced end-to-end
+through `TestClient` against the real endpoints with the league already
+ingested and the server already warm:
+- **Reports (parquet): fresh, no restart needed.**
+  `ranking.load_signals_table()` re-globs `signals_dir` on every single
+  call -- there is no cached DataFrame anywhere. Asking
+  `GET /api/reports/drop?as_of_week=<new week>` right after the refresh
+  returns the new numbers from the same running process.
+- **Reports (default week): pinned to Sleeper, and that is correct.**
+  `generate_report()` infers `as_of_week` from
+  `recommend._infer_season_and_week()`, which reads the league's
+  `nfl_state.json` -- written by the *Sleeper* ingest, which a
+  signals-only refresh doesn't re-run. So the default report keeps
+  showing the old week, because the newer rows are future data relative
+  to the league's own state. That is CLAUDE.md's as-of-date rule
+  working, not a cache, so it is documented rather than "fixed":
+  inferring the current week from whatever happens to be in the signals
+  directory would be a weaker definition. Pinned as
+  `test_default_report_stays_pinned_to_the_leagues_own_state_week` so
+  changing it is a deliberate act.
+- **Chat (Chroma): genuinely broken for a different reason, and a
+  restart would NOT have fixed it.** (Distinct from the semantic-index
+  staleness above -- that one a restart *would* fix; this one it would
+  not.) Chroma is only ever written by `embed()`, and
+  `ensure_league_data()` skipped ingest entirely whenever
+  `is_ingested()` was true -- which stays true across restarts. So for
+  an already-ingested league `embed()` never ran again and the
+  refreshed week was never embedded at all: `query_player_signal(...,
+  as_of_week=<new week>)` returned `None` forever, and
+  `get_player_signals` would keep answering from the old week's chunk.
+  The only escapes were re-running the embed by hand or
+  `POST /api/sessions {"refresh": true}` (which also re-hits Sleeper).
+  This is the reason a "just restart the server after refreshing"
+  operational note would have been actively wrong.
+
+**The fix** (`src/api/leagues.py`, ~40 lines): stamp each league's
+Chroma directory with a fingerprint of the signals files its collection
+was built from (name + size + mtime of every `signals_*.parquet`), and
+have `ensure_league_data()` re-embed that league when the fingerprint
+no longer matches. Local only -- it re-runs `embed()` against the
+already-ingested `raw_dir`, never Sleeper. Serialized on a lock and
+called from `ensure_league_data()`, which every league-scoped request
+already passes through before touching Chroma, so a request arriving
+mid-resync waits rather than reading a half-rebuilt collection.
+Fingerprint-gated, so a warm server does not re-embed per request:
+`test_resync_runs_once_per_refresh_not_once_per_request` asserts three
+requests with no change cause zero re-embeds and three requests after
+one refresh cause exactly one.
+
+**One deliberate trade, found by breaking two existing tests.** A league
+with no stamp at all -- i.e. every league already on disk before this
+landed -- adopts the current fingerprint WITHOUT re-embedding, rather
+than treating "unknown" as "stale". Treating it as stale would make the
+first request after upgrading silently re-embed every existing league,
+and it turned a partially-written `raw_dir` into a *failed* request
+where today it is merely incomplete: `is_ingested()` only checks that
+`league.json` exists, so a raw_dir missing `teams.json` passes it and
+then blows up inside `build_chunks()` (exactly what
+`test_ensure_league_data_does_not_re_ingest_when_data_exists` caught).
+The cost is that a league whose signals were refreshed BEFORE this code
+landed stays stale until the next refresh -- a one-time migration,
+fixed by one `POST /api/sessions {"refresh": true}` (or
+`python -m src.rag.embed`), documented here and in README rather than
+left to be discovered. Pinned by
+`test_a_league_with_no_stamp_adopts_it_instead_of_rebuilding`.
+- [x] Reproduce the scenario end-to-end (already-ingested league, warm
+      server, out-of-band refresh, no restart)
+- [x] Locate the staleness precisely (nothing re-ran `embed()`; not the
+      warmed client, not a cached DataFrame)
+- [x] Close it cheaply (fingerprint + resync-on-demand), no scheduler
+- [x] Regression tests, verified load-bearing: with the fix reverted,
+      `test_chat_signals_are_reembedded_after_a_refresh` fails and the
+      three tests documenting already-correct behaviour still pass
+- Explicitly NOT built here: `src/scheduler/refresh.py`. Automating
+  *when* the refresh runs is still the separate, already-tracked Phase
+  3.5 gap; this unit only makes a manual refresh land correctly.
+
+**Operational note (how Rohan refreshes signals from now on).** With
+the server running, in another terminal:
+```
+python -m src.ingest.nflverse --season 2025
+python -m src.signals.matchup_signals --season 2025 --as-of-week N
+python -m src.ingest.sleeper          # only needed to move onto week N
+```
+No server restart. The first request after that is slower (it re-embeds
+that league). The third command is what advances `nfl_state.json` so
+the default reports actually move to week N; without it the reports
+stay on the previous week by design, and only an explicit
+`?as_of_week=N` shows the new numbers. Also in README.md.
+
+One-time only, for leagues that were already on disk before this change:
+do a single `POST /api/sessions` with `{"refresh": true}` for each (or
+re-run `python -m src.rag.embed`) so their Chroma collection starts from
+a known-good fingerprint. Every refresh after that is automatic.
+
+#### Merging this with Phase 5.7 (PR #28) — what it actually required
+
+PR #28 merged first (`bde259f`), so this branch was brought up to date
+and the overlap in `src/api/leagues.py` resolved deliberately rather
+than mechanically. **This closes the loop: trigger-side and read-side
+freshness are both handled now**, and neither is redundant with the
+other.
+
+The two fixes are complementary halves of one guarantee:
+
+| | what it fixes | without it |
+|---|---|---|
+| **#28 — read side** (`warm_chroma()`'s `(mtime, size)` stamp) | once `embed()` has re-run **by any means**, a warm server notices | an out-of-process re-embed is invisible; `collection.query()` returns removed ids with `documents`/`metadatas` of `None` → `AttributeError` → HTTP 500 on `/api/chat` |
+| **#27 — trigger side** (`_resync_signals_if_changed()`'s fingerprint) | `embed()` re-runs **at all** for an already-ingested league | `is_ingested()` stays true forever, so a manual/fast/`ASKMADDEN_REFRESH_ENABLED=0` refresh is never embedded — and a restart doesn't help |
+
+Git auto-merged the file cleanly (the two changes sit in different
+regions), but a clean textual merge was not a correct one. Three things
+needed doing by hand:
+
+1. **A real defect in the combination, reproduced before fixing.**
+   `refresh_league()` re-embeds each league every cycle but never wrote
+   this unit's fingerprint stamp, so the stamp kept describing the
+   *previous* signals table and the first request after **every**
+   scheduler cycle hit a mismatch and rebuilt an already-current
+   collection. Measured: the cycle embedded once, the next request
+   embedded again — a full rebuild charged to whichever user's request
+   landed first. Fixed with a new public
+   `leagues.record_signals_fingerprint()`, called from refresh.py's
+   `_note_reembedded()` (renamed from `_invalidate_server_cache`, which
+   now does both post-embed jobs). Kept separate from
+   `invalidate_chroma()` on purpose: that one is about this process's
+   in-memory client (a no-op in a cron run), this one about durable
+   on-disk state every future process reads.
+2. **The limitation test became a regression test.**
+   `test_warmed_client_semantic_queries_go_stale_after_another_process_rewrite`
+   carried a docstring saying to delete it once #28 landed. Inverted
+   instead of deleted, as
+   `..._semantic_queries_are_fresh_after_another_process_rewrite`: a
+   test proving the freshness we now depend on is worth more than the
+   absence of a test documenting a limitation we no longer have. It
+   still pins the *boundary* — querying without going through
+   `warm_chroma()` is still stale, because chromadb's per-process vector
+   index has no way to know — which is what keeps it visible *why* #28's
+   fix sits in `warm_chroma()` specifically.
+3. **The prose that said #28 was unlanded.** `leagues.py`'s resync note
+   and the test module docstring both described the semantic staleness
+   as "a real, separate defect, not fixed here, PR #28 is the fix".
+   True when written, misleading now; rewritten as the read/trigger
+   split above.
+
+**Tests for the combination**, which neither PR had (each only tested
+its own half):
+- `test_a_refresh_reaches_semantic_search_on_a_warm_server` — refresh on
+  disk → one ordinary request → the resync fires and semantic search
+  serves the new chunks.
+- `test_an_out_of_process_cycle_reaches_semantic_search_without_a_restart`
+  — the Phase 5.6 cron shape, and **the only test where both halves are
+  strictly required**. An in-process `embed()` goes through the same
+  cached System, so that process's vector index is correct for free;
+  that convenient property disappears once the scheduler is its own
+  process. Verified by neutering each half in turn: without #28's stamp
+  it fails with *"a warm server never saw the out-of-process re-embed"*,
+  without the fingerprint recording it fails with *"re-embedded work the
+  out-of-process cycle had already done"*.
+- `test_a_scheduler_cycle_does_not_leave_a_redundant_re_embed_behind` —
+  pins finding 1 above.
+
+**Validation.** Full suite **319 passed** with both fixes present
+together (308 on `main` after #28 + 11 in
+`tests/test_api_signals_refresh.py`). PR #24's concurrency guard
+explicitly re-run and still green (`test_api_concurrency.py`, 2 passed)
+— three fixes now share this file's neighbourhood. Every new and
+converted test checked load-bearing by neutering the fix it guards, not
+assumed.
+
+- [x] Merge `main` (post-#28) into this branch, resolve `leagues.py` so
+      both mechanisms coexist
+- [x] Reproduce and fix the redundant per-cycle re-embed the merge
+      created
+- [x] Convert (not delete) the known-limitation test
+- [x] Test the combination end-to-end, in-process and out-of-process
+- [x] Full suite + PR #24's concurrency guard green together
+
 ### 5.4 — PWA installability
 - [ ] manifest.json (icons, theme-color, display: standalone)
 - [ ] Minimal service worker (cache-first static assets is enough)
