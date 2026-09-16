@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- viewport-fit=cover: without it iOS reports every env(safe-area-inset-*) as
+     0, and the shell below relies on them to stay clear of the notch and the
+     home-indicator gesture area on a real phone. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Ask Madden — Responsive UI</title>
 <!-- Phase 5.4: PWA / "Add to Home Screen". Relative hrefs on purpose: these
      resolve next to this file wherever it is served from (/ui/ today,
@@ -16,8 +19,11 @@
      either the manifest's display member or apple-mobile-web-app-capable
      (iOS 26 opens everything added to the Home Screen as a web app). Both
      are set so every supported iOS version behaves the same. Status bar
-     "black" matches --bg without the safe-area layout work
-     "black-translucent" would need. -->
+     "black" (opaque, content starts below it) matches --bg closely enough.
+     The shell now lays out against env(safe-area-inset-*), so switching to
+     "black-translucent" is a one-line change -- deliberately left until a
+     real iPhone has confirmed the insets, since "black" cannot put content
+     under the clock and "black-translucent" can if an inset comes back 0. -->
 <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -171,25 +177,56 @@
   .paste-box{ display:none; margin-top:10px; }
   .paste-box.show{ display:block; }
 
-  /* ================= APP SHELL (responsive: phone -> desktop) ================= */
+  /* ================= APP SHELL (responsive: real phone -> desktop) ================= */
   /* Bug fix: an ID selector (#view-app) outranks .view{display:none}, so a bare
      `#view-app{display:flex}` made the app shell render on EVERY view (landing,
      login, picker). Only the .show state may display it. */
-  #view-app{ display:none; justify-content:center; padding:40px 20px; }
+  #view-app{ display:none; padding:0; }
   #view-app.show{ display:flex; }
+  /* The phone-frame illustration is gone. `.app-shell` used to be a fixed
+     390x820 bezel (rounded corners, drop shadow, a `.notch`, a fake "9:41"
+     `.statusbar`) -- a design-preview device for looking at the phone layout
+     inside a wide desktop window. But the ONLY breakpoint that stripped it was
+     the >=900px desktop one, so every real phone got the illustration too: on
+     an installed iPhone PWA (393px wide) it rendered as a small phone drawn
+     inside the phone -- 390px plus 40px of padding did not fit, so flex
+     shrank the bezel, the 820px height made the document scroll, its tab bar
+     sat below the fold, and its content could not scroll (`.main-col` had no flex-column
+     rule outside the desktop query, so `.app-content` never got a bounded
+     height to scroll within -- `.screen`'s overflow:hidden just clipped it).
+     There is no viewport left where the illustration is correct, so it is
+     retired rather than gated: below 900px the shell IS the viewport, and the
+     >=900px desktop rule further down is unchanged.
+     Detection is width, not `display-mode: standalone`, on purpose -- a phone
+     visiting the LAN URL in plain Safari had exactly the same bug, and the
+     env() insets simply resolve to 0 outside standalone mode. 100dvh, not
+     100vh: iOS Safari's collapsing toolbar changes the visible height and
+     100vh would leave the tab bar hidden behind it. */
   .app-shell{
-    position:relative; background:linear-gradient(180deg,#0b0f14,#070a0d);
-    border:1px solid #262e3a; overflow:hidden; display:flex; flex-direction:column;
-    /* mobile default: phone-frame proportions */
-    width:390px; height:820px; border-radius:46px; padding:14px;
-    box-shadow:0 0 0 8px #05070a, 0 0 0 9px #232b36, 0 40px 90px -30px rgba(0,0,0,.85);
+    position:relative; width:100%; height:100dvh; background:var(--bg);
+    overflow:hidden; display:flex; flex-direction:column;
   }
-  .notch{ position:absolute; top:14px; left:50%; transform:translateX(-50%); width:120px; height:26px; background:#05070a; border-radius:0 0 16px 16px; z-index:30; }
-  .screen{ position:relative; width:100%; height:100%; background:var(--bg); border-radius:32px; overflow:hidden; display:flex; flex-direction:column; }
-  .statusbar{ display:flex; justify-content:space-between; align-items:center; padding:16px 22px 4px; font-size:13px; font-weight:600; flex:0 0 auto; }
-  .statusbar .icons{ display:flex; gap:5px; align-items:center; opacity:.85; }
+  .screen{
+    position:relative; width:100%; height:100%; background:var(--bg); overflow:hidden;
+    display:flex; flex-direction:column;
+    padding-top:env(safe-area-inset-top, 0px);
+    padding-left:env(safe-area-inset-left, 0px); padding-right:env(safe-area-inset-right, 0px);
+  }
+  /* While the app view is open the document itself must not scroll: the shell is
+     exactly one viewport tall and `.app-content` is the only vertical scroller.
+     goView() toggles the class. Without it, body's min-height:100vh left the
+     page a toolbar's height scrollable underneath the shell on iOS Safari.
+     Scoped below the desktop breakpoint only so the >=900px layout is
+     byte-for-byte what it was (it never overflowed the document anyway). */
+  @media (max-width:899.98px){
+    html.app-open{ overflow:hidden; }
+    html.app-open body{ min-height:0; }
+  }
 
   .body-row{ flex:1 1 auto; display:flex; min-height:0; }
+  /* Base (mobile) rule for the column that holds the header + scroller. It was
+     desktop-only before, which is why the phone layout could never scroll. */
+  .main-col{ flex:1 1 auto; display:flex; flex-direction:column; min-width:0; min-height:0; }
 
   .app-header{ flex:0 0 auto; padding:10px 18px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border-soft); }
   .brand-row{ display:flex; align-items:center; gap:10px; cursor:pointer; }
@@ -201,7 +238,10 @@
   /* Static indicator (your team's initials), not a control: no cursor/hover affordance. */
   .team-avatar{ width:34px; height:34px; border-radius:50%; background:linear-gradient(145deg,#2a3340,#151b23); border:1.5px solid var(--green-line); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:var(--green); cursor:default; user-select:none; }
 
-  .app-content{ flex:1 1 auto; overflow-y:auto; padding:16px 16px 90px; min-width:0; }
+  .app-content{
+    flex:1 1 auto; min-height:0; min-width:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    overscroll-behavior-y:contain; padding:16px 16px calc(90px + env(safe-area-inset-bottom, 0px));
+  }
   .panel{ display:none; animation:rise .28s ease; }
   .panel.active{ display:block; }
   @keyframes rise{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
@@ -279,7 +319,7 @@
   .trend.up{ color:var(--green); } .trend.down{ color:var(--coral); }
 
   /* mobile tab bar (bottom) */
-  .tabbar-mobile{ position:absolute; left:14px; right:14px; bottom:14px; display:flex; justify-content:space-around; align-items:center; background:rgba(14,19,26,.88); backdrop-filter:blur(14px); border:1px solid var(--border); border-radius:20px; padding:9px 6px; z-index:20; }
+  .tabbar-mobile{ position:absolute; left:14px; right:14px; bottom:calc(14px + env(safe-area-inset-bottom, 0px)); display:flex; justify-content:space-around; align-items:center; background:rgba(14,19,26,.88); backdrop-filter:blur(14px); border:1px solid var(--border); border-radius:20px; padding:9px 6px; z-index:20; }
   .tab-btn{ display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:none; color:var(--text-faint); cursor:pointer; padding:5px 14px; border-radius:12px; }
   .tab-btn svg{ width:20px; height:20px; }
   .tab-btn span{ font-size:9.5px; font-weight:600; letter-spacing:.02em; }
@@ -290,9 +330,27 @@
   /* desktop sidebar (hidden on mobile) */
   .sidebar-desktop{ display:none; }
 
+  /* Touch devices: iOS Safari zooms the whole page when a focused input's font
+     is under 16px, and the zoom sticks after blur. 16px on coarse pointers
+     only; the desktop type scale is untouched. Chrome's device emulation never
+     auto-zooms, so this one is only confirmable on a real iPhone. */
+  @media (pointer:coarse){
+    .field-input input, .chat-input-bar input{ font-size:16px; }
+    /* Mobile browsers paint a translucent grey/blue box over any tapped element
+       with a click handler (seen under real touch emulation on the header's
+       league row, a plain div). The app's own :active/.active styling is the
+       feedback; the system flash on top of it reads as a glitch. */
+    a, button, .brand-row, .league-card, .suggest-chip, .paste-toggle, .tab-btn, .nav-item, .modal-close{ -webkit-tap-highlight-color:transparent; }
+  }
+  /* The login/picker card had no side margin below its own 420px max-width, so
+     on a phone its border ran edge to edge. */
+  @media (max-width:479.98px){
+    #view-login, #view-picker{ margin:28px 16px; }
+  }
+
   .modal-veil{ position:absolute; inset:0; background:rgba(3,5,7,.72); display:none; align-items:flex-end; z-index:40; }
   .modal-veil.show{ display:flex; }
-  .modal-sheet{ width:100%; background:var(--elevated); border:1px solid var(--border); border-radius:24px 24px 0 0; padding:22px 20px 26px; max-height:78%; overflow-y:auto; position:relative; }
+  .modal-sheet{ width:100%; background:var(--elevated); border:1px solid var(--border); border-radius:24px 24px 0 0; padding:22px 20px calc(26px + env(safe-area-inset-bottom, 0px)); max-height:78%; overflow-y:auto; position:relative; }
   .sheet-handle{ width:36px; height:4px; background:var(--border); border-radius:100px; margin:0 auto 16px; }
   .modal-sheet h3{ font-family:'Anton'; font-weight:400; font-size:18px; margin:0 0 6px; }
   .modal-sheet p{ font-size:12px; color:var(--text-dim); margin:0 0 16px; line-height:1.5; }
@@ -307,7 +365,7 @@
       width:100%; max-width:none; height:100vh; min-height:100vh; border-radius:0; padding:0;
       box-shadow:none; border:none; background:var(--bg);
     }
-    .notch, .statusbar, .tabbar-mobile{ display:none; }
+    .tabbar-mobile{ display:none; }
     .screen{ border-radius:0; flex-direction:row; }
     .body-row{ flex-direction:row; width:100%; }
 
@@ -425,15 +483,7 @@
 <!-- ================= APP (responsive) ================= -->
 <div class="view" id="view-app">
   <div class="app-shell">
-    <div class="notch"></div>
     <div class="screen">
-      <div class="statusbar">
-        <span>9:41</span>
-        <div class="icons">
-          <svg width="15" height="10" viewBox="0 0 15 10" fill="none"><rect x="0" y="6" width="2.5" height="4" rx="0.5" fill="currentColor"/><rect x="4" y="4" width="2.5" height="6" rx="0.5" fill="currentColor"/><rect x="8" y="2" width="2.5" height="8" rx="0.5" fill="currentColor"/><rect x="12" y="0" width="2.5" height="10" rx="0.5" fill="currentColor"/></svg>
-        </div>
-      </div>
-
       <div class="body-row">
 
         <!-- desktop-only sidebar -->
@@ -805,6 +855,7 @@
   function goView(name){
     document.querySelectorAll('.view').forEach(v => v.classList.remove('show'));
     document.getElementById('view-' + name).classList.add('show');
+    document.documentElement.classList.toggle('app-open', name === 'app');  // see html.app-open in the CSS
     if(name === 'app'){ renderLeagueList('modal-league-list', true); }
   }
   function setTab(tab){

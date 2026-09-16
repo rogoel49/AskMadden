@@ -214,7 +214,12 @@ or monetized, it needs to genuinely work for more than one league.
   apple-touch-icon). Lighthouse 11 PWA audit scores 100 in headless
   Chromium; `web/dev_server.py` now binds 0.0.0.0 so a phone on the
   same WiFi can reach it. The real-phone "Add to Home Screen" is the
-  one thing only Rohan can confirm. Android's install prompt needs a
+  one thing only Rohan can confirm -- and it was NOT confirmed before
+  PR #25/#27 merged; the first real-iPhone screenshot found the phone-
+  frame illustration rendering inside the phone, fixed in the "5.4
+  follow-up" entry in TODO.md (device-emulated audit: iPhone 14 Pro
+  and Pixel 7 profiles 63/63 each, desktop parity identical, real-phone
+  checklist still open). Android's install prompt needs a
   secure context, so over plain http://LAN-IP it's iOS-only until
   5.6's HTTPS. See TODO.md's Phase 5.4 entry. 5.3 (wire the mockup): the
   mockup's `<script>` and hardcoded data markup now call the seven
@@ -307,10 +312,13 @@ Always check TODO.md for the up-to-date task list within the active phase.
 ## Frontend architecture (Phase 5)
 One responsive frontend, `design/askmadden-ui-mockup.html`, with a
 landing view (`#view-landing`) as its entry point, then the
-login/league-picker flow, then a single app shell that reflows from a
-phone frame (below 900px) to a sidebar-nav desktop layout via CSS
-media queries only. There is no separate static marketing site and no
-second build target — the landing page is a view inside the same file.
+login/league-picker flow, then a single app shell that fills the real
+viewport below 900px (100dvh + safe-area insets, `.app-content` as
+the one scroller -- the old phone-frame illustration was retired after
+a real installed-iPhone screenshot showed it rendering as a phone
+inside the phone; see TODO.md's "5.4 follow-up" entry) and reflows to
+a sidebar-nav desktop layout at 900px+, via CSS media queries only.
+There is no separate static marketing site and no second build target — the landing page is a view inside the same file.
 The landing page's eval-numbers band shows labeled placeholders until
 real eval numbers exist (see TODO.md's 5.5 entry for what gates each).
 As of Phase 5.3 the file is wired to the real API and is served on the
