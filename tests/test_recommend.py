@@ -1136,3 +1136,22 @@ def test_recommend_works_when_called_directly_with_env_already_set(tmp_path, mon
 
     assert result["error"] is None
     assert result["recommendation"] == "ok"
+
+
+def test_infer_week_prefers_sleepers_week_over_the_lagging_display_week(tmp_path):
+    """Regression for the Tuesday-after-week-1 feed showing every player
+    as [STALE -- 2025]: nfl_state.json said week 2 / display_week 1, the
+    refresh had built signals_2026_week2.parquet, and the inference read
+    display_week -- so reports and chat asked for a week-1 table that
+    never exists and fell back to last season for everyone."""
+    raw_dir = tmp_path / "sleeper"
+    raw_dir.mkdir()
+    (raw_dir / "nfl_state.json").write_text(json.dumps(
+        {"data": {"season": "2026", "week": 2, "leg": 2, "display_week": 1}, "source": "sleeper"}
+    ))
+    assert recommend._infer_season_and_week(raw_dir) == (2026, 2)
+
+    # Older pulls / trimmed fixtures that only carry display_week still work.
+    (raw_dir / "nfl_state.json").write_text(json.dumps({"data": {"season": "2024", "display_week": 8}}))
+    assert recommend._infer_season_and_week(raw_dir) == (2024, 8)
+

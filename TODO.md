@@ -934,6 +934,97 @@ shown up in Phase 5.2 in production.
       `test_generate_report_loads_dotenv_itself_not_only_via_cli_main`.
       Full `pytest` suite: 148/148 (145 before this fix; 3 new tests).
 
+## Fixed: the day after real games, every feed card was [STALE -- 2025] because the as-of week read Sleeper's lagging `display_week`
+Found by Rohan on the first real-usage look after week 1 of the 2026
+season (Tuesday 2026-09-16): every start/sit card on the Feed said
+"[STALE -- no current-season signal yet, showing 2025 season-end
+reference instead]" even though week 1 had been played and the 5.7
+refresh had run overnight. First live report of the fixed phone layout
+(PR #29) too -- Rohan confirmed the phone-in-phone rendering is gone on
+his real iPhone.
+
+**What was actually wrong (measured, not inferred).**
+- The refresh was fine. `refresh_status.json` showed a clean cycle at
+  06:55 UTC: nflverse said 1 completed week, target as-of-week 2, and it
+  wrote `signals_2026_week2.parquet` (313 rows). Stafford, Goff, Pollard
+  and Gibbs were all in it with real week-1 numbers.
+- The reasoning path never asked for that table. `recommend.
+  _infer_season_and_week()` (used by both `generate_report()` and
+  `recommend()`) read Sleeper's `nfl_state.json` and took
+  `display_week` first. Sleeper's live state that morning, verbatim:
+  `week: 2, leg: 2, display_week: 1`. `display_week` is the week the
+  Sleeper *app is still showing* and lags until midweek; `week`/`leg`
+  advance once the previous week's games are over. So the report asked
+  for a 2026 week-1 table -- which correctly never exists (a week-1
+  table would have zero current-season plays) -- and every player fell
+  back to 2025.
+- Reproduced directly on the Fellowship league, roster #2: inferred week
+  (1) -> 4 of 4 starters stale, 21 players on the fallback; explicit
+  `as_of_week=2` -> 0 of 4 stale, 4 players on the fallback (rookies
+  with no week-1 snaps: Horton, Royals, Thornton Jr., Charbonnet --
+  exactly the honest labeling 3.6 was built for).
+- Same field in the Sleeper ingest: `sleeper.run()` defaulted its
+  matchup/transaction week to `display_week`, so the league pull wrote
+  `matchups_week_1.json` on Tuesday and `get_current_matchup` would
+  have named the opponent you already played.
+
+**Why the earlier "pinned to Sleeper" decision stands.** The signals-
+refresh investigation (see "Reports (default week): pinned to Sleeper"
+above, and `test_default_report_stays_pinned_to_the_leagues_own_state_
+week`) deliberately kept the league's own Sleeper state as the authority
+for the DEFAULT week rather than "whatever is newest in the signals
+directory", and that reasoning is untouched. The defect was one field
+below that decision: the wrong one of Sleeper's three week fields.
+
+**What changed.**
+- [x] `src/ingest/sleeper.py`: new `current_week(state)` -- preference
+      order `week`, `leg`, `display_week`, then 1 -- with the live
+      Tuesday payload in its docstring. `run()` uses it for the
+      matchup/transaction week.
+- [x] `src/reasoning/recommend.py`: `_infer_season_and_week()` uses the
+      same helper (one definition of "this week" for both the ingest and
+      the reasoning path). `src/scheduler/refresh.py`'s docstring names
+      the field.
+- [x] Tests (322/322, was 319): `current_week()` preference order;
+      `run()` writes `matchups_week_2.json` (not week 1) under the
+      lagging state; `_infer_season_and_week()` returns week 2 under the
+      lagging state and still honors display_week-only pulls (every
+      existing fixture carries only `display_week`, so they are
+      unchanged and still pass). The pinned-to-Sleeper test's docstring
+      says which field.
+- Validated live before Sleeper caught up: with the lagging state still
+  on disk, the inferred default report came back season 2026 / week 2,
+  0 stale starters, real week-1 numbers (Dart, J. Williams, Otton). A
+  real `python -m src.scheduler.refresh --once` then ran clean (99s, 2
+  leagues) and wrote `matchups_week_2.json`; `current_matchup(roster 2,
+  week 2)` resolves the week-2 opponent. Honest note: by the time that
+  refresh ran, Sleeper had flipped `display_week` to 2 itself, so
+  today's symptom would have self-healed within hours -- and come back
+  every Tuesday. The regression tests are what pin the fix, not that
+  run.
+
+**Flagged, not fixed here.**
+- [ ] **EPA "trend" is degenerate with one week of data and mislabeled.**
+      Every one of the 313 rows in `signals_2026_week2.parquet` has
+      `epa_trend == 0.0` (there is nothing to trend against yet), and
+      `ranking.py` renders 0.0 as "efficiency trending down (+0.00
+      EPA/play)" (`> 0` is "up", everything else "down"). Every card on
+      the Feed says it right now. Two parts: the prose should say
+      "no trend yet" (or nothing) when the trend is 0 / spans one week,
+      and `matchup_signals.py` should expose how many weeks the trend
+      covers so the ranking weight can be muted early in the season.
+      Signal-computation + prose, its own session.
+- [ ] Transient stale window: between the end of Monday night's game
+      (Sleeper flips `week`) and the next 6-hour refresh, the inferred
+      week has no table yet and everything falls back to stale, honestly
+      labeled. A refresh triggered on "inferred week has no signals
+      table" would close it. Not a correctness issue -- the loader never
+      reads a later table than requested and the refresh only builds from
+      completed weeks, so no future data can leak either way.
+- [ ] Residual assumption: Sleeper advances `week` only after a week's
+      games are over. If it ever flipped early, the as-of table for the
+      new week would simply not exist yet (stale fallback, no leak).
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper
@@ -1583,7 +1674,10 @@ ingested and the server already warm:
   inferring the current week from whatever happens to be in the signals
   directory would be a weaker definition. Pinned as
   `test_default_report_stays_pinned_to_the_leagues_own_state_week` so
-  changing it is a deliberate act.
+  changing it is a deliberate act. (Still true. But the FIELD it read
+  was wrong: Sleeper's `display_week` lags `week` until midweek, which
+  made every card stale the day after real games -- see "Fixed: the day
+  after real games, every feed card was [STALE -- 2025]" above.)
 - **Chat (Chroma): genuinely broken for a different reason, and a
   restart would NOT have fixed it.** (Distinct from the semantic-index
   staleness above -- that one a restart *would* fix; this one it would
@@ -2086,8 +2180,12 @@ the layout is right for a phone-shaped, touch-driven viewport and that
 the pre-fix file was wrong for one. It does not prove the iPhone
 experience.
 
-- [ ] **Still needs a real physical phone (Rohan, once the new machine
-      is set up).** From the Mac: `python -m web.dev_server`, then on
+- [x] **Confirmed on a real iPhone (Rohan, 2026-09-16): the phone-in-
+      phone rendering is gone** -- the first real-device pass this
+      project has had. The items below it (safe-area gaps, home-screen
+      launch, keyboard vs. chat input) are not yet individually
+      confirmed.
+- [ ] **Still needs a real physical phone for the rest of the list.** From the Mac: `python -m web.dev_server`, then on
       the iPhone (same WiFi) open `http://<Mac's LAN IP>:8000/` in
       Safari. Check in the browser first: log in, pick a league -- the
       app should fill the screen edge to edge with no bezel, the feed

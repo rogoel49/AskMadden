@@ -293,6 +293,15 @@ or monetized, it needs to genuinely work for more than one league.
   check), the live Sleeper call (still blocked in this sandbox), and
   `src/ingest/realtime.py`'s tighter cadence (deliberately skipped —
   nothing downstream consumes it yet). See TODO.md's 5.7 entry.
+  **Follow-up fix (2026-09-16, first real in-season use):** the
+  reasoning path and the Sleeper ingest read Sleeper's `display_week`,
+  which lags `week` until midweek, so the day after real games every
+  card fell back to last season while the refresh's week-N+1 table sat
+  on disk. Both now read `sleeper.current_week()` (`week` > `leg` >
+  `display_week`). The "default week is pinned to Sleeper's state"
+  decision is unchanged. See TODO.md's "Fixed: the day after real
+  games..." entry, including the degenerate one-week EPA trend it
+  flagged.
 - Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
   Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
   confirmed a complete, honestly-bounded product (composition + signals +

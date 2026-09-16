@@ -67,6 +67,39 @@ def test_run_writes_expected_files(tmp_path):
     assert teams_payload["data"] == sleeper.build_teams(FAKE_ROSTERS, FAKE_USERS)
 
 
+# Tuesday 2026-09-16, verbatim from the live state/nfl payload: week 1 is
+# over, Sleeper's `week`/`leg` say 2, but the app is still *displaying* 1.
+LAGGING_STATE = {"week": 2, "leg": 2, "display_week": 1, "season": "2026"}
+
+
+def test_current_week_prefers_week_over_the_lagging_display_week():
+    assert sleeper.current_week(LAGGING_STATE) == 2
+    assert sleeper.current_week({"display_week": 5, "season": "2026"}) == 5  # older fixtures / trimmed payloads
+    assert sleeper.current_week({"leg": 4}) == 4
+    assert sleeper.current_week({}) == 1
+
+
+def test_run_fetches_the_upcoming_weeks_matchups_when_display_week_lags(tmp_path):
+    """Regression: run() used display_week, so on Tuesday it wrote
+    matchups_week_1.json (last week's games) and get_current_matchup
+    answered with the opponent you already played."""
+    def lagging_get(path: str):
+        return {
+            "state/nfl": LAGGING_STATE,
+            "league/123/rosters": FAKE_ROSTERS,
+            "league/123/users": FAKE_USERS,
+            "league/123/matchups/2": FAKE_MATCHUPS,
+            "league/123/transactions/2": FAKE_TRANSACTIONS,
+            "players/nfl": FAKE_PLAYERS,
+        }.get(path) or FAKE_LEAGUE
+
+    with patch.object(sleeper, "_get", side_effect=lagging_get):
+        written = sleeper.run(league_id="123", out_dir=tmp_path / "sleeper")
+
+    assert "matchups_week_2.json" in written and "transactions_week_2.json" in written
+    assert "matchups_week_1.json" not in written
+
+
 def test_build_teams_joins_roster_and_owner_by_id():
     teams = sleeper.build_teams(FAKE_ROSTERS, FAKE_USERS)
 
