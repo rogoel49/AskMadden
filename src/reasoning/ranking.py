@@ -250,6 +250,17 @@ def stale_fields(row: dict | None) -> dict:
     }
 
 
+# Early-season: every play so far sits inside the trailing window, so there is
+# no baseline for a trend to differ from (matchup_signals.recent_efficiency_trend
+# nulls the trend and reports epa_baseline_plays == 0). Said out loud rather
+# than omitted, so a reader never infers "no trend mentioned" == "steady".
+NO_TREND_YET = "no efficiency trend yet (too early in the season for a trailing-window comparison)"
+
+
+def _trend_direction(epa_trend: float) -> str:
+    return "up" if epa_trend > 0 else "down" if epa_trend < 0 else "flat"
+
+
 def fmt_signal_row(row: dict | None) -> str:
     """Human-readable citation of the specific numbers a ranking/reason
     was grounded in -- every number here traces back to a real computed
@@ -264,8 +275,9 @@ def fmt_signal_row(row: dict | None) -> str:
         )
     parts = []
     if row.get("epa_trend") is not None:
-        direction = "up" if row["epa_trend"] > 0 else "down"
-        parts.append(f"efficiency trending {direction} ({row['epa_trend']:+.2f} EPA/play)")
+        parts.append(f"efficiency trending {_trend_direction(row['epa_trend'])} ({row['epa_trend']:+.2f} EPA/play)")
+    elif row.get("epa_baseline_plays") == 0:
+        parts.append(NO_TREND_YET)
     if row.get("red_zone_share") is not None:
         parts.append(f"red zone role share {row['red_zone_share'] * 100:.0f}%")
     share = target_share(row)

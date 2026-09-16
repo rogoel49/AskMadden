@@ -130,6 +130,32 @@ def test_recent_efficiency_trend_computes_trailing_vs_season():
     assert rb1["epa_trend"] == pytest.approx(-0.5 - 0.0)
 
 
+def test_recent_efficiency_trend_is_null_until_there_is_a_baseline_outside_the_window():
+    """Early season, as found live in the 2026 week-2 table: when the
+    trailing window covers the whole season to date, trailing == season
+    and the trend is identically 0.0 for everyone -- not "flat", just
+    undefined. It must be null (so ranking mutes it and prose says "no
+    trend yet"), with epa_baseline_plays exposing why."""
+    # as_of_week=3 with a 3-game window reaches back to week 0: nothing lies outside it.
+    result = ms.recent_efficiency_trend(_sample_pbp(), as_of_week=3, trailing_games=3)
+    rb1 = {row["player_id"]: row for row in result.to_dicts()}["RB1"]
+    assert rb1["epa_baseline_plays"] == 0
+    assert rb1["epa_trend"] is None
+    assert rb1["season_plays"] == 2  # still counts as current-season data for the stale-fallback threshold
+
+    # A 1-game window leaves week 1 as the baseline: the trend is real again.
+    result = ms.recent_efficiency_trend(_sample_pbp(), as_of_week=3, trailing_games=1)
+    rb1 = {row["player_id"]: row for row in result.to_dicts()}["RB1"]
+    assert rb1["epa_baseline_plays"] == 1
+    assert rb1["epa_trend"] == pytest.approx(-0.5)
+
+
+def test_build_signals_table_carries_the_trend_baseline_count():
+    rows = ms.build_signals_table(2024, 3, _sample_pbp(), _sample_schedules(), trailing_games=3)
+    rb1 = {row["player_id"]: row for row in rows}["RB1"]
+    assert rb1["epa_trend"] is None and rb1["epa_baseline_plays"] == 0
+
+
 def test_opponent_adjusted_target_share_nulls_out_bye_week_teams():
     result = ms.opponent_adjusted_target_share(_sample_pbp(), _sample_schedules(), as_of_week=3)
     by_player = {row["player_id"]: row for row in result.to_dicts()}

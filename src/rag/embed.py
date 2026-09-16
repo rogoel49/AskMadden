@@ -128,8 +128,12 @@ def _signal_sentence(row: dict) -> str:
     "None", so retrieval never surfaces a fabricated-looking non-fact."""
     parts = []
     if row.get("epa_trend") is not None:
-        direction = "up" if row["epa_trend"] > 0 else "down"
+        direction = "up" if row["epa_trend"] > 0 else "down" if row["epa_trend"] < 0 else "flat"
         parts.append(f"recent efficiency trending {direction} ({_fmt(row['epa_trend'])} EPA/play change)")
+    elif row.get("epa_baseline_plays") == 0:
+        # Early season: no baseline outside the trailing window (see
+        # matchup_signals.recent_efficiency_trend). Stated, not omitted.
+        parts.append("no efficiency trend yet (too early in the season for a trailing-window comparison)")
     if row.get("red_zone_share") is not None:
         parts.append(f"red zone role share {_fmt(row['red_zone_share'] * 100, '%')}")
     if row.get("target_share") is not None:
