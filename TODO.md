@@ -1004,7 +1004,9 @@ below that decision: the wrong one of Sleeper's three week fields.
   run.
 
 **Flagged, not fixed here.**
-- [ ] **EPA "trend" is degenerate with one week of data and mislabeled.**
+- [x] **EPA "trend" is degenerate with one week of data and mislabeled.**
+      Fixed in the very next session -- see "Fixed: the early-season EPA
+      trend was identically zero and printed as 'trending down'" below.
       Every one of the 313 rows in `signals_2026_week2.parquet` has
       `epa_trend == 0.0` (there is nothing to trend against yet), and
       `ranking.py` renders 0.0 as "efficiency trending down (+0.00
@@ -1024,6 +1026,51 @@ below that decision: the wrong one of Sleeper's three week fields.
 - [ ] Residual assumption: Sleeper advances `week` only after a week's
       games are over. If it ever flipped early, the as-of table for the
       new week would simply not exist yet (stale fallback, no leak).
+
+## Fixed: the early-season EPA trend was identically zero and printed as "trending down (+0.00)"
+Found on the same first in-season look as the display_week fix above:
+once the feed showed real 2026 numbers, every card opened with
+"efficiency trending down (+0.00 EPA/play)".
+
+**Cause (signal computation, not prose).** `recent_efficiency_trend()`
+is `trailing-window EPA/play minus season-to-date EPA/play`. With
+`as_of_week <= trailing_games + 1` (weeks 2-4 on the default 3-game
+window) the trailing window reaches back past week 1, so it IS the
+season to date: trailing == season and the difference is exactly 0.0
+for every player. Measured on the live table: 313 of 313 rows at 0.0.
+The prose then called anything not `> 0` "down". The 2024 week-5
+validation never saw this because week 5 is the first week with a
+baseline outside the window.
+
+**What changed.**
+- [x] `src/signals/matchup_signals.py`: the table carries
+      `epa_baseline_plays` (season plays before the trailing window),
+      and `epa_trend` is null whenever that is 0 -- a difference needs a
+      baseline to differ from. `season_plays` is untouched, so the row
+      still counts as current-season data for the 3.6 stale-fallback
+      threshold. League-agnostic, per CLAUDE.md's principle.
+- [x] `src/reasoning/ranking.py`: a null trend with `epa_baseline_plays
+      == 0` prints "no efficiency trend yet (too early in the season for
+      a trailing-window comparison)" -- stated, not omitted, so a reader
+      never infers silence means steady; the other null (no plays in the
+      window) stays silent as before; an exact 0.0, should it occur, is
+      "flat" not "down". `opportunity_score()` already skipped a null
+      trend, so the weight mutes itself early in the season with no
+      new knob. `weakness_reasons()` unchanged (`< 0` never fired on 0).
+- [x] `src/rag/embed.py`: the chat's signal chunk sentence says the same
+      thing, so `get_player_signals` never hands the model a zero trend
+      to reason from.
+- [x] Tests: 330/330 (was 322). Trend null + baseline 0 when the window
+      is the whole season, real again when it isn't; the table carries
+      the count; prose/chunk say "no trend yet" and "flat"; weakness
+      reasons and the score ignore it.
+- Validated live: a real `refresh --once` recomputed `signals_2026_
+  week2.parquet` (313 rows, 313 null trends, 313 baseline-0) and
+  re-embedded both leagues; the Fellowship start/sit report now opens
+  every card with "no efficiency trend yet ...; red zone role share
+  56%; target share ..." and Goff's chat chunk reads the same. The only
+  remaining "+0.00" is a stale 2025 fallback row, now labeled "flat".
+  From week 5 on the trend comes back by itself as the baseline fills.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

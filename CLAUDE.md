@@ -300,8 +300,12 @@ or monetized, it needs to genuinely work for more than one league.
   on disk. Both now read `sleeper.current_week()` (`week` > `leg` >
   `display_week`). The "default week is pinned to Sleeper's state"
   decision is unchanged. See TODO.md's "Fixed: the day after real
-  games..." entry, including the degenerate one-week EPA trend it
-  flagged.
+  games..." entry. The degenerate one-week EPA trend it flagged (0.0
+  for every player until week 5, printed as "trending down") is fixed
+  too: `epa_trend` is null with a new `epa_baseline_plays == 0` until
+  there is a baseline outside the trailing window, and prose/chunks say
+  "no efficiency trend yet" -- see TODO.md's "Fixed: the early-season
+  EPA trend..." entry.
 - Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
   Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
   confirmed a complete, honestly-bounded product (composition + signals +

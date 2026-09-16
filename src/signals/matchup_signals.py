@@ -186,7 +186,19 @@ def recent_efficiency_trend(pbp: pl.DataFrame, as_of_week: int, trailing_games: 
     """Per player, EPA/play over the last `trailing_games` weeks vs. their
     season-to-date average (both strictly before as_of_week). Positive
     epa_trend = trending up; null when a player has no plays in the
-    trailing window (e.g. they only played early in the season)."""
+    trailing window (e.g. they only played early in the season) -- OR
+    when they have no plays *outside* it.
+
+    That second null is the early-season case, found live in the 2026
+    week-2 table: with as_of_week <= trailing_games + 1 the trailing
+    window is the whole season to date, so trailing == season and the
+    "trend" is identically 0.0 for every player (313 of 313 rows) --
+    which the prose then rendered as "trending down (+0.00)". A
+    difference needs a baseline to differ from, so `epa_baseline_plays`
+    (season plays before the window) is exposed alongside, and the trend
+    is null whenever it is 0. Downstream (ranking, chunk prose) already
+    treat a null trend as "no trend", so the weight mutes itself until
+    there is a real comparison to make."""
     hist = _history(pbp, as_of_week)
     canonical = _current_player_reference(hist)
     # Restricting to each player's current-team stint here is also the
@@ -202,8 +214,14 @@ def recent_efficiency_trend(pbp: pl.DataFrame, as_of_week: int, trailing_games: 
         trailing_epa_per_play=pl.col("epa").mean(), trailing_plays=pl.len()
     )
     trend = season.join(trailing, on=["player_id", "player_name", "team"], how="left")
+    trend = trend.with_columns(
+        (pl.col("season_plays") - pl.col("trailing_plays").fill_null(0)).alias("epa_baseline_plays")
+    )
     return trend.with_columns(
-        (pl.col("trailing_epa_per_play") - pl.col("season_epa_per_play")).alias("epa_trend")
+        pl.when(pl.col("epa_baseline_plays") > 0)
+        .then(pl.col("trailing_epa_per_play") - pl.col("season_epa_per_play"))
+        .otherwise(None)
+        .alias("epa_trend")
     )
 
 
@@ -311,7 +329,7 @@ def build_signals_table(
     defense = defense_run_funnel_rate(pbp, as_of_week)
     implied_totals = odds.implied_team_totals(schedules).filter(pl.col("week") == as_of_week)
 
-    table = trend.select("player_id", "player_name", "team", "season_plays", "epa_trend")
+    table = trend.select("player_id", "player_name", "team", "season_plays", "epa_trend", "epa_baseline_plays")
     table = table.join(
         rz.select("player_id", "red_zone_touches", "red_zone_share"), on="player_id", how="left"
     )
