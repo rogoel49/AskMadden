@@ -417,10 +417,15 @@ outside a Claude Code session: design/askmadden-ui-mockup.html, a
 static (no real data) HTML/CSS/JS prototype with three top-level
 views — a landing page (hero pitch, feature cards, an eval-numbers
 band with explicitly-labeled placeholder values), the login/league-
-picker flow, and a single responsive app shell (phone frame below
-900px, sidebar-nav desktop layout above it; same DOM, CSS media
-queries only, not two builds). Phase 5.3 wires it up; it is not a
-from-scratch design task and the responsive layout is already built.
+picker flow, and a single responsive app shell (sidebar-nav desktop
+layout at 900px and above; same DOM, CSS media queries only, not two
+builds). Phase 5.3 wires it up; it is not a from-scratch design task
+and the responsive layout is already built. (The prototype's
+below-900px layout was a phone-frame *illustration* — a 390x820 bezel
+with a fake status bar, meant for previewing inside a wide desktop
+window — and it shipped to real phones as-is, drawing a phone inside
+the phone. Retired in the 5.4 follow-up: below 900px the shell fills
+the real viewport with safe-area insets; see TODO.md.)
 
 Sequencing constraint, same shape as every prior phase's dependency
 chain: 5.1 and 5.2 (backend) must exist before 5.3 (frontend) is
@@ -510,7 +515,12 @@ proved versus what needs a real phone.
       the actual mechanism for a phone install, no App Store
       submission. iOS works over plain http on the same WiFi; Android
       Chrome needs a secure context (USB port forwarding, or 5.6's
-      HTTPS). Only a real phone can close this box.
+      HTTPS). Only a real phone can close this box. Status: PR #25
+      merged without it. The first real-iPhone look (2026-09-16) found
+      the phone-frame illustration rendering inside the phone (fixed,
+      PR #29) and then confirmed the fixed layout on the device; the
+      install itself and the safe-area/keyboard items remain unconfirmed
+      — see TODO.md's "5.4 follow-up" checklist.
 
 #### 5.5 — Landing page (front door)
 The `#view-landing` view inside the same responsive mockup file, not
@@ -861,13 +871,15 @@ into this pattern, just not the model for anything new.
 - [ ] Weekly auto-generated lineup recommendations
 
 ### Phase 5: Productization (final deliverable — see above for detail)
-- [ ] Parameterize scoring settings from Sleeper API
-- [ ] Storage layer for league/user mapping
-- [ ] API layer wrapping recommend.py per league_id
-- [ ] Minimal web frontend
-- [ ] Cost/query caps
-- [ ] Deploy to free-tier host
-- [ ] Get real multi-league usage
+- [x] Parameterize scoring settings from Sleeper API (5.1)
+- [x] Storage layer for league/user mapping (5.2, SQLite)
+- [x] API layer wrapping recommend.py per league_id (5.2, FastAPI)
+- [x] Minimal web frontend (5.3 wired + 5.4 installable; real-phone
+      layout fixed in the 5.4 follow-up)
+- [x] Cost/query caps (5.2: per-user daily chat cap)
+- [ ] Deploy to free-tier host (5.6)
+- [ ] Get real multi-league usage — two leagues in local use as of
+      2026-09-16, none hosted yet
 
 ### Phase 5.7: Automated data refresh (the scheduler)
 - [x] `src/scheduler/refresh.py`: shared signals once, then every
@@ -878,7 +890,12 @@ into this pattern, just not the model for anything new.
 - [x] Wired into web/dev_server.py; `--once` documented as 5.6's hook
 - [x] Fixed the API serving a stale (and crashing) Chroma vector index
       after a re-embed
-- [ ] Real game-day observation; live Sleeper run; realtime.py's tier
+- [x] Live Sleeper run (2026-09-16: two real `--once` cycles on Rohan's
+      machine, both leagues, clean) and one real week advance observed
+      (week 1 complete → as-of-week 2 computed, nflverse-driven)
+- [ ] More game-day observations across a full week; realtime.py's tier
+- [x] Follow-up: the reasoning path and Sleeper ingest read Sleeper's
+      lagging `display_week`; now `week` (see TODO.md)
 
 ### Phase 6: A crude, explicitly-labeled trade-value proxy
 Deferred past Phase 5, not dropped -- see Phase 6's section above for the
