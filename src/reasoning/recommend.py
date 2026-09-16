@@ -72,6 +72,7 @@ from typing import Any
 import anthropic
 from dotenv import load_dotenv
 
+from src.ingest import sleeper
 from src.rag import lookup, player_index, retrieve
 from src.rag.embed import CHROMA_DIR, RAW_DIR
 from src.reasoning import ranking
@@ -423,7 +424,15 @@ def _load_json(path: Path) -> Any:
 def _infer_season_and_week(raw_dir: Path) -> tuple[int, int]:
     """Fall back to Sleeper's own current-week state (the same source
     src/ingest/sleeper.py's run() uses) when season/as_of_week aren't
-    given explicitly."""
+    given explicitly.
+
+    The league's own state stays the authority for the DEFAULT week (see
+    TODO.md's "Reports (default week): pinned to Sleeper" note and
+    tests/test_api_signals_refresh.py) -- but the field read is Sleeper's
+    `week`, not `display_week`, which lags behind by a day or two every
+    week and had every report and chat turn asking for a signals table
+    one week older than the one the refresh had just built. See
+    sleeper.current_week()."""
     state_path = raw_dir / "nfl_state.json"
     if not state_path.exists():
         raise RuntimeError(
@@ -433,8 +442,7 @@ def _infer_season_and_week(raw_dir: Path) -> tuple[int, int]:
         )
     state = _load_json(state_path)
     season = int(state["season"])
-    week = int(state.get("display_week") or state.get("week") or 1)
-    return season, week
+    return season, sleeper.current_week(state)
 
 
 def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_of_week: int) -> str:

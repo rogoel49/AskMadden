@@ -245,7 +245,10 @@ def test_default_report_stays_pinned_to_the_leagues_own_state_week(running_serve
     signals-only refresh doesn't advance it. This is the as-of-date rule
     holding (the new rows are future data relative to the league's state),
     not a cache -- pinned so the behaviour is a documented decision rather
-    than a surprise, and so that changing the inference is a deliberate act."""
+    than a surprise, and so that changing the inference is a deliberate act.
+    (The field read is Sleeper's `week`, falling back to `display_week`
+    for pulls that only carry that -- see sleeper.current_week(); this
+    fixture's state has display_week only, so both agree here.)"""
     _refresh_signals(running_server["signals_dir"])
 
     resp = running_server["client"].get(f"/api/reports/drop?session_id={running_server['session_id']}")

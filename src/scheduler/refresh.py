@@ -282,9 +282,11 @@ def refresh_league(
     collection, then tell a running server to re-read that index.
 
     `week` is left as None on purpose: sleeper.run() then uses Sleeper's
-    own current week for the matchup/transaction files, which is the
-    right week for LEAGUE data (whose matchup is live right now) even
-    when it differs from the signals table's nflverse-derived as-of-week.
+    own current week (its `week` field -- not `display_week`, which lags
+    until midweek; see sleeper.current_week()) for the matchup/transaction
+    files, which is the right week for LEAGUE data (whose matchup is live
+    right now) even when it differs from the signals table's
+    nflverse-derived as-of-week.
     The two are different questions and deliberately answered by
     different authorities.
     """

@@ -34,6 +34,23 @@ def fetch_nfl_state() -> dict:
     return _get("state/nfl")
 
 
+def current_week(state: dict) -> int:
+    """The NFL week to treat as "this week", from a `state/nfl` payload.
+
+    Sleeper's state carries three week fields and they do NOT agree
+    between Monday night and midweek: `week` (and the league-side `leg`)
+    advance to the upcoming week once the previous one's games are over,
+    while `display_week` -- the week the Sleeper app is still *showing* --
+    lags until midweek. Seen live on Tuesday 2026-09-16: `week: 2,
+    leg: 2, display_week: 1`. Reading display_week here made every
+    report and chat turn ask for a week-1 signals table that (correctly)
+    never exists, so every player fell back to last season's numbers
+    while a real 2026 week-2 table sat on disk. Preference order:
+    week, leg, display_week, then 1 (a payload with none of them).
+    """
+    return int(state.get("week") or state.get("leg") or state.get("display_week") or 1)
+
+
 def fetch_league(league_id: str) -> dict:
     return _get(f"league/{league_id}")
 
@@ -108,7 +125,7 @@ def run(league_id: str = DEFAULT_LEAGUE_ID, week: int | None = None, out_dir: Pa
 
     state = fetch_nfl_state()
     if week is None:
-        week = int(state.get("display_week") or state.get("week") or 1)
+        week = current_week(state)  # `week`, not the lagging `display_week` -- see current_week()
 
     league = fetch_league(league_id)
     rosters = fetch_rosters(league_id)
