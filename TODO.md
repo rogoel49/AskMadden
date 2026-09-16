@@ -1838,7 +1838,12 @@ covered by pytest; validation is browser-level, see below).
 - Server-side serving: manifest as application/json, sw.js as
   text/javascript, PNGs as image/png -- all from the existing
   StaticFiles mount, no server change beyond the bind.
-- [ ] **Only Rohan can confirm, on a real phone -- iOS first:** open
+- [ ] **Only Rohan can confirm, on a real phone -- iOS first.** NOT
+      done before PR #25 merged, nor before PR #27 -- the box below was
+      skipped, not passed. The first real-iPhone look came after both
+      merges and found the phone-frame bug (see the "5.4 follow-up"
+      entry below), so this check is now superseded by that entry's
+      real-phone checklist, which covers the install AND the layout. Open
       `http://<Mac's LAN IP>:8000/` in iOS Safari on the same WiFi,
       Share -> Add to Home Screen; the sheet should preview the green
       "AM" icon and the name "Ask Madden"; the Home Screen tile should
@@ -1852,6 +1857,250 @@ covered by pytest; validation is browser-level, see below).
   (iOS wants one PNG per device size; the dark `background_color` and
   icon are enough for a portfolio install), CORS/static in src/api/
   (5.6), any layout change.
+
+### 5.4 follow-up — the phone frame rendered inside real phones (fix + device-emulated audit)
+Implemented. Frontend only: design/askmadden-ui-mockup.html (CSS, two
+markup blocks, one line of JS). design/sw.js was reviewed and left
+unchanged -- nothing in it contributed (the HTML is network-first, so
+an installed app picks the fix up on its next launch with the server
+reachable). No file under src/ changed. Full `pytest` suite: 319/319
+before and after (nothing here is covered by pytest; validation is
+browser-level, see below).
+
+**First, the honest record: PR #25 (PWA installability) and PR #27
+(signals-refresh trigger fix) both merged WITHOUT the real-iPhone
+"Add to Home Screen" check in 5.4's checklist ever being run.** That
+gate was skipped, not passed. The first real-device look at the app --
+a screenshot from an actual installed iPhone PWA, after both merges --
+is what found this bug. Every browser check before it (PR #23/#24/#25:
+"58 checks at 390px and 1280px", Lighthouse 100) was a desktop headless
+browser resized to 390px, which is not a phone and is specifically why
+this never surfaced.
+
+**The bug.** `.app-shell` was a fixed 390x820 phone illustration --
+rounded bezel, box-shadow, a `.notch`, a fake "9:41" `.statusbar` --
+built as a design-preview device for looking at the phone layout
+inside a wide desktop window. The only breakpoint that stripped it was
+the >=900px desktop one, so every real phone got the illustration too:
+a phone drawn inside the phone, with broken scrolling and taps that
+landed on nothing.
+
+**What the investigation found (measured in the pre-fix audit, not
+inferred).**
+- There were exactly two CSS states: the base styles (the illustration)
+  and `@media (min-width:900px)` (the desktop reflow). A real phone is
+  under 900px, so it fell into the illustration. No third state existed.
+- The shell did not fit: 390px + `#view-app`'s 20px side padding on a
+  393px iPhone / 412px Pixel, so flex shrank it (Pixel 7: shell at
+  x=20, y=40, 372x820 in an 412x839 viewport) and the 820px height plus
+  80px vertical padding made the *document* scroll (scrollHeight 900 in
+  an 839px viewport; 240px of document scroll on the iPhone) -- the tab
+  bar moved with it (y 754 -> 514 after one swipe).
+- Content could never scroll on a phone, not just "scrolled badly":
+  `.main-col` only had its `display:flex; flex-direction:column` rule
+  inside the desktop query, so below 900px `.app-content` had no bounded
+  height to scroll within (clientHeight == scrollHeight == 1685px);
+  `.screen`'s `overflow:hidden` simply clipped it. The chat input bar,
+  at the bottom of the chat panel, sat at y=807 in a 660px viewport --
+  unreachable.
+- The header's `justify-content:space-between` had nothing to span:
+  `.main-col` was a shrink-to-fit flex item (header width 3626px on the
+  Pixel, clipped).
+- `env(safe-area-inset-*)` could never be non-zero: the viewport meta
+  lacked `viewport-fit=cover`.
+- Two things a phone does that no desktop check models: iOS Safari
+  zooms the page when a focused input's font-size is under 16px (the
+  login input was 13.5px, the chat input 12.5px), and mobile browsers
+  paint a translucent tap-highlight box over any tapped element with a
+  click handler (the header's league row is a plain div -- visible in
+  the emulated screenshot as a blue rectangle).
+
+**Decision: retire the illustration, don't gate it.** There is no
+viewport left where it is correct -- below 900px it is wrong on every
+real phone (the only devices that narrow, other than a narrowed desktop
+window) and at >=900px it was already stripped. Keeping it behind a
+flag would preserve code with no user and keep the trap that caused
+this bug. Git history has it. Detection is **width, not
+`display-mode: standalone`**, on purpose: a phone opening the LAN URL
+in plain Safari had exactly the same bug, so "installed" is the wrong
+signal; the env() insets simply resolve to 0 outside standalone mode,
+so one layout serves both.
+
+**What was built (design/askmadden-ui-mockup.html).**
+- [x] `.app-shell` is the viewport below 900px: `width:100%;
+      height:100dvh` (dvh, not vh -- iOS Safari's collapsing toolbar
+      changes the visible height and 100vh would hide the tab bar
+      behind it), no border/radius/shadow/padding, `#view-app` padding
+      0. `.notch` and `.statusbar` removed from CSS and markup.
+- [x] `.screen` pads by `env(safe-area-inset-top/left/right)`; the
+      viewport meta gained `viewport-fit=cover` so those resolve.
+- [x] `.main-col` gets its flex-column rule in the base styles (the
+      desktop query's copy is unchanged); `.app-content` is the one
+      vertical scroller: `min-height:0; overflow-y:auto;
+      -webkit-overflow-scrolling:touch; overscroll-behavior-y:contain`,
+      bottom padding `90px + env(safe-area-inset-bottom)`.
+- [x] `.tabbar-mobile` bottom is `14px + env(safe-area-inset-bottom)`;
+      `.modal-sheet` bottom padding is `26px + env(safe-area-inset-bottom)`
+      -- neither sits on Apple's home-indicator gesture bar.
+- [x] `goView()` toggles `html.app-open`; below 900px that sets
+      `html{overflow:hidden}` and `body{min-height:0}` so the document
+      itself cannot scroll while the app view is open (body's
+      `min-height:100vh` had left a toolbar's-height of document scroll
+      under the shell). Scoped to <900px so desktop is byte-for-byte
+      unchanged.
+- [x] `@media (pointer:coarse)`: the two text inputs are 16px (iOS
+      auto-zoom guard) and tappable rows/chips/tabs/buttons get
+      `-webkit-tap-highlight-color:transparent`.
+- [x] `@media (max-width:479.98px)`: the login/picker card gets 16px
+      side margins (it had none below its own 420px max-width, so its
+      border ran edge to edge).
+- [x] Head comment on `apple-mobile-web-app-status-bar-style` updated:
+      still "black" (opaque, content starts below the clock), which
+      cannot put content under the status bar even if an inset comes
+      back 0. "black-translucent" is now a one-line switch once a real
+      iPhone confirms the insets.
+- [x] Desktop (>=900px) untouched: the only edit inside that media
+      query is deleting `.notch, .statusbar` from a `display:none` list
+      (selectors that no longer exist).
+
+**Validation -- exactly what was run, and what it proves.**
+- Tooling: Playwright 1.63 (Python) driving the machine's installed
+  Google Chrome 150 via `channel="chrome"` -- Playwright's bundled
+  Chromium refuses to install on this macOS 12 machine ("does not
+  support chromium on mac12-arm64"), and device emulation is a CDP
+  feature so the installed Chrome is equivalent. Device descriptors
+  are Playwright's own: **iPhone 14 Pro** (393x660 CSS px, DPR 3, touch,
+  iOS Safari UA) and **Pixel 7** (412x839, DPR 2.625, touch, Android
+  Chrome UA), plus a 1280x800 non-touch desktop context. Playwright's
+  descriptors do NOT carry safe-area insets, so they were set through
+  CDP `Emulation.setSafeAreaInsetsOverride` -- 59px top / 34px bottom
+  for the iPhone (its documented values), 0 for the Pixel -- and
+  confirmed to reach `env()` in the page (top 59, bottom 34). Every tap
+  is `page.tap()` (touch events, not mouse clicks); vertical and
+  horizontal scrolls are CDP `Input.synthesizeScrollGesture` with
+  `gestureSourceType: touch`; flings are raw `Input.dispatchTouchEvent`
+  start/move/end sequences with fast final moves, checking that the
+  scroller keeps moving after touchEnd. The API boundary is a mock
+  server (FastAPI, in the audit's scratch dir) at the same boundary
+  tests/test_api_main.py mocks -- login, sessions, roster, the three
+  reports (15 start/sit cards, 5 drops, 25 waivers so the lists
+  overflow), and a chat that returns real `data_gaps` /
+  `signals_consulted` shapes -- serving the actual mockup file from
+  design/ at /ui like web/dev_server.py does.
+- The same audit, run against the pre-fix file (origin/main) to prove
+  it catches the bug: **iPhone 14 Pro 38 pass / 24 FAIL**, **Pixel 7
+  42 pass / 20 FAIL**. The failures are the bug: shell not filling the
+  viewport, notch + fake status bar present, 46px radius + shadow +
+  border, document scrolling, `.app-content` not a bounded scroller,
+  header 3626px wide, tab bar 8px from the bottom, horizontal swipe on
+  the rec-card row moved nothing (scrollLeft 0 -> 0), vertical touch
+  scroll moved nothing (scrollTop 0 -> 0) while the tab bar moved
+  (document scrolled instead), long chat conversation could not scroll,
+  chat input bar off-screen (bottom 807 in a 660 viewport), league
+  sheet extending past the viewport (bottom 845 of 660), inputs at
+  12.5/13.5px, login card edge to edge.
+- Against the fixed file: **iPhone 14 Pro 63 pass / 0 fail / 2 n/a**,
+  **Pixel 7 63 pass / 0 fail / 2 n/a**, **Desktop 1280x800 53 pass /
+  0 fail / 2 n/a**. Every surface in the brief: landing (hero CTA, nav
+  "Log in", no horizontal overflow), login (field focus, Continue,
+  unknown-user error), picker (league card, paste-a-league-ID
+  fallback), all four tabs each actually swapping the visible panel
+  (with an `elementFromPoint` hit-test proving nothing overlays the
+  button), Feed (touch swipe on the rec-card row, fling continues after
+  finger lift, vertical touch scroll + fling on `.app-content`, tab bar
+  stays put, document and view wrapper stay at 0, in-content "See all"
+  link), Chat (focus, type, send, response with stale + no-signal
+  chips, suggestion chip, 8-turn conversation overflows and
+  touch-scrolls, input bar reachable above the tab bar at the bottom),
+  Roster, Moves (Waivers/Trades segments both ways, composition-request
+  button renders an out-of-scope chip and flips to "Ask again"), league
+  switcher (opens inside the viewport, sheet padding clears the inset,
+  ACTIVE pill, switching closes + updates the header + resets to Feed,
+  ✕ closes), no console/page errors, no failed requests beyond the
+  deliberate unknown-user 404. The 2 n/a are the brief's waiver "Add"
+  button and Roster Starters/Bench control -- neither exists, see
+  findings below.
+- Desktop regression check, separate from the audit: 26 computed
+  layout properties (shell/screen/sidebar/header/content boxes, tab bar
+  display, radius/shadow/border/background, content padding and scroll
+  extents, rec-card width and wrap, input font sizes, active-nav color,
+  document scroll extents, sheet padding, flex directions) probed on
+  the pre-fix and fixed files at 1280x800 and 1000x700: **identical on
+  all 26 at both sizes**.
+
+**Findings triage -- fixed here vs. flagged.**
+Fixed here (all CSS/JS in design/askmadden-ui-mockup.html):
+1. The phone-frame illustration on real phones (the reported bug).
+2. Content could never scroll below 900px (`.main-col` rule missing
+   outside the desktop query) -- the "broken scrolling" half of the
+   report was this, not touch physics.
+3. Document scrolled under the shell (body `min-height:100vh`).
+4. No safe-area handling at all (`viewport-fit=cover` missing; tab bar
+   and league sheet sat on the home-indicator area).
+5. Inputs under 16px -> iOS auto-zoom on focus (login 13.5px, chat
+   12.5px). Chrome never auto-zooms, so this fix is by the book, not
+   verified by emulation.
+6. System tap-highlight flash on the header league row / league cards
+   / chips / tabs.
+7. Login/picker card ran edge to edge under 480px.
+Found, needs its own session (out of scope or bigger than this one):
+- Waiver "Add" button: absent, and by design since 5.3 -- the API has
+  no write-back ("nothing is ever written back to your team"), rows
+  carry a priority number and score instead. If the product ever wants
+  a real Add, that is a src/api/ + Sleeper write-scope decision, not UI.
+- Roster Starters/Bench segmented control: absent since 5.3 because
+  `/api/roster` has no starters/bench split. Sleeper's roster JSON does
+  carry a `starters` array, so this is buildable, but it is a
+  src/rag/lookup.py + src/api/ change (out of this session's scope).
+- iOS keyboard vs. the chat input: in standalone mode the layout
+  viewport does not shrink for the keyboard, so whether Safari scrolls
+  the (in-flow) input bar into view above the keyboard is a real-phone
+  question; no emulation models the iOS keyboard. Likely fine, unproven.
+- `apple-mobile-web-app-status-bar-style`: "black" is kept. With it,
+  iOS should report a 0 top inset and place content below the clock; if
+  a real iPhone instead shows a doubled gap (opaque bar + 59px padding),
+  switch to "black-translucent" (one line in the head) -- the layout is
+  ready for either.
+- Feed rec-cards are still walls of text at 393px (one card fills most
+  of the viewport height in the screenshot) -- already in the Backlog
+  as "Feed card redesign + position filters"; unchanged here.
+- Landing page at phone width was only checked for overflow and
+  tappability, not visual polish -- that is 5.5's job.
+- If an installed PWA is launched while the dev server is unreachable,
+  the service worker serves the last cached HTML; if that copy predates
+  this fix, the illustration shows until the server is back. Network-
+  first by design; no sw.js change made.
+
+**What device emulation cannot stand in for (so TODO.md doesn't
+overclaim).** Chrome's device mode gives a real viewport, DPR, touch
+event stream, mobile UA and (via CDP) safe-area inset values. It does
+not give: WebKit (every iPhone browser and the installed PWA are
+WebKit, and the fixes lean on `100dvh`, `env()`, `overscroll-behavior`
+and the 16px zoom rule being honored by Safari specifically); iOS's
+actual safe-area values under each status-bar style; native iOS
+scroll momentum and rubber-banding (the fling checks prove Chrome's
+gesture pipeline flings inside the new scroller -- they say nothing
+about iOS's physics); the iOS keyboard / visual viewport; the "Add to
+Home Screen" sheet; the standalone launch itself. So: this audit proves
+the layout is right for a phone-shaped, touch-driven viewport and that
+the pre-fix file was wrong for one. It does not prove the iPhone
+experience.
+
+- [ ] **Still needs a real physical phone (Rohan, once the new machine
+      is set up).** From the Mac: `python -m web.dev_server`, then on
+      the iPhone (same WiFi) open `http://<Mac's LAN IP>:8000/` in
+      Safari. Check in the browser first: log in, pick a league -- the
+      app should fill the screen edge to edge with no bezel, the feed
+      should scroll with your finger, the tab bar should stay put, all
+      four tabs should switch, the chat input should NOT zoom the page
+      when tapped. Then Share -> Add to Home Screen, launch from the
+      Home Screen: no Safari chrome, header just below the clock with
+      no doubled gap, tab bar floating above the home-indicator bar
+      (not on it), league sheet's bottom clear of the bar, keyboard
+      does not hide the chat input. Same walkthrough on an Android
+      phone via USB port forwarding (chrome://inspect, per PR #25's
+      notes) for the install path; the browser-mode layout on Android
+      needs no forwarding.
 
 ### 5.5 — Landing page (front door)
 Reframed from "static marketing site, separate from the app": the
