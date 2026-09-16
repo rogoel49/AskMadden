@@ -2501,12 +2501,18 @@ server nobody is babysitting), not something to do after it.
       real completed seasons and real in-progress 2026 data, but "it
       advanced at the right moment, live" is a multi-day observation.
       Check it with `python -m src.scheduler.refresh --status`; watch for
-      `consecutive_failures` climbing.
-- [ ] **The live Sleeper refresh is still stubbed**, same gap Phase 5.2
-      already carries: `sleeper.run()` runs for real here but against a
-      stubbed `_get`, because Sleeper is blocked in this sandbox. One real
-      run on Rohan's machine closes it (and is implicit in the game-day
-      observation above).
+      `consecutive_failures` climbing. **Partial, 2026-09-16:** one real
+      advance is on record -- the overnight cycle after week 1's Monday
+      game (`refresh_status.json`: `completed_weeks: 1, as_of_week: 2`,
+      313-row week-2 table, both leagues clean in 107s) -- so "it
+      advanced after the week finished" has happened once for real. Not
+      yet watched *at* the moment of the flip, and not yet across a
+      full week's Thursday/Sunday/Monday sequence; keep the box open.
+- [x] **The live Sleeper refresh is no longer stubbed**: two real
+      `python -m src.scheduler.refresh --once` cycles on Rohan's machine
+      on 2026-09-16 (both leagues, real Sleeper + nflverse, 99-107s each,
+      `outcome: ok`), plus the overnight background cycle from the dev
+      server. Closed.
 - [ ] **First-run command to remember on a new machine**: `python -m
       src.scheduler.refresh --once --backfill` before relying on the loop,
       so the season's earlier weeks exist, not just the current one.

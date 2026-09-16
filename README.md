@@ -17,10 +17,15 @@ league ID 1389341490030862336, 12 teams, half-PPR); the end goal
 their own Sleeper account, pick a league, and get the same
 recommendations for their own roster. **Current status: Phases 1–3.8
 (ingest, signals, RAG, reasoning agent, reports, league-wide roster
-composition) are complete and validated against real data —
-productization (Phase 5) has not started.** Phase 4 is optional
-stretch work; Phase 6 (a trade-value proxy) is deliberately deferred
-past Phase 5.
+composition) are complete and validated against real data, and
+productization (Phase 5) is most of the way there: 5.1 league/scoring
+parameterization, 5.2 the multi-user API + storage layer, 5.3 the
+responsive frontend wired to it, 5.4 PWA installability, and 5.7 the
+automated data refresh are done; 5.5 (landing-page copy + real eval
+numbers) and 5.6 (hosted HTTPS deployment) are not. It runs locally
+against live in-season data today (first real in-season use:
+2026-09-16, two leagues).** Phase 4 is optional stretch work; Phase 6
+(a trade-value proxy) is deliberately deferred past Phase 5.
 
 ## Architecture
 ```
@@ -48,11 +53,15 @@ resolution, a multi-turn Claude tool-use reasoning agent, structured
 report generation (start/sit, drop, waiver pickups), and league-wide
 roster-composition visibility via the agent's `get_league_rosters`
 tool (which teams have surplus/need at a position — composition only,
-never a trade valuation). What's still ahead is the multi-league
-API/storage/web layer — see `TODO.md` for the detailed phase-by-phase
-log and `PROJECT_SPEC.md` for the full architecture, signals table,
-and Phase 5 plan. A static UI prototype for Phase 5 already exists at
-`design/askmadden-ui-mockup.html`.
+never a trade valuation) — plus the multi-league API/storage layer,
+the responsive web UI (`design/askmadden-ui-mockup.html`, one file:
+landing view, login/league picker, and an app shell that fills a real
+phone's viewport below 900px and reflows to a sidebar layout above
+it), Home Screen installability, and a background refresh that keeps
+signals and league data current. What's still ahead is the public
+deployment (5.6) and the landing page's real eval numbers (5.5) — see
+`TODO.md` for the detailed phase-by-phase log and `PROJECT_SPEC.md`
+for the full architecture, signals table, and Phase 5 plan.
 
 ## Setup
 ```
@@ -77,8 +86,8 @@ Pull nflverse play-by-play and NGS data, and compute the signals table
 (defense run-funnel rate, red zone share, efficiency trend, target
 share, game script, aDOT/RYOE/CROE-proxy — all as-of-week filtered):
 ```
-python -m src.ingest.nflverse --season 2025
-python -m src.signals.matchup_signals --season 2025 --as-of-week N
+python -m src.ingest.nflverse --season 2026
+python -m src.signals.matchup_signals --season 2026 --as-of-week N
 ```
 
 Chunk and embed league data and computed signals into a local ChromaDB
@@ -196,8 +205,8 @@ or a deployment running with `ASKMADDEN_REFRESH_ENABLED=0`.
 Run the two ingest/compute commands from the Setup section above for the
 new week:
 ```
-python -m src.ingest.nflverse --season 2025
-python -m src.signals.matchup_signals --season 2025 --as-of-week N
+python -m src.ingest.nflverse --season 2026
+python -m src.signals.matchup_signals --season 2026 --as-of-week N
 ```
 You do **not** need to restart the server. Reports re-read the signals
 parquet on every request, and the server now re-embeds each league's
@@ -207,7 +216,10 @@ one request that triggers the re-embed is slower than usual).
 
 One thing the signals refresh alone does *not* change: which week the
 reports are bounded to. `as_of_week` is inferred from Sleeper's own
-`nfl_state.json`, so until you also re-run
+`nfl_state.json` (its `week` field — not `display_week`, which lags
+until midweek and, until 2026-09-16, made every card stale the day
+after real games; the scheduler's own cycle re-pulls this file, so
+this only matters for a by-hand refresh), so until you also re-run
 ```
 python -m src.ingest.sleeper
 ```
@@ -260,7 +272,7 @@ process can still lose to a fluke game.
 ```
 pytest
 ```
-Currently 246/246 passing. See `TODO.md` for the session-by-session
+Currently 330/330 passing. See `TODO.md` for the session-by-session
 log of what was validated against real data versus what still needs a
 live re-run (a few items are flagged as needing a machine with both
 `ANTHROPIC_API_KEY` and live Sleeper API access, which this project's
