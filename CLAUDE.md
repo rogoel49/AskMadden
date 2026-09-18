@@ -202,8 +202,25 @@ or monetized, it needs to genuinely work for more than one league.
   TODO.md's Phase 3.8 section for full detail, including the live-model
   validation gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
 - Phase 4 (coverage classification stretch): optional, not started
-- Phase 5 (productization — final deliverable): 5.1-5.4
-  implemented, 5.5-5.6 not started. 5.4 (PWA installability):
+- Phase 5 (productization — final deliverable): 5.1-5.4 and 5.7
+  implemented; 5.5 and 5.6 partly done (2026-09-18). 5.6: `src/api/
+  main.py` now serves the frontend itself (`design/` mounted at `/ui`,
+  `/` redirects there, the `/ui` prefix kept on purpose so `sw.js`'s
+  scope never covers `/api/`), starts the 5.7 refresh from its own
+  lifespan, and has `GET /api/health` for the host's health check;
+  `web/dev_server.py` is a thin 0.0.0.0 launcher over the same app.
+  Deployment config exists (`Dockerfile`, `deploy/entrypoint.sh`,
+  `.dockerignore`, `fly.toml`, `constraints.txt`) but **the image has
+  never been built or deployed** — no Docker/flyctl on the machine it
+  was written on; the README's Deploying section is the sequence.
+  Verified against a real uvicorn process and real headless Chrome
+  (SW scope `/ui/`, `/api/` fetched straight from the network, no
+  console errors). 5.5: landing copy reviewed and edited so nothing
+  overclaims (signals named are real ones), `<title>` is "Ask Madden",
+  "no API calls from the landing view" pinned by a test; the eval band
+  is still labeled placeholders — running the decision eval at volume
+  is real Claude spend on Rohan's key, his call. See TODO.md's 5.5 and
+  5.6 entries. 5.4 (PWA installability):
   `design/manifest.json` + `design/sw.js` + `design/icons/`
   (programmatic Anton "AM" icon, `build_icons.py`) and the iOS
   `apple-touch-icon` / `apple-mobile-web-app-*` head tags in the
@@ -227,9 +244,9 @@ or monetized, it needs to genuinely work for more than one league.
   chat); three distinct chat chips (stale / no_signal_data /
   out_of_scope_capability); Moves→Trades asks chat a fixed
   composition question on request rather than inventing an endpoint.
-  Served same-origin by `web/dev_server.py` (`python -m
-  web.dev_server`) because `src/api/` has no CORS/static mount yet —
-  5.6 folds that in. Validated in a real headless browser at both
+  Served same-origin — by `web/dev_server.py` at the time because
+  `src/api/` had no static mount; as of 5.6 by `src/api/main.py`
+  itself. Validated in a real headless browser at both
   breakpoints against the real server with boundary mocks (58
   checks); live login / real-model chat still need Rohan's machine.
   See TODO.md's Phase 5.3 entry. 5.2 (API + storage): `src/api/`
@@ -335,13 +352,15 @@ There is no separate static marketing site and no second build target — the la
 The landing page's eval-numbers band shows labeled placeholders until
 real eval numbers exist (see TODO.md's 5.5 entry for what gates each).
 As of Phase 5.3 the file is wired to the real API and is served on the
-API's own origin by `web/dev_server.py` (no CORS needed); it keeps all
+API's own origin (no CORS needed) — since 5.6 by `src/api/main.py`
+itself, mounted at `/ui` with `/` redirecting there; it keeps all
 state in JS for the life of the tab — no localStorage. As of Phase 5.4
 it is installable: `design/manifest.json`, `design/sw.js` (scope is
-the file's directory, so `/api/` is never intercepted; the HTML is
-network-first so edits show on reload), and `design/icons/`. Keep the
-manifest/icon hrefs relative so they survive 5.6's move to a static
-mount in `src/api/`.
+the file's directory, so `/api/` is never intercepted — which is why
+the page lives under `/ui/` and not at `/`; the HTML is network-first
+so edits show on reload), and `design/icons/`. Keep the manifest/icon
+hrefs relative; `tests/test_api_static.py` checks each one resolves
+under the mount.
 
 ## Key architectural principle — do not violate
 The signals table and RAG corpus are **league-agnostic** — computed

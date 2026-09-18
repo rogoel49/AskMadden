@@ -1,0 +1,19 @@
+# Keep the build context to the code plus the committed reference data.
+.git
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.env
+.env.*
+# Runtime state lives on the host's persistent volume (/app/data), never in
+# the image. data/processed/signals/*.parquet is deliberately NOT ignored:
+# the committed reference tables are seeded onto the volume on first boot
+# (see deploy/entrypoint.sh).
+data/raw
+data/chroma
+data/*.sqlite3
+data/processed/refresh_status.json
+evals/results

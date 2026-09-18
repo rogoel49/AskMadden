@@ -1085,8 +1085,10 @@ signals-backed recommendations. No password/OAuth, no payments — a
 portfolio deliverable, not a business. See PROJECT_SPEC.md's Phase 5
 section for full detail, rationale, and success criteria.
 
-5.1, 5.2, 5.3 and 5.4 are implemented (see their sections below);
-5.5-5.6 are not started.
+5.1, 5.2, 5.3, 5.4 and 5.7 are implemented (see their sections
+below). 5.5's landing copy is done and its eval band is still gated on
+eval runs at volume; 5.6's "one app serves everything" step and the
+deployment config are done, the actual deploy is not (see 5.6 below).
 Phase 4 is explicitly optional and not a blocker (see
 above) — the actual gate was Phases 1-3.8, which are done. Phase 3.7's
 anti-fabrication addendum and Phase 3.8's roster-composition tool
@@ -2255,8 +2257,21 @@ see first, with a CTA into the login view. Still its own small,
 independent piece of content work (copy, feature cards, the eval
 band), but one view in one file, not a separate build target, and
 it shares the app's design tokens by construction.
-- [ ] Landing copy/feature cards finalized (the mockup's current text
-      is a first draft)
+- [x] Landing copy/feature cards finalized (2026-09-18, with 5.6):
+      reviewed against what the product actually does today and
+      edited, not rewritten. Each feature card now names real things --
+      the signals a card cites are the ones in the signals table
+      (target share, red-zone share, efficiency trend, run-funnel
+      defense, implied total; an earlier draft of this pass said "snap
+      share", which no signal computes, and was corrected before
+      commit), the chat card says data gaps are declared and prior-
+      season numbers are labeled stale (Phases 3.6/3.7), the trade card
+      still says composition-only (Phase 3.8, no valuation). The
+      `<title>` is now "Ask Madden" rather than "Responsive UI" -- it is
+      the browser-tab and installed-app title, not a mockup label
+      anymore. Rohan should still read it once; "final" copy on a
+      portfolio page is his call, and this pass only made sure nothing
+      on it overclaims.
 - [ ] Eval-numbers band (`#eval-numbers`): its three metrics are
       placeholders ON PURPOSE, labeled as such in the mockup, never
       invented. Retrieval accuracy and decision accuracy are gated on
@@ -2265,16 +2280,141 @@ it shares the app's design tokens by construction.
       specifically gated on Phase 4's coverage classification landing
       — per the signals table's own "modeled proxy" note for that
       signal, there is no matchup-fit number to report until then.
-      Populate each only when its real number exists.
-- [ ] No auth, no API calls from the landing view itself
+      Populate each only when its real number exists. **Status
+      2026-09-18:** still placeholders. Running the decision eval at
+      volume is a real Claude API spend (one recommend() loop per
+      dilemma) on Rohan's key, so it is his call when to run it and how
+      many dilemmas; `evals/eval_questions.jsonl` and
+      `evals/decision_questions.jsonl` are both generated, not
+      committed, so a run starts with the two `build_*` scripts. The
+      retrieval eval costs nothing but runs against one league's
+      Chroma index, so its number should be reported for what it is.
+- [x] No auth, no API calls from the landing view itself -- confirmed
+      and pinned by `tests/test_api_static.py`: the landing view's
+      markup contains no `api(`/`fetch(` call and every handler on it
+      is `goView('login')`. (The service-worker registration runs on
+      page load regardless of view; it is not an API call and it
+      never sees `/api/` -- see 5.6.)
 
 ### 5.6 — Deployment
-- [ ] FastAPI mounts the one responsive frontend (landing + app in
+- [x] FastAPI mounts the one responsive frontend (landing + app in
       one file) as a static route — one deployment, one URL, no CORS
-- [ ] Deploy to free-tier host (Railway/Render/Fly.io)
+      (2026-09-18, see below)
+- [x] Deployment config written: `Dockerfile`, `deploy/entrypoint.sh`,
+      `.dockerignore`, `fly.toml`, `constraints.txt` (see below for
+      what each does and why)
+- [ ] Deploy to a host (Fly.io is the configured one; Railway/Render
+      work with the same image) — needs Rohan's account, a payment
+      method (no current free tier gives a persistent disk plus 2GB),
+      and `flyctl`; the README's Deploying section is the copy-paste
+      sequence. Not done: neither Docker nor flyctl is installed on
+      the machine this was written on, so **the image has never been
+      built** — the first `fly deploy` is the build test.
 - [ ] Get 2-3 friends in different leagues to actually use it
 - [ ] README: document the "started as one league, generalized to a
       product" story, with real eval numbers from run_decision_eval.py
+      (the story is there; the numbers are 5.5's open item)
+
+#### What was built (2026-09-18)
+**`src/api/main.py` now serves the frontend itself.** `design/` is a
+`StaticFiles` mount at `/ui`, `/` redirects to `/ui/`, and an explicit
+`/ui/` route returns the HTML (registered *before* the mount, because
+FastAPI matches in registration order and StaticFiles has no
+`index.html` to answer a bare directory with). The `/ui` prefix is
+kept deliberately rather than serving the page at `/`: `design/sw.js`'s
+scope is the directory it is served from, so under `/` it would
+intercept `/api/*`; under `/ui/` it can't. Every relative href the page
+already used (manifest, icons, `sw.js`) resolves unchanged — that was
+the point of making them relative in 5.4. The Phase 5.7 refresh thread
+moved from `web/dev_server.py`'s outer lifespan into the API app's own
+lifespan (same `ASKMADDEN_REFRESH_ENABLED` switch; still off in tests
+because a plain `TestClient(app)` runs no lifespan, and the two tests
+that do use `with TestClient(app)` stub the thread). `web/dev_server.py`
+is now a thin launcher — it imports the same app and binds 0.0.0.0 for
+the phone-on-WiFi case — so the documented `python -m web.dev_server`
+still works, and so does `uvicorn web.dev_server:app`.
+
+**`GET /api/health`.** For the host's health check and for "is the data
+moving" at a glance: `{ok, version, refresh: {enabled,
+running_in_process, last_outcome, last_finished_at, season,
+as_of_week, consecutive_failures, next_run_after}}`, read from
+`refresh_status.json`. Always 200 while the process is up — a health
+check that restarted a healthy server because nflverse was down for a
+cycle would make things worse, so a failed cycle is reported, not
+treated as an outage.
+
+**The deployment files.** `Dockerfile` (python:3.11-slim, pip-installs
+`requirements.txt` under `constraints.txt` so the image gets the
+versions the suite was last green against, not whatever is newest;
+copies the repo; keeps a copy of the committed reference signals
+tables outside `/app/data`). `deploy/entrypoint.sh` (seeds those
+tables onto the volume when missing — a persistent volume mounted at
+`/app/data` hides everything the image had there, which would
+silently remove Phase 3.6's prior-season fallback table on first boot;
+symlinks chromadb's `~/.cache/chroma` onto the volume so the ~80MB
+embedding-model download happens once, not per deploy; `exec`s uvicorn
+on `$PORT` or 8080). `.dockerignore` (no `.git`, `.venv`, `.env*`,
+`data/raw`, `data/chroma`, SQLite, status file — and explicitly *not*
+the tracked parquet tables). `fly.toml` (one always-on
+`shared-cpu-1x`/2GB machine — 256MB is not enough to load a season of
+pbp into polars and re-embed; a volume at `/app/data`; `force_https`;
+`/api/health` check with a 60s grace period; `auto_stop_machines =
+"off"` because the in-process refresh needs the machine up, with the
+multi-machine alternative documented inline). The server needs no
+`SLEEPER_LEAGUE_ID`/`MY_ROSTER_ID` — with them unset every league,
+including Rohan's own, gets a per-league directory under
+`data/raw/leagues/`, which is the cleaner layout for a host anyway.
+
+#### Validation actually run
+- `tests/test_api_static.py` (16 new tests, suite now 346/346): `/` →
+  307 → `/ui/`; `/ui` and `/ui/` both land on the page; the page by
+  filename is byte-identical; manifest/sw/icons served with the right
+  content types; every relative href in the `<head>` (and the
+  `sw.js` registration) resolves to a 200 under the mount; manifest
+  `start_url`/`scope` stay relative and the SW keeps its scope guard;
+  API routes and `/docs` not shadowed; `/api/health` before any cycle
+  and with a failed cycle on disk; the lifespan starts the refresh
+  and sets its stop event on shutdown; the off switch is honored; the
+  landing view makes no API calls.
+- **Against a real `uvicorn src.api.main:app` process** (not
+  TestClient): curl of every route above with the expected status,
+  content type and redirect target; `/api/health` returning the real
+  last cycle from this machine (2026-09-16, `ok`, season 2026,
+  as-of-week 2).
+- **In real headless Chrome** (Playwright, `channel="chrome"`, 390px
+  viewport) against that server: `/` lands on `/ui/` with the landing
+  view visible; the service worker registers with scope
+  `http://127.0.0.1:8765/ui/`; a `fetch('/api/health')` from the page
+  returns 200 straight from the network; the CTA opens the login view;
+  zero console errors.
+- **One real, unplanned refresh cycle from the API app's own
+  lifespan.** A `uvicorn src.api.main:app` process was started by
+  accident (a shell-quoting slip while opening the PR) with the real
+  `.env` and the refresh switch unset, i.e. on. Before it was stopped,
+  the lifespan-started thread ran a complete cycle against real
+  Sleeper + nflverse: 76.5s, `outcome: ok`, week-2 table (313 rows),
+  both leagues `sleeper=ok embed=ok` (1459 / 1366 chunks). So "the
+  refresh starts from `src/api/main.py` now, not the dev server" is
+  confirmed live, not just by the stubbed lifespan test.
+
+#### Flagged, not done
+- [ ] **The image has never been built.** No Docker here. The
+      Dockerfile is straightforward (slim Python, wheels for every
+      pinned package exist for linux/x86_64) but "it builds" is a claim
+      only `docker build` or `fly deploy` can make. If it fails, the
+      likely suspects are a pinned wheel missing for linux (relax that
+      line in `constraints.txt`) or `cp -r` of the seed tables.
+- [ ] **The deploy itself** — account, card, `flyctl`, secrets, the
+      one-time `--backfill`. README has the sequence.
+- [ ] **A real friend's league on the hosted URL** — the first login
+      from someone else's Sleeper account ingests their league on the
+      host and is the actual multi-league proof 5.6 is for.
+- [ ] `constraints.txt` was frozen from Rohan's macOS venv. It has no
+      platform-only packages in it (checked), but it does pin
+      transitive deps the Linux resolver might legitimately want at a
+      different version; constraints only bind packages pip is
+      installing, so the failure mode is a loud resolver error, not a
+      silent mismatch.
 
 ### 5.7 — Automated data refresh (`src/scheduler/refresh.py`)
 **Closes the longest-standing gap in the project.** `src/scheduler/

@@ -1,0 +1,55 @@
+# Fly.io config for Ask Madden -- the Phase 5.6 public deployment.
+#
+#   fly launch --copy-config --no-deploy   # once: creates the app from this file
+#   fly volumes create askmadden_data --size 3 --region iad
+#   fly secrets set ANTHROPIC_API_KEY=sk-ant-...
+#   fly deploy
+#   fly ssh console -C "python -m src.scheduler.refresh --once --backfill"   # once, after the first deploy
+#
+# See README.md's "Deploying" section for the walk-through.
+app = "askmadden"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # The in-process refresh is the right shape here: exactly one machine,
+  # never stopped (see http_service below). If this ever runs more than one
+  # machine, set this to "0" and schedule `python -m src.scheduler.refresh
+  # --once` on a single machine instead.
+  ASKMADDEN_REFRESH_ENABLED = "1"
+
+# Everything the server writes -- per-league Sleeper JSON + Chroma index,
+# the shared signals tables, the SQLite users/sessions DB, the refresh
+# status file -- lives under data/ in the repo, so one volume at /app/data
+# persists all of it across deploys. Fly volumes are pinned to a region and
+# to one machine, which is also what makes the single-machine assumption
+# above hold. ~100MB per ingested league today; 3GB is plenty.
+[[mounts]]
+  source = "askmadden_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true              # the Android install prompt needs a secure context (Phase 5.4)
+  # The refresh runs in-process, so the machine must stay up between
+  # requests -- letting Fly stop it when idle would also stop the refresh.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "60s"          # importing chromadb/polars/anthropic takes a few seconds
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/api/health"
+
+# 256MB (Fly's default) is not enough: a refresh cycle loads a season of
+# nflverse play-by-play into polars and re-embeds every league's corpus
+# through chromadb's ONNX model. 2GB is the first size that leaves room
+# for that while requests are being served.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "2gb"
