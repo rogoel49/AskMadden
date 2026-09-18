@@ -21,10 +21,12 @@ composition) are complete and validated against real data, and
 productization (Phase 5) is most of the way there: 5.1 league/scoring
 parameterization, 5.2 the multi-user API + storage layer, 5.3 the
 responsive frontend wired to it, 5.4 PWA installability, and 5.7 the
-automated data refresh are done; 5.5 (landing-page copy + real eval
-numbers) and 5.6 (hosted HTTPS deployment) are not. It runs locally
-against live in-season data today (first real in-season use:
-2026-09-16, two leagues).** Phase 4 is optional stretch work; Phase 6
+automated data refresh are done; 5.6's "one app serves everything"
+step is done and the deployment config (Dockerfile + fly.toml) is
+written but not yet deployed; 5.5's landing copy is done and its eval
+band still shows labeled placeholders until the eval harnesses run at
+volume. It runs locally against live in-season data today (first real
+in-season use: 2026-09-16, two leagues).** Phase 4 is optional stretch work; Phase 6
 (a trade-value proxy) is deliberately deferred past Phase 5.
 
 ## Architecture
@@ -158,35 +160,37 @@ knowledge; and a question with an unanswerable part (e.g. trade
 valuation) gets a `data_gaps` entry instead of the model improvising
 an answer it can't back up.
 
-## API server (Phase 5.2)
+## The app: API + web UI (Phases 5.2-5.7)
 The same `recommend()` / `generate_report()` behind HTTP, multi-user
 and multi-league: log in with a Sleeper username (no password — the
 API is public and read-only), pick one of your leagues, ask questions.
+One FastAPI app serves all of it — the JSON API under `/api/`, the
+responsive frontend at `/ui/` (`/` redirects there), and, in the
+background, the Phase 5.7 data refresh:
 ```
 uvicorn src.api.main:app --reload
 ```
-To use it through the actual UI (Phase 5.3 — the responsive frontend
-wired to these endpoints, served on the same origin so no CORS is
-needed):
+then open http://127.0.0.1:8000/ — landing page, log in with your
+Sleeper username, pick a league. To reach it from a phone on the same
+WiFi (Phase 5.4 — "Add to Home Screen"; manifest, icons, and iOS head
+tags are in design/, see TODO.md's 5.4 entry for the real-device
+steps), run it bound to your network interface instead:
 ```
 python -m web.dev_server
 ```
-then open http://127.0.0.1:8000/ — landing page, log in with your
-Sleeper username, pick a league. The server listens on 0.0.0.0, so a
-phone on the same WiFi can open `http://<your machine's LAN IP>:8000/`
-and add it to the Home Screen (Phase 5.4 — manifest, icons, and iOS
-head tags are in design/; see TODO.md's 5.4 entry for the exact
-real-device steps). Local network only; the public deployment is 5.6.
+and open `http://<your machine's LAN IP>:8000/`. Local network only;
+the public deployment is the Deploying section below.
 
-The dev server also runs the Phase 5.7 refresh in a background thread,
-so data stays current while it's up (`ASKMADDEN_REFRESH_ENABLED=0` to
-turn that off; check on it with `python -m src.scheduler.refresh
---status`). A real deployment should run `python -m
-src.scheduler.refresh --once` from a cron job or worker instead — an
-in-process thread is the wrong shape for a host that runs more than one
-replica or sleeps idle ones.
+The refresh thread keeps data current while the server is up
+(`ASKMADDEN_REFRESH_ENABLED=0` turns it off; `python -m
+src.scheduler.refresh --status` or `GET /api/health` shows the last
+cycle). It is the right shape for one long-running process; a host
+that runs more than one replica or sleeps idle ones should turn it off
+and run `python -m src.scheduler.refresh --once` from a cron job or
+worker instead.
 
-Endpoints: `POST /api/leagues` (username → your leagues), `POST
+Endpoints: `GET /api/health` (process up + last refresh cycle),
+`POST /api/leagues` (username → your leagues), `POST
 /api/sessions` (pick a league; its data is ingested on first use),
 `GET /api/roster`, `GET /api/reports/{start_sit|drop|waiver_pickups}`,
 `POST /api/chat` (pass back the returned `messages` to continue a
@@ -194,6 +198,45 @@ conversation). Chat responses carry `data_gaps` and per-player
 `signals_consulted` stale markers as separate fields. Claude-backed
 chat is capped per user per day (`ASKMADDEN_DAILY_QUERY_CAP`, default
 25); reports are free. Interactive docs at `/docs` once it's running.
+
+### Deploying (Phase 5.6)
+The whole product is one container: `Dockerfile` runs
+`src.api.main:app` (API + `/ui` frontend + in-process refresh) behind
+`deploy/entrypoint.sh`, which seeds the committed reference signals
+tables onto the host's persistent volume and honors the host's `$PORT`.
+`fly.toml` is the checked-in config for Fly.io; Railway or Render run
+the same image given a persistent volume at `/app/data` and the env
+vars listed at the top of `deploy/entrypoint.sh` (only
+`ANTHROPIC_API_KEY` is required). Everything the server writes lives
+under `data/`, so the one volume persists leagues, the Chroma index,
+the signals tables, and the SQLite users/sessions DB across deploys.
+
+Fly.io, from the repo root (install `flyctl` first:
+https://fly.io/docs/flyctl/install/):
+```
+fly auth login
+fly launch --copy-config --no-deploy        # creates the app from fly.toml; say no to Postgres/Redis
+fly volumes create askmadden_data --size 3 --region iad
+fly secrets set ANTHROPIC_API_KEY=sk-ant-...
+fly deploy
+fly ssh console -C "python -m src.scheduler.refresh --once --backfill"   # once: this season's earlier weeks
+fly open /api/health
+```
+Notes: the machine stays up between requests on purpose (the refresh
+runs in-process, and `fly.toml` says so), which is a few dollars a
+month at 2GB — there is no free tier that gives a persistent disk and
+enough memory for a refresh cycle. The first embed after a deploy
+downloads chromadb's embedding model once (~80MB, kept on the volume
+after that). `fly logs` shows each refresh cycle; `fly ssh console -C
+"python -m src.scheduler.refresh --status"` is the same check as
+locally. HTTPS is automatic, which is also what Android Chrome needs
+for the install prompt (Phase 5.4).
+
+The image has not yet been built or deployed for real — Docker and
+flyctl aren't installed on the machine this was written on. See
+TODO.md's 5.6 entry for what was verified (the app serving everything
+on one origin, against a real server and a real browser) versus what
+the first `fly deploy` still has to prove.
 
 ### Refreshing signals while the server is running
 New games get played, so the signals table needs recomputing. Normally
@@ -272,7 +315,7 @@ process can still lose to a fluke game.
 ```
 pytest
 ```
-Currently 330/330 passing. See `TODO.md` for the session-by-session
+Currently 346/346 passing. See `TODO.md` for the session-by-session
 log of what was validated against real data versus what still needs a
 live re-run (a few items are flagged as needing a machine with both
 `ANTHROPIC_API_KEY` and live Sleeper API access, which this project's

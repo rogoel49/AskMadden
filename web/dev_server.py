@@ -1,85 +1,31 @@
-"""Phase 5.3 dev server: the Phase 5.2 API and the responsive frontend on
-ONE origin, so the browser's fetch() calls need no CORS.
+"""Local launcher for the one Ask Madden app: API + frontend on one origin.
 
     python -m web.dev_server            # http://127.0.0.1:8000/ on this machine,
                                         # http://<this machine's LAN IP>:8000/ from a phone on the same WiFi
 
-Why this exists (and why it's outside src/api/): src/api/main.py has no
-CORS middleware and no static mount, so opening
-design/askmadden-ui-mockup.html as a file:// page and pointing it at
-http://localhost:8000 is blocked by the browser. Phase 5.3 was scoped
-not to touch src/api/, so this wrapper composes the existing app rather
-than editing it: it mounts design/ as static files under /ui and the
-untouched API app under /, on one port. Phase 5.6 ("FastAPI mounts the
-one responsive frontend as a static route") is where this folds into
-src/api/main.py itself; until then this is the way to run the UI.
+As of Phase 5.6 there is nothing to compose here: src/api/main.py itself
+serves design/ as a static mount at /ui, redirects / there, and starts the
+Phase 5.7 background refresh from its own lifespan. This module only
+survives so the documented one-liner keeps working and so a phone on the
+LAN can reach it -- it binds 0.0.0.0, which `uvicorn src.api.main:app`
+does not by default. (0.0.0.0 is still local-network-only: nothing is
+exposed to the internet unless the router forwards the port.) The public
+HTTPS deployment is the Dockerfile + fly.toml at the repo root, which runs
+the same `src.api.main:app`.
 
-Starlette does not propagate a mounted app's lifespan, so the API's
-once-per-process .env load is triggered here explicitly.
-
-Phase 5.7 also starts src/scheduler/refresh.py's background refresh from
-this lifespan, so a server left running keeps its signals/roster data and
-RAG index current instead of serving whatever the last manual ingest
-wrote. It is a daemon thread in this one process: fine for local dev and
-for a single long-running uvicorn, NOT the answer for Phase 5.6's
-hosting, where more than one web replica would each run their own cycle
-and a sleeping replica would run none. 5.6 should call `python -m
-src.scheduler.refresh --once` from a cron job, a separate worker, or a
-scheduled cloud function instead, and turn this one off with
-ASKMADDEN_REFRESH_ENABLED=0. See refresh.py's module docstring.
-
-Binds to 0.0.0.0 (Phase 5.4), not 127.0.0.1: "Add to Home Screen" can only
-be tested on a real phone, and a phone on the same WiFi can only reach a
-server that listens on the machine's network interface. 0.0.0.0 is still
-local-network-only -- nothing here is exposed to the internet unless the
-router forwards the port, which it doesn't by default. Phase 5.6 is the
-public, HTTPS deployment; this is not it.
+History, for anyone reading old TODO.md entries: Phase 5.3 was scoped not
+to touch src/api/, so this file used to wrap the untouched API app in an
+outer FastAPI that mounted design/ and re-triggered the API's lifespan by
+hand (Starlette does not propagate a mounted app's lifespan). Phase 5.7
+then hung the refresh thread off that outer lifespan. Both moved into
+src/api/main.py in 5.6; the env vars are unchanged
+(ASKMADDEN_REFRESH_ENABLED=0 turns the in-process refresh off).
 """
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from pathlib import Path
-
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
-
-from src.api.main import app as api_app
-from src.reasoning import recommend
-from src.scheduler import refresh
-
-DESIGN_DIR = Path(__file__).resolve().parents[1] / "design"
-UI_PATH = "/ui/askmadden-ui-mockup.html"
-
-
-@asynccontextmanager
-async def _lifespan(_app: FastAPI):
-    recommend.load_dotenv_once()  # before refresh reads its own env vars
-    started = refresh.start_background_refresh()
-    try:
-        yield
-    finally:
-        if started is not None:
-            _thread, stop = started
-            stop.set()  # let the loop end between cycles rather than mid-write
-
-
-def build_app() -> FastAPI:
-    outer = FastAPI(title="Ask Madden (UI + API, one origin)", lifespan=_lifespan)
-
-    @outer.get("/", include_in_schema=False)
-    def _root():
-        return RedirectResponse(UI_PATH)
-
-    outer.mount("/ui", StaticFiles(directory=str(DESIGN_DIR)), name="ui")
-    outer.mount("/", api_app)  # its routes already carry the /api prefix
-    return outer
-
-
-app = build_app()
-
+from src.api.main import app  # noqa: F401  -- `uvicorn web.dev_server:app` still works
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("web.dev_server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=False)

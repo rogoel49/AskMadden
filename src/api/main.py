@@ -2,9 +2,34 @@
 reasoning layer. Nothing here reasons about football; every answer
 comes from recommend() / generate_report() exactly as the CLI gets it.
 
-    uvicorn src.api.main:app --reload
+    uvicorn src.api.main:app --reload            # API + the UI at http://127.0.0.1:8000/
+    python -m web.dev_server                     # same app, bound to 0.0.0.0 for a phone on the LAN
+
+Phase 5.6: this one app is the whole deployment. It serves the responsive
+frontend (design/askmadden-ui-mockup.html, its manifest, service worker
+and icons) as a static mount at /ui and redirects / there, so the
+browser's fetch() calls to /api/* are same-origin and there is no CORS
+configuration anywhere. The frontend keeps its /ui prefix on purpose:
+the service worker's scope is the directory it is served from, so
+/api/ stays outside it and is never intercepted or cached (see
+design/sw.js). web/dev_server.py used to compose this mount around the
+API from the outside (5.3 was scoped not to touch src/api/); it is now a
+thin launcher over this module.
+
+The Phase 5.7 background refresh (src/scheduler/refresh.py) also starts
+from this app's lifespan, on by default -- a server whose data quietly
+stops updating is the failure that module exists to prevent. Set
+ASKMADDEN_REFRESH_ENABLED=0 on a host that runs more than one replica or
+sleeps idle ones, and run `python -m src.scheduler.refresh --once` from a
+cron job / scheduled worker there instead (refresh.py's docstring says
+why an in-process thread is the wrong shape for that).
 
 Endpoints (all JSON):
+  GET  /api/health
+        -> {ok: true, ...} plus the refresh's last-cycle summary when one
+           has run. For a host's health check and for "is the data
+           moving" at a glance; always 200 while the process is up
+           (stale data is reported, not treated as an outage).
   POST /api/leagues            {username, season?}
         -> log in: Sleeper username -> user + their leagues (with the
            user's roster_id in each), stored. Live Sleeper call.
@@ -67,10 +92,13 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.api import auth, leagues
@@ -78,6 +106,7 @@ from src.api.storage import DEFAULT_DB_PATH, QueryCapExceeded, Storage
 from src.rag import lookup
 from src.reasoning import recommend, report
 from src.reasoning.league import LeagueMismatchError
+from src.scheduler import refresh
 
 DEFAULT_DAILY_QUERY_CAP = 25
 # The shared, league-agnostic signals table every league's reports rank
@@ -85,13 +114,36 @@ DEFAULT_DAILY_QUERY_CAP = 25
 # fixture data.
 SIGNALS_DIR = report.SIGNALS_DIR
 
+# Phase 5.6: the one responsive frontend, served by this app. The file
+# keeps its name (every doc references it) and its /ui prefix (see the
+# module docstring: the service worker's scope must not include /api/).
+DESIGN_DIR = Path(__file__).resolve().parents[2] / "design"
+UI_PREFIX = "/ui"
+UI_FILENAME = "askmadden-ui-mockup.html"
+UI_INDEX_PATH = f"{UI_PREFIX}/"
+
+# The background refresh started by the lifespan, kept so /api/health can
+# say whether it is running in this process; None when disabled or before
+# startup.
+_refresh_thread = None
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    recommend.load_dotenv_once()  # once per server process, not per request
-    yield
+    global _refresh_thread
+    recommend.load_dotenv_once()  # once per server process, not per request; before refresh reads its env
+    started = refresh.start_background_refresh()  # None when ASKMADDEN_REFRESH_ENABLED is off
+    _refresh_thread = started[0] if started is not None else None
+    try:
+        yield
+    finally:
+        if started is not None:
+            _thread, stop = started
+            stop.set()  # let the loop end between cycles rather than mid-write
+        _refresh_thread = None
 
 
-app = FastAPI(title="Ask Madden API", version="0.5.2", lifespan=_lifespan)
+app = FastAPI(title="Ask Madden API", version="0.5.6", lifespan=_lifespan)
 
 
 # ---- dependencies (overridable in tests) ----
@@ -202,6 +254,48 @@ def _signals_consulted(tool_calls: list[dict]) -> list[dict]:
 
 
 # ---- endpoints ----
+
+
+@app.get("/api/health")
+def health() -> dict:
+    """Process is up -> 200, always. The refresh summary is informational:
+    a host's health check must not restart a perfectly good server because
+    nflverse was down for a cycle."""
+    status = refresh.read_status() or {}
+    last = status.get("last_run") or {}
+    return {
+        "ok": True,
+        "version": app.version,
+        "refresh": {
+            "enabled": refresh.refresh_enabled(),
+            "running_in_process": _refresh_thread is not None and _refresh_thread.is_alive(),
+            "last_outcome": last.get("outcome"),
+            "last_finished_at": last.get("finished_at"),
+            "season": last.get("season"),
+            "as_of_week": last.get("as_of_week"),
+            "consecutive_failures": status.get("consecutive_failures"),
+            "next_run_after": status.get("next_run_after"),
+        },
+    }
+
+
+# ---- the frontend (Phase 5.6) ----
+# Order matters: FastAPI matches routes in registration order, so the
+# explicit /ui/ index route must exist before the /ui mount or the
+# StaticFiles app would answer /ui/ with a 404 (no index.html there).
+
+
+@app.get("/", include_in_schema=False)
+def _root() -> RedirectResponse:
+    return RedirectResponse(UI_INDEX_PATH)
+
+
+@app.get(UI_INDEX_PATH, include_in_schema=False)
+def _ui_index() -> FileResponse:
+    return FileResponse(DESIGN_DIR / UI_FILENAME, media_type="text/html")
+
+
+app.mount(UI_PREFIX, StaticFiles(directory=str(DESIGN_DIR)), name="ui")
 
 
 @app.post("/api/leagues")

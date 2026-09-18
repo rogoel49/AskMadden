@@ -488,8 +488,8 @@ data wiring only, not layout work. Implemented — see TODO.md's Phase
 5.3 entry for the investigation, the validation actually run (real
 headless browser at both breakpoints against the real server with
 boundary mocks), and what still needs a live run. Served same-origin
-by web/dev_server.py because src/api has no CORS/static mount yet
-(5.6's job).
+by web/dev_server.py because src/api had no CORS/static mount at the
+time (5.6 moved the mount into src/api/main.py itself).
 - [x] Login, league picker, switch-league sheet to real /api/leagues
       and /api/sessions (errors shown in the UI, session in JS state)
 - [x] Feed (start_sit / drop / waiver_pickups reports, per-entry stale
@@ -529,19 +529,30 @@ CTA into the login view. Its own small, independent piece of content
 work, but one view in one file — design tokens are shared by
 construction.
 
-- [ ] Landing copy and feature cards finalized
+- [x] Landing copy and feature cards finalized (2026-09-18: reviewed
+      against what the product does today, edited so nothing overclaims;
+      see TODO.md's 5.5 entry)
 - [ ] Eval-numbers band populated only with real numbers: retrieval
       and decision accuracy once run_eval.py / run_decision_eval.py
       have run at volume (no Phase 4 dependency); matchup-fit accuracy
       only once Phase 4's coverage classification lands (the signals
       table marks that signal a modeled proxy until then). Placeholders
       are labeled as placeholders on purpose.
-- [ ] No auth, no API calls from the landing view
+- [x] No auth, no API calls from the landing view (pinned by a test)
 
 #### 5.6 — Deployment
-- [ ] FastAPI mounts the one responsive frontend as a static route —
-      one deployment, one URL, no CORS
-- [ ] Free-tier host (Railway/Render/Fly.io)
+- [x] FastAPI mounts the one responsive frontend as a static route —
+      one deployment, one URL, no CORS (`src/api/main.py` serves
+      `design/` at `/ui`, `/` redirects there, `/api/health` added; the
+      refresh thread moved into the app's own lifespan;
+      `web/dev_server.py` is a thin launcher now)
+- [x] Deployment config: `Dockerfile` + `deploy/entrypoint.sh` +
+      `fly.toml` (Fly.io; Railway/Render run the same image). "Free
+      tier" turned out not to exist for this shape — a persistent
+      volume plus 2GB for a refresh cycle is a few dollars a month
+      wherever it runs.
+- [ ] Deploy for real (never built here: no Docker/flyctl on the
+      machine this was written on — see TODO.md's 5.6 entry)
 - [ ] Get 2-3 friends in different leagues to actually use it
 - [ ] README: "started as one league, generalized to a product," with
       real eval numbers from run_decision_eval.py
@@ -588,7 +599,8 @@ Chroma's metadata-filtered `get()` — were already fresh, confirmed live.
 - [x] Cadence derived from nflverse's measured build schedule (pbp at
       most twice a day, NGS once a day) rather than guessed: 6 hours,
       configurable via `ASKMADDEN_REFRESH_INTERVAL_SECONDS`
-- [x] Wired into `web/dev_server.py` as a daemon thread, with `python -m
+- [x] Wired into `web/dev_server.py` as a daemon thread (moved into
+      `src/api/main.py`'s own lifespan in 5.6, same switch), with `python -m
       src.scheduler.refresh --once` as the entry point 5.6 should use
       from a cron job / worker / scheduled function instead (documented
       in both modules — the in-process thread is wrong for a host that
@@ -877,7 +889,9 @@ into this pattern, just not the model for anything new.
 - [x] Minimal web frontend (5.3 wired + 5.4 installable; real-phone
       layout fixed in the 5.4 follow-up)
 - [x] Cost/query caps (5.2: per-user daily chat cap)
-- [ ] Deploy to free-tier host (5.6)
+- [x] One app serves API + frontend + refresh (5.6); Dockerfile +
+      fly.toml written
+- [ ] Deploy it (5.6) — config done, never built or deployed yet
 - [ ] Get real multi-league usage — two leagues in local use as of
       2026-09-16, none hosted yet
 
@@ -887,7 +901,8 @@ into this pattern, just not the model for anything new.
       nflverse's completed-game data, never Sleeper's display_week
 - [x] 6-hour cadence from nflverse's measured build schedule;
       configurable, with a status file and `--status`
-- [x] Wired into web/dev_server.py; `--once` documented as 5.6's hook
+- [x] Wired into the app's lifespan (web/dev_server.py originally,
+      src/api/main.py since 5.6); `--once` documented as 5.6's hook
 - [x] Fixed the API serving a stale (and crashing) Chroma vector index
       after a re-embed
 - [x] Live Sleeper run (2026-09-16: two real `--once` cycles on Rohan's
