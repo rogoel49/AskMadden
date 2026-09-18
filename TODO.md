@@ -2387,6 +2387,15 @@ including Rohan's own, gets a per-league directory under
   `http://127.0.0.1:8765/ui/`; a `fetch('/api/health')` from the page
   returns 200 straight from the network; the CTA opens the login view;
   zero console errors.
+- **One real, unplanned refresh cycle from the API app's own
+  lifespan.** A `uvicorn src.api.main:app` process was started by
+  accident (a shell-quoting slip while opening the PR) with the real
+  `.env` and the refresh switch unset, i.e. on. Before it was stopped,
+  the lifespan-started thread ran a complete cycle against real
+  Sleeper + nflverse: 76.5s, `outcome: ok`, week-2 table (313 rows),
+  both leagues `sleeper=ok embed=ok` (1459 / 1366 chunks). So "the
+  refresh starts from `src/api/main.py` now, not the dev server" is
+  confirmed live, not just by the stubbed lifespan test.
 
 #### Flagged, not done
 - [ ] **The image has never been built.** No Docker here. The
