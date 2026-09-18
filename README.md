@@ -232,6 +232,31 @@ after that). `fly logs` shows each refresh cycle; `fly ssh console -C
 locally. HTTPS is automatic, which is also what Android Chrome needs
 for the install prompt (Phase 5.4).
 
+**Custom domain** (e.g. askmadden.com), once `fly deploy` works and
+`https://askmadden.fly.dev/` loads. Buy the domain at any registrar
+(Cloudflare Registrar, Porkbun, and Namecheap all sell .com at roughly
+$10/year), then from the repo root:
+```
+fly certs add askmadden.com
+fly certs add www.askmadden.com
+fly ips list
+```
+`fly certs add` prints the DNS records to create at the registrar: an
+`A` record for `askmadden.com` pointing at the app's IPv4 from `fly ips
+list`, an `AAAA` record pointing at its IPv6, and a `CNAME` for `www`
+pointing at `askmadden.fly.dev`. If the registrar is Cloudflare, leave
+the proxy (orange cloud) OFF for these records so Fly can issue the
+certificate. Then:
+```
+fly certs check askmadden.com
+```
+until it reports the certificate as issued (usually a few minutes after
+DNS propagates; up to an hour). HTTPS on the custom domain is automatic
+after that, and `fly.toml`'s `force_https` already redirects http://.
+Note: `app = "askmadden"` in `fly.toml` is a global Fly name; if `fly
+launch` says it's taken, pick another (`askmadden-rg`, say) — only the
+`*.fly.dev` URL changes, the custom domain doesn't care.
+
 The image has not yet been built or deployed for real — Docker and
 flyctl aren't installed on the machine this was written on. See
 TODO.md's 5.6 entry for what was verified (the app serving everything
