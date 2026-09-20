@@ -2,6 +2,8 @@
 must read as "no trend yet", never as "trending down (+0.00)" (what
 every card on the Feed said the morning after week 1, 2026), and an
 exactly-zero trend, should one ever occur, is "flat"."""
+import pytest
+
 from src.rag import embed
 from src.reasoning import ranking
 
@@ -40,3 +42,30 @@ def test_signal_chunk_sentence_states_no_trend_yet_and_flat():
     early = embed._signal_sentence({**_EARLY, "as_of_week": 2})
     assert "no efficiency trend yet" in early and "trending" not in early
     assert "trending flat" in embed._signal_sentence({**_FLAT, "as_of_week": 2})
+
+
+# ---- passers get a score of their own (2026-09-20) ----
+
+
+def test_a_passer_row_is_rankable_on_cpoe_and_implied_total():
+    from src.reasoning import ranking
+
+    qb = {"epa_trend": None, "epa_baseline_plays": 0, "red_zone_share": None, "target_share": None,
+          "target_share_adjusted": None, "cpoe": 10.0, "implied_total": 25.0}
+    assert ranking.opportunity_score(qb) == pytest.approx(0.05 * 10.0 + 0.04 * 25.0)
+    assert "completion % over expected +10.0" in ranking.fmt_signal_row(qb)
+    # the same row without the passer stat is what a QB used to be: unrankable
+    assert ranking.opportunity_score({**qb, "cpoe": None}) is None
+
+
+def test_two_passers_rank_by_the_better_environment_and_accuracy():
+    from src.reasoning import ranking
+
+    maye = {"player_id": "m", "name": "Drake Maye", "position": "QB", "team": "NE",
+            "row": {"cpoe": 3.2, "implied_total": 21.0, "epa_trend": None, "epa_baseline_plays": 0}}
+    mayfield = {"player_id": "b", "name": "Baker Mayfield", "position": "QB", "team": "TB",
+                "row": {"cpoe": 15.4, "implied_total": 24.5, "epa_trend": None, "epa_baseline_plays": 0}}
+    out = ranking.rank_candidates([maye, mayfield])
+    assert out["verdict"] == "clear"
+    assert [r["name"] for r in out["ranked"]] == ["Baker Mayfield", "Drake Maye"]
+    assert "CPOE" in out["score_description"]

@@ -459,3 +459,15 @@ def test_chat_cap_is_per_user(api):
     assert api["client"].post(
         "/api/chat", json={"session_id": session_id, "question": "q", "season": _SEASON, "as_of_week": _WEEK}
     ).status_code == 200
+
+
+def test_roster_endpoint_lays_the_lineup_out_by_slot(api):
+    session_id = _login_and_session(api)
+    body = api["client"].get(f"/api/roster?session_id={session_id}").json()
+    assert body["roster_positions"] == ["QB", "RB", "RB", "WR", "TE", "BN"]
+    assert [s["slot"] for s in body["lineup"]] == ["QB", "RB", "RB", "WR", "TE"]
+    # fixture: starters == ["s_barkley"], so he fills the first slot and the rest are empty
+    assert body["lineup"][0]["player"]["name"] == "Saquon Barkley"
+    assert all(s["player"] is None for s in body["lineup"][1:])
+    assert [p["name"] for p in body["bench"]] == ["James Cook"]
+    assert body["reserve"] == []

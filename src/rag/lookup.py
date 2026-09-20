@@ -255,6 +255,72 @@ def all_team_rosters(raw_dir: Path = RAW_DIR) -> list[dict]:
     return rosters
 
 
+# Sleeper's slot vocabulary. `starters` on a roster is aligned index-for-
+# index with the league's roster_positions minus the bench-type slots, an
+# empty slot is the string "0". FLEX-type slots accept the positions
+# listed; anything else (K, DEF, IDP labels...) is a dedicated slot for
+# exactly that position.
+BENCH_SLOTS = {"BN", "IR", "TAXI"}
+FLEX_ELIGIBILITY: dict[str, tuple[str, ...]] = {
+    "FLEX": ("RB", "WR", "TE"),
+    "SUPER_FLEX": ("QB", "RB", "WR", "TE"),
+    "REC_FLEX": ("WR", "TE"),
+    "WRRB_FLEX": ("RB", "WR"),
+    "IDP_FLEX": ("DL", "LB", "DB"),
+}
+
+
+def starter_slots(roster_positions: list[str]) -> list[str]:
+    """The starting slots, in Sleeper's order -- what a roster's
+    `starters` array lines up against."""
+    return [slot for slot in roster_positions if slot not in BENCH_SLOTS]
+
+
+def _player_entry(pid: Any, players: dict) -> dict:
+    info = players.get(pid) or {}
+    return {
+        "player_id": pid,
+        "name": info.get("full_name") or (pid if isinstance(pid, str) and pid.isalpha() else None),  # "JAX" = a team DEF
+        "position": info.get("position") or ("DEF" if isinstance(pid, str) and pid.isalpha() else None),
+        "team": info.get("team") or (pid if isinstance(pid, str) and pid.isalpha() else None),
+        "injury_status": info.get("injury_status"),
+        "number": info.get("number"),
+    }
+
+
+def starting_lineup(team: dict, players: dict, roster_positions: list[str]) -> dict:
+    """A roster the way Sleeper's own roster screen shows it: the
+    starting slots in league order with whoever is in each, then the
+    bench, then reserve (IR) -- built from the team's `starters` array
+    and the league's roster_positions. Pure: takes already-loaded data.
+    A league whose roster_positions aren't known labels each starter
+    generically rather than guessing."""
+    slots = starter_slots(roster_positions)
+    starters = [pid for pid in (team.get("starters") or [])]
+    if not slots:
+        slots = ["START"] * len(starters)
+    lineup = []
+    for i, slot in enumerate(slots):
+        pid = starters[i] if i < len(starters) else None
+        filled = pid not in (None, "", "0")
+        lineup.append({"slot": slot, "player": _player_entry(pid, players) if filled else None})
+    starter_ids = {pid for pid in starters if pid not in (None, "", "0")}
+    reserve_ids = [pid for pid in (team.get("reserve") or [])]
+    bench = [_player_entry(pid, players) for pid in (team.get("players") or []) if pid not in starter_ids and pid not in reserve_ids]
+    reserve = [_player_entry(pid, players) for pid in reserve_ids]
+    return {"lineup": lineup, "bench": bench, "reserve": reserve}
+
+
+def lineup_for_roster_id(roster_id: Any, roster_positions: list[str], raw_dir: Path = RAW_DIR) -> dict | None:
+    """starting_lineup() for one roster_id from the ingested
+    teams.json/players.json, or None if no team has that id."""
+    teams, players = _load_teams_and_players(raw_dir)
+    for team in teams:
+        if str(team.get("roster_id")) == str(roster_id):
+            return starting_lineup(team, players, roster_positions)
+    return None
+
+
 def team_roster_for_roster_id(roster_id: Any, raw_dir: Path = RAW_DIR) -> dict | None:
     """all_team_rosters()'s entry (players grouped with a per-position
     count) for one roster_id, or None if no team has it. The API's

@@ -211,3 +211,41 @@ def test_team_roster_for_owner_unknown_owner_returns_none(tmp_path):
     _seed_raw_dir(raw_dir)
 
     assert lookup.team_roster_for_owner("nobody", raw_dir) is None
+
+
+# ---- Sleeper-style lineup: starting slots in league order, then bench ----
+
+
+def test_starting_lineup_aligns_starters_with_the_leagues_slots():
+    from src.rag import lookup
+
+    players = {
+        "1": {"full_name": "Drake Maye", "position": "QB", "team": "NE", "injury_status": None, "number": 10},
+        "2": {"full_name": "Derrick Henry", "position": "RB", "team": "BAL", "injury_status": "Questionable", "number": 22},
+        "3": {"full_name": "Jahmyr Gibbs", "position": "RB", "team": "DET"},
+        "4": {"full_name": "Malik Nabers", "position": "WR", "team": "NYG"},
+        "5": {"full_name": "Tony Pollard", "position": "RB", "team": "TEN"},
+        "6": {"full_name": "Kendre Miller", "position": "RB", "team": "NO"},
+    }
+    team = {"roster_id": 11, "players": ["1", "2", "3", "4", "5", "6"], "starters": ["1", "2", "3", "0", "4", "JAX"], "reserve": ["6"]}
+    positions = ["QB", "RB", "RB", "WR", "FLEX", "DEF", "BN", "BN", "IR"]
+
+    out = lookup.starting_lineup(team, players, positions)
+
+    assert [s["slot"] for s in out["lineup"]] == ["QB", "RB", "RB", "WR", "FLEX", "DEF"]
+    assert [s["player"]["name"] if s["player"] else None for s in out["lineup"]] == [
+        "Drake Maye", "Derrick Henry", "Jahmyr Gibbs", None, "Malik Nabers", "JAX",
+    ]
+    assert out["lineup"][1]["player"]["injury_status"] == "Questionable"
+    assert out["lineup"][5]["player"]["position"] == "DEF"  # a team defense is its abbreviation in Sleeper
+    assert [p["name"] for p in out["bench"]] == ["Tony Pollard"]
+    assert [p["name"] for p in out["reserve"]] == ["Kendre Miller"]
+
+
+def test_starting_lineup_without_known_slots_labels_starters_generically():
+    from src.rag import lookup
+
+    players = {"1": {"full_name": "A", "position": "RB", "team": "X"}, "2": {"full_name": "B", "position": "RB", "team": "Y"}}
+    out = lookup.starting_lineup({"players": ["1", "2"], "starters": ["2"]}, players, [])
+    assert [(s["slot"], s["player"]["name"]) for s in out["lineup"]] == [("START", "B")]
+    assert [p["name"] for p in out["bench"]] == ["A"]

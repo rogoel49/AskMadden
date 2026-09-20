@@ -81,6 +81,18 @@ __all__ = [
 EPA_TREND_WEIGHT = 2.0
 RED_ZONE_SHARE_WEIGHT = 3.0
 TARGET_SHARE_WEIGHT = 2.0
+# Passer terms (2026-09-20): a QB's row has no target share and usually no
+# red-zone share, so under the three weights above two QBs were "no usable
+# signal" and every QB slot was skipped -- the first real user asked who to
+# start at QB and got nothing. A row with `cpoe` (NGS completion % over
+# expected, in percentage points, roughly -8..+10 over a season) is a
+# passer's; it also gets the team's implied total (points, ~15-30), the
+# game-environment number that matters most for a QB. Scaled so a typical
+# QB lands in the same ~0-2 range as the skill-position terms: +10 cpoe
+# is 0.5, a 25-point implied total is 1.0. Same status as the weights
+# above -- simple, documented, not fitted.
+CPOE_WEIGHT = 0.05
+IMPLIED_TOTAL_WEIGHT = 0.04
 
 # Thresholds below which a signal counts as a concrete "why this player is
 # weak" reason in the drop report. Same status as the weights above --
@@ -102,8 +114,11 @@ SCORE_DESCRIPTION = (
     f"composite opportunity score = {EPA_TREND_WEIGHT:g} x recent EPA/play trend "
     f"+ {RED_ZONE_SHARE_WEIGHT:g} x red zone role share "
     f"+ {TARGET_SHARE_WEIGHT:g} x target share (opponent-adjusted when available); "
+    f"for a passer (a row with completion % over expected) also + {CPOE_WEIGHT:g} x CPOE "
+    f"+ {IMPLIED_TOTAL_WEIGHT:g} x team implied total; "
     "higher is better. A signal that isn't computed for a player contributes nothing; a player with none "
-    "of the three can't be ranked at all."
+    "of the scored signals can't be ranked at all. The passer terms only apply to passers, so a QB's score "
+    "is not comparable to a skill player's (a superflex call between them is not something this score can make)."
 )
 
 
@@ -233,6 +248,11 @@ def opportunity_score(row: dict | None) -> float | None:
     if share is not None:
         score += TARGET_SHARE_WEIGHT * share
         has_any_signal = True
+    if row.get("cpoe") is not None:  # a passer -- see CPOE_WEIGHT
+        score += CPOE_WEIGHT * row["cpoe"]
+        has_any_signal = True
+        if row.get("implied_total") is not None:
+            score += IMPLIED_TOTAL_WEIGHT * row["implied_total"]
     return score if has_any_signal else None
 
 
@@ -289,6 +309,8 @@ def fmt_signal_row(row: dict | None) -> str:
     share = target_share(row)
     if share is not None:
         parts.append(f"target share {share * 100:.0f}%")
+    if row.get("cpoe") is not None:
+        parts.append(f"completion % over expected {row['cpoe']:+.1f}")
     if row.get("opponent"):
         parts.append(f"facing {row['opponent']}")
     if row.get("implied_total") is not None:
