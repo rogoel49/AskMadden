@@ -344,7 +344,12 @@ or monetized, it needs to genuinely work for more than one league.
   `get_my_roster` returns `injury_status`. `/api/roster` returns the
   lineup by slot (`lineup`/`bench`/`reserve`) and the Roster tab draws
   it Sleeper-style. See TODO.md's "Fixed: start/sit recommended one
-  starter per position..." entry.
+  starter per position..." entry. **Later the same day:** the EPA trend
+  term now needs `MIN_TREND_PLAYS` (20) plays to count (a 5-play player
+  had topped the waiver list on trend noise), waiver targets set aside
+  last-season-only players once the current season has data, and the
+  K/DEF and unrankable-player notes say what they mean -- TODO.md's
+  "Fixed: a 5-play player topped the waiver list..." entry.
 - Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
   Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
   confirmed a complete, honestly-bounded product (composition + signals +

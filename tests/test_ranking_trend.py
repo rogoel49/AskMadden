@@ -69,3 +69,19 @@ def test_two_passers_rank_by_the_better_environment_and_accuracy():
     assert out["verdict"] == "clear"
     assert [r["name"] for r in out["ranked"]] == ["Baker Mayfield", "Drake Maye"]
     assert "CPOE" in out["score_description"]
+
+
+# ---- the trend term needs a sample (2026-09-20) ----
+
+
+def test_a_trend_on_a_handful_of_plays_does_not_count_toward_the_score():
+    """Tahj Washington, the first real waiver report's #1: 5 plays all of
+    2025, +1.35 EPA/play, 1% target share, 1% red-zone share -> 2.74 under
+    the old score, above every player with a real role."""
+    row = {"season_plays": 5, "epa_trend": 1.3476, "red_zone_share": 0.0074, "target_share": 0.0108, "target_share_adjusted": None}
+    assert ranking.opportunity_score(row) == pytest.approx(3.0 * 0.0074 + 2.0 * 0.0108)
+    assert "on only 5 plays (too few to count)" in ranking.fmt_signal_row(row)
+    assert "trending up" not in ranking.fmt_signal_row(row)
+    # the same trend with a real sample behind it counts as before
+    assert ranking.opportunity_score({**row, "season_plays": 40}) == pytest.approx(2.0 * 1.3476 + 3.0 * 0.0074 + 2.0 * 0.0108)
+    assert "trending up" in ranking.fmt_signal_row({**row, "season_plays": 40})

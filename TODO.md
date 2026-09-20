@@ -1237,6 +1237,64 @@ against the real Narcos league on a live server in headless Chrome:
 the entries above, the notes above, the roster screenshot (starters by
 slot, bench, IR/O tags) -- no console errors.
 
+## Fixed: a 5-play player topped the waiver list, and three report notes read like bugs
+
+Found 2026-09-20 by Rohan on the Narcos feed: "why did we recommend
+Tahj Washington here? what's his data?" and "peep the notes section,
+why did those not land?".
+
+**Tahj Washington #1 waiver target (score 2.739).** His row: 5 plays in
+all of 2025, EPA trend +1.35, 1% target share, 1% red-zone share -- and
+no 2026 plays at all (stale fallback). Two things went wrong at once:
+- *The EPA trend term had no sample floor.* A trailing-window average
+  minus a season average on five plays is noise with a large absolute
+  value, and at 2.0x it was the entire score (2 x 1.35 = 2.70 of 2.74),
+  above every player with an actual role. #2 and #3 (Kinsey, 4 plays;
+  Walker, 8 plays) were the same shape. `ranking.opportunity_score()`
+  now counts the trend only from `MIN_TREND_PLAYS` (20) plays on record
+  (`trend_is_trustworthy()`); below that `fmt_signal_row` prints it as
+  "efficiency trend +1.35 EPA/play on only 5 plays (too few to count)"
+  rather than "trending up". `score_description` says so. The 2026
+  week-2 table has no such rows (0 of 313); the 2025 season-end table
+  has 5 of 601, all of which were waiver-list material.
+- *Last-season-only players were ranked as pickups.* Once the current
+  season has a table with anyone in it, a player whose only row is last
+  season's has by construction no plays this season, and a pickup with
+  no role now is not a pickup. `_waiver_pickups_report` sets them aside
+  with a note ("282 unrostered player(s) with no 2026 plays yet were not
+  ranked as pickups -- a role at the end of last season says nothing
+  about a role now") whenever `tables.signals_by_id` is non-empty;
+  before the season's first table exists, last season is all there is
+  and is still used, labeled stale (Phase 3.6, unchanged). Real Narcos
+  list afterwards: Elic Ayomanor, Evan Engram, Deshaun Watson, Eli
+  Raridon -- all on 2026 usage.
+
+**The notes.** Three notes on the same feed, each true, each reading
+like a bug:
+- "Could not identity-resolve 1 rostered player(s): Jake Bates" -- he is
+  a kicker; nothing in the signals table covers K or DEF, so there was
+  never anything to resolve against. `_resolve_roster_with_signals` now
+  sets K/DEF aside explicitly: "No matchup signals exist for kickers or
+  defenses, so they aren't ranked: Jake Bates (K)."
+- "2 player(s) ... fell back to stale 2025 data: Roschon Johnson, Dylan
+  Sampson" AND "1 rostered player(s) had no computed signals and were
+  excluded from ranking: Roschon Johnson" -- both true (Johnson: 2 plays
+  in 2025, none of the scored signals), and together a contradiction.
+  The stale note now covers only players who can actually be ranked, and
+  the unrankable one is explained once with his usage: "Not enough usage
+  on record to rank (no target share, red-zone share, efficiency trend
+  or passing numbers): Roschon Johnson (2 play(s) in 2025)." Same rule
+  in start_sit and drop.
+
+**Validated:** `tests/test_ranking_trend.py` (the Washington row scores
+0.04 not 2.74, prints "too few to count", and the same trend with 40
+plays counts as before); `tests/test_report.py` (last-season-only
+players skipped with the note once the season has data; still listed
+and labeled stale before it does -- the old "marks stale candidates"
+test rewritten to that split; the K note; the one-story note for an
+unrankable player). Suite 367/367. And the three real Narcos reports
+above from a live server.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper
