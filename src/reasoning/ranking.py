@@ -93,6 +93,14 @@ TARGET_SHARE_WEIGHT = 2.0
 # above -- simple, documented, not fitted.
 CPOE_WEIGHT = 0.05
 IMPLIED_TOTAL_WEIGHT = 0.04
+# The EPA trend is a trailing-window average minus a season average. On a
+# handful of plays it is noise with a big absolute value, and at 2.0x it
+# was the whole score: the first real waiver report's #1 pickup was a WR
+# with 5 plays all season (+1.35 EPA/play, 1% target share, 1% red-zone
+# share -> 2.74, above every player with an actual role). The trend term
+# only counts once a player has this many plays on record; below it the
+# number is still shown, labeled as too few to count.
+MIN_TREND_PLAYS = 20
 
 # Thresholds below which a signal counts as a concrete "why this player is
 # weak" reason in the drop report. Same status as the weights above --
@@ -116,10 +124,19 @@ SCORE_DESCRIPTION = (
     f"+ {TARGET_SHARE_WEIGHT:g} x target share (opponent-adjusted when available); "
     f"for a passer (a row with completion % over expected) also + {CPOE_WEIGHT:g} x CPOE "
     f"+ {IMPLIED_TOTAL_WEIGHT:g} x team implied total; "
-    "higher is better. A signal that isn't computed for a player contributes nothing; a player with none "
+    f"higher is better. The trend term only counts from {MIN_TREND_PLAYS} plays on record (below that it is noise). "
+    "A signal that isn't computed for a player contributes nothing; a player with none "
     "of the scored signals can't be ranked at all. The passer terms only apply to passers, so a QB's score "
     "is not comparable to a skill player's (a superflex call between them is not something this score can make)."
 )
+
+
+def trend_is_trustworthy(row: dict) -> bool:
+    """Whether row's epa_trend rests on enough plays to count (see
+    MIN_TREND_PLAYS). A row that doesn't carry season_plays at all is
+    taken at face value."""
+    plays = row.get("season_plays")
+    return plays is None or plays >= MIN_TREND_PLAYS
 
 
 def load_signals_table(signals_dir: Path, season: int, as_of_week: int) -> dict[str, dict]:
@@ -238,7 +255,7 @@ def opportunity_score(row: dict | None) -> float | None:
         return None
     score = 0.0
     has_any_signal = False
-    if row.get("epa_trend") is not None:
+    if row.get("epa_trend") is not None and trend_is_trustworthy(row):
         score += EPA_TREND_WEIGHT * row["epa_trend"]
         has_any_signal = True
     if row.get("red_zone_share") is not None:
@@ -300,7 +317,11 @@ def fmt_signal_row(row: dict | None) -> str:
             f"showing {row.get('source_season')} season-end reference instead] "
         )
     parts = []
-    if row.get("epa_trend") is not None:
+    if row.get("epa_trend") is not None and not trend_is_trustworthy(row):
+        parts.append(
+            f"efficiency trend {row['epa_trend']:+.2f} EPA/play on only {row['season_plays']} plays (too few to count)"
+        )
+    elif row.get("epa_trend") is not None:
         parts.append(f"efficiency trending {_trend_direction(row['epa_trend'])} ({row['epa_trend']:+.2f} EPA/play)")
     elif row.get("epa_baseline_plays") == 0:
         parts.append(NO_TREND_YET)

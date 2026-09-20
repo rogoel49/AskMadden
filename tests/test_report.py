@@ -385,19 +385,33 @@ def test_drop_handles_a_player_with_no_signal_data_at_all_gracefully(tmp_path, m
     assert any("James Cook" in note for note in result["notes"])
 
 
-def test_waiver_pickups_marks_stale_fallback_candidates_too(tmp_path, monkeypatch):
-    """The fallback isn't just a start_sit/drop thing -- waiver_pickups
-    shares the same _signal_row() machinery and must label stale
-    candidates the same way."""
+def test_waiver_pickups_skips_last_season_only_players_once_the_season_has_data(tmp_path, monkeypatch):
+    """The first real waiver report's top three were players with 4-8 plays
+    in all of 2025 and none in 2026. Once a current-season table exists,
+    a player whose only row is last season's has no role now and is not
+    a pickup; the report says how many it set aside."""
+    my_roster = {"sleeper_cmc": {"full_name": "Christian McCaffrey", "position": "RB", "team": "SF"}}
+    players_df = pl.DataFrame([_CHRISTIAN_ROW, _BARKLEY_ROW, _UNROSTERED_WR_ROW])
+    raw_dir, persist_dir, signals_dir = _setup(
+        tmp_path, monkeypatch, my_roster, [_CHRISTIAN_SIGNAL_ROW, _CHASE_SIGNAL_ROW], players_df,
+        prior_signal_rows=[_BARKLEY_PRIOR_SIGNAL_ROW],
+    )
+
+    result = report.generate_report(
+        "waiver_pickups", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    assert [e["name"] for e in result["entries"]] == ["Ja'Marr Chase"]
+    assert any(note.startswith(f"1 unrostered player(s) with no {_SEASON} plays yet were not ranked") for note in result["notes"])
+
+
+def test_waiver_pickups_uses_last_season_labeled_stale_before_the_season_has_any_data(tmp_path, monkeypatch):
+    """Before the first current-season table exists, last season is all
+    there is: still listed, still labeled stale (Phase 3.6)."""
     my_roster = {"sleeper_cmc": {"full_name": "Christian McCaffrey", "position": "RB", "team": "SF"}}
     players_df = pl.DataFrame([_CHRISTIAN_ROW, _BARKLEY_ROW])
     raw_dir, persist_dir, signals_dir = _setup(
-        tmp_path,
-        monkeypatch,
-        my_roster,
-        [_CHRISTIAN_SIGNAL_ROW],
-        players_df,
-        prior_signal_rows=[_BARKLEY_PRIOR_SIGNAL_ROW],
+        tmp_path, monkeypatch, my_roster, [], players_df, prior_signal_rows=[_BARKLEY_PRIOR_SIGNAL_ROW],
     )
 
     result = report.generate_report(
@@ -409,6 +423,49 @@ def test_waiver_pickups_marks_stale_fallback_candidates_too(tmp_path, monkeypatc
     assert barkley["source_season"] == _SEASON - 1
     assert "[STALE" in barkley["reasoning"]
     assert any("stale" in note.lower() for note in result["notes"])
+
+
+def test_reports_say_kickers_and_defenses_have_no_signals_instead_of_failing_to_resolve_them(tmp_path, monkeypatch):
+    roster = {
+        "sleeper_barkley": {"full_name": "Saquon Barkley", "position": "RB", "team": "PHI"},
+        "sleeper_cook": {"full_name": "James Cook", "position": "RB", "team": "BUF"},
+        "sleeper_bates": {"full_name": "Jake Bates", "position": "K", "team": "DET"},
+    }
+    players_df = pl.DataFrame([_BARKLEY_ROW, _COOK_ROW])
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_BARKLEY_SIGNAL_ROW, _COOK_SIGNAL_ROW], players_df)
+
+    result = report.generate_report(
+        "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    assert "No matchup signals exist for kickers or defenses, so they aren't ranked: Jake Bates (K)." in result["notes"]
+    assert not any("identity-resolve" in note for note in result["notes"])
+
+
+def test_drop_report_explains_an_unrankable_player_once_not_twice(tmp_path, monkeypatch):
+    """Roschon Johnson: 2 plays in 2025, no scored signal. The old notes
+    said he 'fell back to stale 2025 data' AND 'had no computed signals',
+    which reads as a contradiction."""
+    roster = {
+        "sleeper_barkley": {"full_name": "Saquon Barkley", "position": "RB", "team": "PHI"},
+        "sleeper_cook": {"full_name": "James Cook", "position": "RB", "team": "BUF"},
+        "sleeper_rj": {"full_name": "Roschon Johnson", "position": "RB", "team": "CHI"},
+    }
+    rj_index = {**_BARKLEY_ROW, "gsis_id": "00-0000099", "display_name": "Roschon Johnson"}
+    rj_prior = {**_BARKLEY_PRIOR_SIGNAL_ROW, "player_id": "00-0000099", "player_name": "R.Johnson", "season_plays": 2,
+                "epa_trend": None, "red_zone_share": None, "target_share": None, "target_share_adjusted": None}
+    players_df = pl.DataFrame([_BARKLEY_ROW, _COOK_ROW, rj_index])
+    raw_dir, persist_dir, signals_dir = _setup(
+        tmp_path, monkeypatch, roster, [_BARKLEY_SIGNAL_ROW, _COOK_SIGNAL_ROW], players_df, prior_signal_rows=[rj_prior]
+    )
+
+    result = report.generate_report(
+        "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    notes = result["notes"]
+    assert any(note.startswith("Not enough usage on record to rank") and f"Roschon Johnson (2 play(s) in {_SEASON - 1})" in note for note in notes), notes
+    assert not any("fell back to stale" in note for note in notes), notes
 
 
 # ---- misc ----

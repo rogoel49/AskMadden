@@ -189,17 +189,26 @@ def _resolve_roster_with_signals(
     tools, not a reimplementation) for every rostered player, joined with
     that player's raw numeric row (current-season, or a stale prior-season
     fallback -- see ranking.signal_row) for ranking. Returns
-    (resolved_candidates, unresolved_player_names) -- a player whose name
-    can't be identity-resolved is reported, never silently dropped."""
+    (resolved_candidates, notes) -- a player whose name can't be
+    identity-resolved, or whose position has no signals at all (K, DEF),
+    is reported in the notes, never silently dropped."""
     roster_result = recommend.dispatch_tool("get_my_roster", {}, ctx)
     if "error" in roster_result:
         raise RuntimeError(roster_result["error"])
 
     resolved: list[dict] = []
     unresolved: list[str] = []
+    uncovered: list[str] = []
     for player in roster_result["players"]:
         name = player.get("name")
         if not name:
+            continue
+        if (player.get("position") or "").upper() not in player_index.SKILL_POSITIONS:
+            # A kicker or a team defense: no matchup signal exists for
+            # them (see the signals table), so there is nothing to resolve
+            # against. Reported as that, not as a resolution failure --
+            # "could not identity-resolve Jake Bates" read like a bug.
+            uncovered.append(f"{name} ({player.get('position') or '?'})")
             continue
         signal_result = recommend.dispatch_tool("get_player_signals", {"player_name": name}, ctx)
         if not signal_result.get("resolved"):
@@ -216,7 +225,16 @@ def _resolve_roster_with_signals(
                 "row": tables.row_for(player_id),
             }
         )
-    return resolved, unresolved
+    return resolved, _roster_notes(unresolved, uncovered)
+
+
+def _roster_notes(unresolved: list[str], uncovered: list[str]) -> list[str]:
+    notes = []
+    if uncovered:
+        notes.append(f"No matchup signals exist for kickers or defenses, so they aren't ranked: {', '.join(uncovered)}.")
+    if unresolved:
+        notes.append(f"Could not identity-resolve {len(unresolved)} rostered player(s): {', '.join(unresolved)}.")
+    return notes
 
 
 # Sleeper injury designations that mean "cannot play this week". Such a
@@ -295,12 +313,9 @@ def _start_sit_entry(
 
 
 def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> dict:
-    resolved, unresolved = _resolve_roster_with_signals(ctx, tables)
+    resolved, notes = _resolve_roster_with_signals(ctx, tables)
 
     entries = []
-    notes = []
-    if unresolved:
-        notes.append(f"Could not identity-resolve {len(unresolved)} rostered player(s): {', '.join(unresolved)}.")
     unavailable = [c for c in resolved if c.get("injury_status") in UNAVAILABLE_STATUSES]
     if unavailable:
         notes.append(
@@ -314,9 +329,19 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
     for candidate in resolved:
         by_position.setdefault(candidate["position"], []).append(candidate)
 
-    stale_note = _stale_note(resolved)
+    # Same rule as the drop report: the stale note covers players who can
+    # actually be ranked; one with last season's row but no scored signal
+    # is "not enough usage", not "fell back to stale data".
+    rankable = [c for c in resolved if opportunity_score(c["row"]) is not None]
+    stale_note = _stale_note(rankable)
     if stale_note:
         notes.append(stale_note)
+    unrankable = [c for c in resolved if c not in rankable]
+    if unrankable:
+        notes.append(
+            "Not enough usage on record to rank (no target share, red-zone share, efficiency trend or passing "
+            "numbers): " + ", ".join(_usage_label(c) for c in unrankable) + "."
+        )
 
     roster_positions = list(ctx.league.roster_positions) if ctx.league else []
     slots = _slot_counts(roster_positions)
@@ -375,22 +400,21 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
 
 
 def _drop_report(ctx: recommend.RecommendContext, tables: SignalTables, bottom_n: int = 3) -> dict:
-    resolved, unresolved = _resolve_roster_with_signals(ctx, tables)
-
-    notes = []
-    if unresolved:
-        notes.append(f"Could not identity-resolve {len(unresolved)} rostered player(s): {', '.join(unresolved)}.")
-    stale_note = _stale_note(resolved)
-    if stale_note:
-        notes.append(stale_note)
+    resolved, notes = _resolve_roster_with_signals(ctx, tables)
 
     scored = [(c, opportunity_score(c["row"])) for c in resolved]
     grounded = [(c, score) for c, score in scored if score is not None]
     ungrounded = [c for c, score in scored if score is None]
+    # The stale note only covers players who could actually be ranked --
+    # a player who fell back to last season AND turned out to have no
+    # scored signal is one story ("not enough usage to rank"), not two.
+    stale_note = _stale_note([c for c, score in grounded])
+    if stale_note:
+        notes.append(stale_note)
     if ungrounded:
         notes.append(
-            f"{len(ungrounded)} rostered player(s) had no computed signals and were excluded from ranking: "
-            f"{', '.join(c['name'] for c in ungrounded)}."
+            "Not enough usage on record to rank (no target share, red-zone share, efficiency trend or passing "
+            "numbers): " + ", ".join(_usage_label(c) for c in ungrounded) + "."
         )
 
     grounded.sort(key=lambda pair: pair[1])
@@ -412,6 +436,15 @@ def _drop_report(ctx: recommend.RecommendContext, tables: SignalTables, bottom_n
     header["entries"] = entries
     header["notes"] = notes
     return header
+
+
+def _usage_label(candidate: dict) -> str:
+    row = candidate.get("row")
+    if not row:
+        return f"{candidate['name']} (no plays on record)"
+    plays = row.get("season_plays")
+    season = row.get("source_season") if row.get("stale") else None
+    return f"{candidate['name']} ({plays} play(s){f' in {season}' if season else ''})"
 
 
 def _rostered_nflverse_ids(raw_dir: Path, player_idx: pl.DataFrame) -> set[str]:
@@ -436,13 +469,25 @@ def _waiver_pickups_report(
 ) -> dict:
     rostered_ids = _rostered_nflverse_ids(raw_dir, ctx.player_idx)
 
+    # Once the current season has a table with anyone in it, a player whose
+    # only numbers are last season's has, by construction, no plays this
+    # season -- and a waiver pickup with no role now is not a pickup, no
+    # matter how their 2025 ended (the first real report's top three were
+    # exactly that: 4-8 plays each in 2025, zero in 2026). Before the
+    # season's first table exists, last season is all there is and is used,
+    # labeled stale as everywhere else.
+    season_has_data = bool(tables.signals_by_id)
     candidates = []
+    last_season_only = 0
     for player in ctx.player_idx.to_dicts():
         if player["player_id"] in rostered_ids:
             continue
         row = tables.row_for(player["player_id"])
         if row is None:
             continue  # no measured usage/signals, current or prior season -- nothing to ground a pickup in
+        if season_has_data and row.get("stale"):
+            last_season_only += 1
+            continue
         candidates.append({**player, "row": row})
 
     scored = [(c, opportunity_score(c["row"])) for c in candidates]
@@ -468,6 +513,11 @@ def _waiver_pickups_report(
         f"{len(ctx.player_idx)} in the full skill-position player pool "
         f"({len(rostered_ids)} nflverse player_id(s) excluded as rostered somewhere in the league)."
     ]
+    if last_season_only:
+        notes.append(
+            f"{last_season_only} unrostered player(s) with no {ctx.season} plays yet were not ranked as pickups -- "
+            f"a role at the end of last season says nothing about a role now."
+        )
     stale = [c for c, _ in top if c["row"].get("stale")]
     if stale:
         notes.append(
