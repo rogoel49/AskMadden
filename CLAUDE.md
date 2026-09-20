@@ -322,7 +322,15 @@ or monetized, it needs to genuinely work for more than one league.
   too: `epa_trend` is null with a new `epa_baseline_plays == 0` until
   there is a baseline outside the trailing window, and prose/chunks say
   "no efficiency trend yet" -- see TODO.md's "Fixed: the early-season
-  EPA trend..." entry.
+  EPA trend..." entry. **Follow-up fix (2026-09-20, first desktop use
+  by a friend):** a Chroma rebuild was delete-all-then-add, so a chat
+  during the cycle's re-embed saw an emptied index (`has_signals:
+  false` for players with data on disk), and a request arriving
+  mid-cycle ran its own concurrent rebuild (a minute-long league
+  select). `embed.embed()` is now upsert-then-prune under a per-
+  directory lock, and the request-path resync stands down while a
+  rebuild or cycle is running -- see TODO.md's "Fixed: chat lost every
+  signal during a re-embed..." entry.
 - Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
   Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
   confirmed a complete, honestly-bounded product (composition + signals +

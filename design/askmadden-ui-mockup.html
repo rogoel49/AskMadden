@@ -273,7 +273,11 @@
   .form-error.show{ display:block; }
   .primary-btn:disabled, .send-btn:disabled, .add-btn:disabled{ opacity:.55; cursor:default; }
   .muted-note{ font-size:11.5px; color:var(--text-faint); line-height:1.5; margin:4px 2px 10px; }
-  .msg .bubble .why{ font-size:12px; color:var(--text-dim); margin-top:8px; line-height:1.5; white-space:pre-wrap; }
+  .msg .bubble .why{ font-size:12px; color:var(--text-dim); margin-top:8px; line-height:1.5; }
+  .msg .bubble .why p, .msg .bubble .why ul{ margin:0 0 8px; }
+  .msg .bubble .why ul{ padding-left:18px; }
+  .msg .bubble .why li{ margin:2px 0; }
+  .msg .bubble .why strong, .msg .bubble strong{ color:var(--text); font-weight:600; }
   .msg.error .bubble{ border-left-color:var(--coral); }
   .roster-mid .matchup{ text-transform:uppercase; letter-spacing:.03em; }
   .chip svg{ width:9px; height:9px; margin-right:3px; vertical-align:-1px; }
@@ -388,8 +392,11 @@
     .hscroll{ flex-wrap:wrap; overflow-x:visible; }
     .rec-card{ width:calc(33.333% - 8px); }
     .waiver-row{ max-width:640px; }
-    .chat-scroll{ max-width:680px; }
-    .suggest-row, .chat-input-bar{ max-width:680px; }
+    /* Chat uses the full content width on desktop (it was capped at 680px,
+       which on a 1900px window left two thirds of the screen empty). */
+    .chat-scroll, .suggest-row, .chat-input-bar{ max-width:none; }
+    .msg.assistant{ max-width:100%; }
+    .msg.user{ max-width:70%; }
   }
   @media (min-width:900px) and (max-width:1080px){
     .rec-card{ width:calc(50% - 6px); }
@@ -675,7 +682,7 @@
   async function selectLeague(leagueId){
     if (state.busy) return;
     state.busy = true; showError('picker-error', '');
-    const label = document.getElementById('picker-hi'); const prev = label.textContent; label.textContent = 'Loading league data (first use ingests from Sleeper)…';
+    const label = document.getElementById('picker-hi'); const prev = label.textContent; label.textContent = 'Loading league data… (the first time a league is opened it is pulled from Sleeper and indexed, which takes about a minute; after that it is instant)';
     try {
       const session = await api('/api/sessions', { method:'POST', body:{ username: state.username, league_id: leagueId } });
       state.session = session; state.roster = null; state.reports = {}; state.messages = null; state.tradeMessages = null;
@@ -807,10 +814,28 @@
     });
     return chips.length ? `<div class="chip-row">${chips.join('')}</div>` : '';
   }
+  // The model writes light markdown (**bold**, "- " bullets, blank-line
+  // paragraphs). Escape first, then convert only those three forms, so the
+  // text stays inert HTML-wise and stops showing literal asterisks.
+  function md(text){
+    const lines = esc(text || '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').split('\n');
+    const out = []; let para = [], list = [];
+    const flushPara = () => { if (para.length) { out.push(`<p>${para.join('<br>')}</p>`); para = []; } };
+    const flushList = () => { if (list.length) { out.push(`<ul>${list.map(li => `<li>${li}</li>`).join('')}</ul>`); list = []; } };
+    lines.forEach(raw => {
+      const line = raw.trimEnd();
+      const m = line.match(/^\s*[-*]\s+(.*)$/);
+      if (m) { flushPara(); list.push(m[1]); }
+      else if (!line.trim()) { flushPara(); flushList(); }
+      else { flushList(); para.push(line.trim()); }
+    });
+    flushPara(); flushList();
+    return out.join('');
+  }
   function answerHtml(body){
-    const why = body.reasoning ? `<div class="why">${esc(body.reasoning)}</div>` : '';
+    const why = body.reasoning ? `<div class="why">${md(body.reasoning)}</div>` : '';
     const err = body.error ? `<div class="why">(${esc(body.error)})</div>` : '';
-    return `${esc(body.recommendation)}${why}${err}${gapChips(body)}`;
+    return `${md(body.recommendation)}${why}${err}${gapChips(body)}`;
   }
   async function runChat(question, container, historyKey){
     if (!state.session) { bubble(container, 'assistant', 'Pick a league first.', 'error'); return null; }

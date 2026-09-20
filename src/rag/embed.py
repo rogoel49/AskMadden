@@ -17,6 +17,7 @@ dilute retrieval for a question about one player's specific matchup.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -188,15 +189,57 @@ def load_signal_chunks(signals_dir: Path = SIGNALS_DIR) -> list[dict]:
     return chunks
 
 
+# One lock per collection directory, shared by every rebuilder in this
+# process (a request-path resync in src/api/leagues.py, the scheduler's
+# per-league re-embed in src/scheduler/refresh.py). Two rebuilds of the
+# same collection at once would interleave their writes; a caller that
+# would rather not wait can ask rebuild_in_progress() and serve what is
+# there -- which embed() below guarantees is never an emptied collection.
+_rebuild_locks: dict[str, threading.Lock] = {}
+_rebuild_locks_guard = threading.Lock()
+
+
+def rebuild_lock(persist_dir: Path) -> threading.Lock:
+    key = str(Path(persist_dir).resolve())
+    with _rebuild_locks_guard:
+        return _rebuild_locks.setdefault(key, threading.Lock())
+
+
+def rebuild_in_progress(persist_dir: Path) -> bool:
+    """True while another thread in this process is inside embed() for
+    persist_dir. Advisory: a rebuild in another *process* (a cron
+    `refresh --once`) is invisible here, which is fine -- embed() is
+    upsert-based, so a reader never finds the collection emptied either
+    way."""
+    return rebuild_lock(persist_dir).locked()
+
+
 def embed(
     chunks: list[dict] | None = None,
     persist_dir: Path = CHROMA_DIR,
     raw_dir: Path = RAW_DIR,
     signals_dir: Path | None = None,
 ):
-    """Embed chunks into a persistent local ChromaDB collection, replacing
-    any previous contents. The raw JSON is the source of truth, so a full
-    rebuild on each run is simpler than incremental syncing.
+    """Embed chunks into a persistent local ChromaDB collection so that,
+    when this returns, the collection holds exactly `chunks` -- but
+    without ever passing through an empty or partial state on the way.
+
+    Every chunk id is deterministic (team:<roster_id>, signal:<season>:
+    week<N>:<player_id>, ...), so the rebuild is an upsert of the new set
+    followed by a delete of whatever ids the new set no longer contains.
+    The previous version (delete everything, then add everything) left the
+    collection empty for the whole embedding pass -- tens of seconds per
+    league -- and a chat request that ran during the scheduler's re-embed
+    got `has_signals: false` for players who had a current-season row on
+    disk the entire time (real case, 2026-09-20: two QBs reported as
+    having no data while every RB/WR in the same answer had this week's
+    numbers). With upsert-then-prune a concurrent reader sees, at worst,
+    a mix of last cycle's and this cycle's text for a moment; it never
+    sees nothing.
+
+    The raw JSON is the source of truth, so a full pass on each run is
+    simpler than incremental syncing. Serialized per persist_dir on
+    rebuild_lock() -- see there.
 
     signals_dir: when chunks isn't given explicitly, also embed every
     computed signals table found there (see load_signal_chunks). Pass
@@ -208,20 +251,21 @@ def embed(
         if signals_dir is not None:
             chunks = chunks + load_signal_chunks(signals_dir)
 
-    client = chromadb.PersistentClient(path=str(persist_dir))
-    collection = client.get_or_create_collection(COLLECTION_NAME)
+    with rebuild_lock(persist_dir):
+        client = chromadb.PersistentClient(path=str(persist_dir))
+        collection = client.get_or_create_collection(COLLECTION_NAME)
 
-    existing_ids = collection.get()["ids"]
-    if existing_ids:
-        collection.delete(ids=existing_ids)
-
-    if chunks:
-        collection.add(
-            ids=[c["id"] for c in chunks],
-            documents=[c["text"] for c in chunks],
-            metadatas=[c["metadata"] for c in chunks],
-        )
-    return collection
+        existing_ids = set(collection.get(include=[])["ids"])
+        if chunks:
+            collection.upsert(
+                ids=[c["id"] for c in chunks],
+                documents=[c["text"] for c in chunks],
+                metadatas=[c["metadata"] for c in chunks],
+            )
+        stale = sorted(existing_ids - {c["id"] for c in chunks})
+        if stale:
+            collection.delete(ids=stale)
+        return collection
 
 
 def main() -> None:

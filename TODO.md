@@ -1072,6 +1072,92 @@ baseline outside the window.
   remaining "+0.00" is a stale 2025 fallback row, now labeled "flat".
   From week 5 on the trend comes back by itself as the baseline fills.
 
+## Fixed: chat lost every signal during a re-embed, and a league select could take a minute (the rebuild race)
+
+Found 2026-09-20 in real desktop use, one day after the first hosted
+prep. Three symptoms Rohan reported; two shared a cause.
+
+**Symptom 1 -- "why does chat say it can't tell me Drake Maye vs Baker
+Mayfield when we have week 1 data?"** Both QBs were in the week-2
+signals table on disk (B.Mayfield 32 plays, cpoe +15.4; D.Maye 37
+plays) and every RB/WR in the same answer had this week's numbers. The
+chat tool reported `has_signals: false` for the two QBs anyway.
+Reproduced the lookup afterwards (`_tool_get_player_signals` against
+the same league's index): both resolved, both `has_signals: true`,
+current. So the failure was transient -- and the mechanism was in plain
+sight in `embed.embed()`: a rebuild was `delete(all ids)` then
+`add(all chunks)`, which leaves the collection EMPTY for the whole
+embedding pass (20-40s per league). Any chat that ran during the
+scheduler's 6-hourly re-embed of that league saw whichever chunks had
+been re-added so far. The `_resync_signals_if_changed` docstring even
+admitted a reader "could still see a partial collection for that
+moment" and called it small; it is not small once a cycle re-embeds
+three leagues every six hours on a server people actually use.
+
+**Symptom 2 -- "huge delay between selecting the league and the feed."**
+Measured the warm path against a fresh server: `POST /api/sessions`
+0.05s, roster 0.12s, the three reports 0.5-1.3s each. So the normal
+case is fast, and the slow one is a rebuild running inside the
+request: (a) the first time a league is ever opened (Sleeper pull +
+full embed, about a minute, expected and now said so in the UI), or
+(b) a request arriving while the scheduler's cycle had already
+rewritten the signals table but not yet re-embedded and stamped THAT
+league -- the request-path resync saw a stale stamp and ran its own
+full rebuild, concurrently with the cycle's, interleaving writes into
+the same collection, on the user's clock. The cycle at 14:36 local
+covered two leagues; Narcos was stamped at 14:40 by a request.
+
+**Fix, three parts.**
+- `src/rag/embed.py`: a rebuild is now `upsert(new chunks)` then
+  `delete(ids no longer present)`. Every chunk id is deterministic
+  (`team:<roster_id>`, `signal:<season>:week<N>:<player_id>`, ...), so
+  the end state is identical to before, but a concurrent reader sees
+  at worst a mix of old and new text -- never nothing. Plus a
+  per-directory `rebuild_lock()` that `embed()` holds, and
+  `rebuild_in_progress()` for callers who would rather not wait.
+- `src/scheduler/refresh.py`: `run_cycle()` sets a process-wide
+  `cycle_in_progress()` flag for its duration.
+- `src/api/leagues.py`: the request-path resync stands down (serves
+  what is on disk, leaves the stamp for the rebuilder) when that
+  collection is already being rebuilt or a cycle is running. The
+  cycle re-embeds and stamps every ingested league itself; the
+  request path is for the out-of-process (cron `--once`) and
+  ingested-mid-cycle cases, which still work as before.
+
+**Symptom 3 -- "why does Dylan Sampson have stale data?"** Correct
+behavior, badly worded. nflverse's 2026 play-by-play has zero plays
+with Sampson as rusher or receiver in week 1 (CLE's carries: Judkins
+12, Watson 6, Concepcion 3, Sanders 1), so he has no current-season
+row and Phase 3.6's prior-season fallback kicked in exactly as
+designed. The label said "no current-season signal yet", which reads
+like a pipeline problem. It now says why: "no plays recorded for this
+player this season before the as-of week" (`ranking.py`'s prefix and
+the chat tool's) -- so a rostered RB showing last year's numbers in
+week 2 tells the user the actually useful thing, that he hasn't
+touched the ball.
+
+**Also in this pass (frontend):** chat now uses the full content width
+on desktop (it was capped at 680px, leaving two thirds of a 1900px
+window empty); the model's light markdown (`**bold**`, `- ` bullets,
+paragraphs) is rendered instead of showing literal asterisks -- escape
+first, then convert only those three forms; the league-select message
+says the first open of a league takes about a minute and later ones
+are instant.
+
+**Validated:** `tests/test_embed.py` -- a rebuild updates changed
+chunks and prunes removed ones; a reader polling a real Chroma
+collection throughout a 150-chunk rebuild on another thread never sees
+fewer than 150 (fails on the old delete-then-add code by construction);
+`tests/test_resync_standdown.py` -- a stale league is rebuilt when
+nothing else is rebuilding it, and is NOT when its lock is held or a
+cycle is running, with the stamp left for the rebuilder; the cycle flag
+is set only while `run_cycle` runs and is cleared on an exception.
+Headless Chrome at 1900px: `#chat-scroll` no longer has a max-width and
+fills the panel; `md()` renders bold/bullets/paragraphs and keeps
+injected tags escaped. The exact production sequence (a chat during a
+live cycle's re-embed) is not reproduced end-to-end here -- the
+concurrent-reader test is the unit that pins it.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

@@ -617,8 +617,9 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
         base["source_season"] = source_season
         base["source_as_of_week"] = source_week
         base["signals"] = (
-            f"[STALE -- no {ctx.season} signal data yet; showing {source_season} season-end reference "
-            f"instead, do not present this as current] {chunk['text']}"
+            f"[STALE -- no {ctx.season} plays recorded for this player before week {ctx.as_of_week} "
+            f"(either the season hasn't started or they haven't touched the ball yet); showing "
+            f"{source_season} season-end reference instead, do not present this as current] {chunk['text']}"
         )
     else:
         base["signals"] = chunk["text"]
