@@ -40,7 +40,10 @@ Endpoints (all JSON):
            use (Sleeper + nflverse, network). Returns a session_id.
   GET  /api/sessions/{session_id}
   GET  /api/roster?session_id=
-        -> the session's own roster, grouped by position.
+        -> the session's own roster: the flat player list, plus `lineup`
+           (starting slots in the league's order, each with its player
+           or null), `bench` and `reserve`, the way Sleeper's roster
+           screen lays it out.
   GET  /api/reports/{report_type}?session_id=[&season=&as_of_week=]
         -> generate_report() output, verbatim (no Claude call, not
            counted against the query cap).
@@ -355,7 +358,18 @@ def roster(session_id: str = Query(...), storage: Storage = Depends(get_storage)
         raise HTTPException(
             status_code=404, detail=f"roster {session['roster_id']!r} not found in league {config.league_id!r}"
         )
-    return {"league_id": config.league_id, "league_name": config.name, **team}
+    # Plus the roster the way Sleeper shows it: starting slots in league
+    # order (from the league's roster_positions + the team's `starters`),
+    # then bench, then reserve. `players`/`counts_by_position` stay as
+    # they were for anything that reads the flat list.
+    lineup = lookup.lineup_for_roster_id(session["roster_id"], config.roster_positions, config.raw_dir) or {}
+    return {
+        "league_id": config.league_id,
+        "league_name": config.name,
+        "roster_positions": config.roster_positions,
+        **team,
+        **lineup,
+    }
 
 
 @app.get("/api/reports/{report_type}")

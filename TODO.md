@@ -1158,6 +1158,85 @@ injected tags escaped. The exact production sequence (a chat during a
 live cycle's re-embed) is not reproduced end-to-end here -- the
 concurrent-reader test is the unit that pins it.
 
+## Fixed: start/sit recommended one starter per position in a league that starts two (and never ranked a QB)
+
+Found 2026-09-20 by the first friend to use it (league "Narcos", PPR,
+roster_positions QB/RB/RB/WR/WR/TE/FLEX/FLEX/FLEX/K/DEF). Rohan: "why
+does it say to only start 1 RB? ... he allows 2 RBs to start so we
+should have a rec on what 2 RBs to start". Phase 3.5 had documented
+start_sit as "groups by position, does not model roster_positions" and
+called it a simplification. For a two-RB league it is a wrong answer:
+the report benched the second-best RB.
+
+**What changed (`src/reasoning/report.py`).** start_sit reads the
+league's `roster_positions` (already on `LeagueConfig` since 5.1).
+Each position with N dedicated slots gets its top N ranked players as
+`recommended_starters` and the rest as `alternatives_considered`;
+FLEX-type slots (FLEX, SUPER_FLEX, REC_FLEX, WRRB_FLEX -- the map is
+`src/rag/lookup.py`'s `FLEX_ELIGIBILITY`) are then filled from what the
+dedicated slots left over, ranked together across positions by the same
+`rank_candidates()` call. Greedy (dedicated first, then flex), not a
+global optimizer -- with one score per player the two only differ when
+a player is worth more in a flex slot than a weaker teammate in a
+dedicated one, which a single score can't express anyway. `slots` and
+(for flex) `eligible_positions` are on each entry; `recommended_starter`
+stays as the top pick -- it is the verdict Chat's `rank_players` is
+held to (`tests/test_verdict_alignment.py` unchanged). A position with
+no more ranked players than slots is skipped as before (nothing to
+decide); a league with no known slot structure falls back to one slot
+per position, the old behavior. Real Narcos result: RB ×2 = Gibbs,
+Henry; WR ×2 = Evans, Nabers; TE = Ferguson; FLEX ×3 = Coker, White,
+Washington.
+
+**Two more gaps the same league exposed, fixed alongside:**
+- *QBs were never rankable.* `opportunity_score()` scored EPA trend,
+  red-zone share and target share; a QB's row has none of the last two
+  (and no trend until week 5), so both QBs were "no usable signal" and
+  the QB slot was always skipped -- which is also why Chat's
+  `rank_players` said `insufficient_data` for Maye vs Mayfield. Passer
+  rows (the ones with `cpoe`, NGS completion % over expected) now add
+  `CPOE_WEIGHT` x cpoe + `IMPLIED_TOTAL_WEIGHT` x implied total, scaled
+  into the same ~0-2 range as the skill terms; `score_description` says
+  so and says a QB's score is not comparable to a skill player's (no
+  superflex call from this). `fmt_signal_row` prints the cpoe. Narcos:
+  Mayfield (+15.4 cpoe, 25.0 implied) over Maye (+3.2, 23.0).
+- *Players who cannot play were ranked as if available.* Dylan Sampson
+  was a SIT card with 2025 numbers -- Sleeper has him on IR, which is
+  also why he has no 2026 touches. `get_my_roster` now returns Sleeper's
+  `injury_status`; start_sit leaves Out/IR/PUP/Sus/COV/DNR/NA players
+  out of the decision and names them in `notes` ("Not available this
+  week, left out of the lineup: Dylan Sampson (IR), Ja'Kobi Lane (IR),
+  Kendre Miller (Out)"). Questionable/Doubtful stay in -- that is the
+  call the user wants help with -- and every entry carries
+  `injury_status` so the card shows it.
+
+**Roster tab, Sleeper-style (Rohan: "mirror sleeper's version of showing
+a roster").** `/api/roster` now also returns `lineup` (the starting
+slots in league order, each with its player or null -- Sleeper's
+`starters` array lines up index-for-index with `roster_positions` minus
+bench-type slots, "0" for an empty slot), `bench` and `reserve`, via
+`lookup.starting_lineup()`; player entries carry `injury_status` and
+`number`, and a team DEF ("JAX") is handled. The Roster tab draws
+STARTERS and BENCH as two cards (side by side on desktop) with a colored
+slot badge per row (QB amber, RB blue, WR green, TE purple, FLEX teal),
+initials ring, name with a Q/O/IR tag, "POS · TEAM · #". The flat
+`players`/`counts_by_position` are unchanged for anything else reading
+them. The feed's start cards now show the starter's own signal line
+(not the entry's whole comparison paragraph) with an "RB ×2"-style slot
+chip -- which is most of what the backlog's "Feed card redesign" item
+asked for; the position-filter chips from that item are still open.
+
+**Validated:** `tests/test_report.py` (RB/RB/FLEX with four RBs → two RB
+starters, third in FLEX, fourth sits; exactly-as-many-as-slots → nothing
+to decide; no slot structure → one per position; IR excluded with the
+note, Questionable kept and flagged); `tests/test_ranking_trend.py`
+(passer score, two-QB ranking); `tests/test_lookup.py`
+(`starting_lineup` alignment incl. an empty slot, a DEF, bench, reserve);
+`tests/test_api_main.py` (`/api/roster` lineup/bench/reserve). And
+against the real Narcos league on a live server in headless Chrome:
+the entries above, the notes above, the roster screenshot (starters by
+slot, bench, IR/O tags) -- no console errors.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

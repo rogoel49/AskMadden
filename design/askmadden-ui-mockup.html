@@ -314,6 +314,24 @@
   .segmented button{ flex:1; border:none; background:transparent; color:var(--text-faint); font-family:'Space Grotesk'; font-size:12.5px; font-weight:600; padding:9px 0; border-radius:8px; cursor:pointer; }
   .segmented button.active{ background:var(--green); color:var(--bg); }
   .pos-group{ margin-bottom:16px; } .pos-label{ font-size:11px; color:var(--text-faint); font-weight:700; letter-spacing:.06em; margin:0 0 8px 2px; }
+  /* Sleeper-style lineup: one card per section, a slot badge per row. */
+  .lineup-section{ margin-bottom:18px; }
+  .lineup{ background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+  .lineup-row{ display:flex; align-items:center; gap:11px; padding:9px 12px; border-top:1px solid var(--border-soft); }
+  .lineup-row:first-child{ border-top:none; }
+  .lineup-row.empty{ opacity:.55; }
+  .lineup-row .avatar-ring{ width:34px; height:34px; font-size:10px; }
+  .lineup-row .pname.empty{ color:var(--text-faint); font-weight:500; font-style:italic; }
+  .slot-badge{ flex:0 0 46px; text-align:center; font-size:10px; font-weight:800; letter-spacing:.04em; padding:5px 0; border-radius:7px; border:1px solid var(--border); background:var(--elevated); color:var(--text-dim); }
+  .slot-badge.qb{ color:var(--amber); border-color:#f5b84a33; background:#f5b84a12; }
+  .slot-badge.rb{ color:#7fa8ff; border-color:#3a7bff44; background:#3a7bff14; }
+  .slot-badge.wr{ color:var(--green); border-color:var(--green-line); background:var(--green-dim); }
+  .slot-badge.te{ color:#d59cff; border-color:#b56cff44; background:#b56cff14; }
+  .slot-badge.flex{ color:#5fd4d0; border-color:#3fbdb944; background:#3fbdb914; }
+  .slot-badge.k, .slot-badge.def, .slot-badge.other{ color:var(--text-dim); }
+  .slot-badge.bn{ color:var(--text-faint); background:transparent; }
+  .inj{ display:inline-block; margin-left:6px; font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:5px; vertical-align:1px; }
+  .inj.q{ color:var(--amber); background:#f5b84a1a; } .inj.o{ color:var(--coral); background:#ff6b5c1a; }
   .roster-row{ display:flex; align-items:center; gap:11px; padding:10px 4px; border-bottom:1px solid var(--border-soft); }
   .roster-row:last-child{ border-bottom:none; }
   .roster-row .avatar-ring{ width:36px; height:36px; font-size:10.5px; }
@@ -392,6 +410,8 @@
     .hscroll{ flex-wrap:wrap; overflow-x:visible; }
     .rec-card{ width:calc(33.333% - 8px); }
     .waiver-row{ max-width:640px; }
+    .lineup-grid{ display:grid; grid-template-columns:1fr 1fr; gap:0 22px; align-items:start; max-width:1100px; }
+    .lineup-grid .lineup-section:nth-child(n+3){ grid-column:2; }
     /* Chat uses the full content width on desktop (it was capped at 680px,
        which on a 1900px window left two thirds of the screen empty). */
     .chat-scroll, .suggest-row, .chat-input-bar{ max-width:none; }
@@ -732,6 +752,25 @@
     avatar.textContent = initials(r.team_name || state.username);
     avatar.title = `Your team: ${r.team_name || state.username}`;
     document.getElementById('roster-meta').textContent = `${r.team_name || 'Your team'} · ${r.players.length} players · ${Object.entries(r.counts_by_position || {}).map(([p,n]) => `${n} ${p}`).join(', ')}`;
+    // Laid out the way Sleeper's roster screen does it: starting slots in
+    // the league's order (from /api/roster's `lineup`), then bench, then
+    // reserve. Falls back to grouping by position if the API predates
+    // `lineup`.
+    if (r.lineup && r.lineup.length) {
+      const slotRow = (slot, p) => `<div class="lineup-row${p ? '' : ' empty'}">
+          <div class="slot-badge ${slotClass(slot)}">${esc(slot.replace('SUPER_FLEX','SFLX').replace('REC_FLEX','RFLX').replace('WRRB_FLEX','W/R'))}</div>
+          ${p ? `<div class="avatar-ring ${posClass(p.position)}">${esc(initials(p.name))}</div>
+          <div class="roster-mid"><div class="pname">${esc(p.name || p.player_id)}${injuryTag(p)}</div><div class="matchup">${esc(p.position || '—')} · ${esc(p.team || '—')}${p.number != null ? ` · #${esc(p.number)}` : ''}</div></div>`
+             : `<div class="roster-mid"><div class="pname empty">Empty</div></div>`}
+        </div>`;
+      const section = (title, rows) => rows.length ? `<div class="lineup-section"><div class="pos-label">${title}</div><div class="lineup">${rows.join('')}</div></div>` : '';
+      document.getElementById('roster-groups').innerHTML = `<div class="lineup-grid">
+        ${section('STARTERS', r.lineup.map(s => slotRow(s.slot, s.player)))}
+        ${section('BENCH', (r.bench || []).map(p => slotRow('BN', p)))}
+        ${section('RESERVE', (r.reserve || []).map(p => slotRow('IR', p)))}
+      </div>`;
+      return;
+    }
     const order = ['QB','RB','WR','TE','K','DEF'];
     const groups = {};
     r.players.forEach(p => { const pos = (p.position || 'OTHER').toUpperCase(); (groups[pos] = groups[pos] || []).push(p); });
@@ -741,6 +780,8 @@
         ${groups[pos].map(p => `<div class="roster-row"><div class="avatar-ring ${posClass(pos)}">${esc(initials(p.name))}</div><div class="roster-mid"><div class="pname">${esc(p.name || p.player_id)}</div><div class="matchup">${esc(p.team || '—')}</div></div></div>`).join('')}
       </div>`).join('');
   }
+  function slotClass(slot){ const s = (slot || '').toUpperCase(); return s === 'BN' || s === 'IR' || s === 'TAXI' ? 'bn' : s.includes('FLEX') ? 'flex' : (s === 'QB' || s === 'RB' || s === 'WR' || s === 'TE' || s === 'K' || s === 'DEF') ? s.toLowerCase() : 'other'; }
+  function injuryTag(p){ const st = (p.injury_status || '').trim(); if (!st) return ''; const short = {Questionable:'Q', Doubtful:'D', Out:'O', IR:'IR', PUP:'PUP', Sus:'SUS', COV:'COV', NA:'NA'}[st] || st.slice(0,3).toUpperCase(); return ` <span class="inj ${st === 'Questionable' ? 'q' : 'o'}" title="${esc(st)}">${esc(short)}</span>`; }
 
   /* ---------------- reports (feed + moves) ---------------- */
   async function fetchReport(type, force){
@@ -759,9 +800,13 @@
     fetchReport('start_sit', force).then(rep => {
       const cards = [];
       rep.entries.forEach(entry => {
-        const st = entry.recommended_starter;
-        cards.push(recCard(st.name, entry.position, st.team, 'start', entry.reasoning, st));
-        (entry.alternatives_considered || []).forEach(alt => cards.push(recCard(alt.name, entry.position, alt.team, 'sit', alt.signals_summary, alt)));
+        // One START card per starting slot (a league that starts two RBs gets
+        // two RB start cards), each with its own player's signal line rather
+        // than the entry's full comparison paragraph.
+        const slotLabel = entry.slots > 1 ? `${entry.position} ×${entry.slots}` : entry.position;
+        const starters = entry.recommended_starters || [entry.recommended_starter];
+        starters.forEach(st => cards.push(recCard(st.name, st.position || entry.position, st.team, 'start', st.signals_summary || entry.reasoning, st, slotLabel)));
+        (entry.alternatives_considered || []).forEach(alt => cards.push(recCard(alt.name, alt.position || entry.position, alt.team, 'sit', alt.signals_summary, alt, slotLabel)));
       });
       ss.innerHTML = cards.length ? cards.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
       if (cards.length && rep.notes && rep.notes.length) ss.insertAdjacentHTML('beforeend', notesCard(rep));
@@ -774,11 +819,11 @@
       document.getElementById('moves-waiver-list').innerHTML = renderWaivers(rep, 25);
     }).catch(e => { wv.innerHTML = errorCard(e, 'waiver targets'); document.getElementById('moves-waiver-list').innerHTML = errorCard(e, 'waiver targets'); });
   }
-  function recCard(name, pos, team, verdict, why, entry){
+  function recCard(name, pos, team, verdict, why, entry, slotLabel){
     return `<div class="rec-card">
       <div class="rec-top"><div class="player-id"><div class="avatar-ring ${posClass(pos)}">${esc(initials(name))}</div><div><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div></div><div class="verdict ${verdict}">${verdict.toUpperCase()}</div></div>
       <div class="rec-why">${esc(why || '')}</div>
-      <div class="chip-row"><span class="chip pos">${esc(pos)}</span>${staleChip(entry)}</div>
+      <div class="chip-row"><span class="chip pos">${esc(slotLabel || pos)}</span>${staleChip(entry)}${entry && entry.injury_status ? `<span class="chip ${entry.injury_status === 'Questionable' ? 'stale' : 'scope'}" title="Sleeper injury designation">${esc(entry.injury_status)}</span>` : ''}</div>
     </div>`;
   }
   function dropRow(entry){

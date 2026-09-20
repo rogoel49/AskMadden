@@ -459,3 +459,102 @@ def test_generate_report_loads_dotenv_itself_not_only_via_cli_main(tmp_path, mon
     )
 
     assert len(calls) == 1  # load_dotenv() was actually invoked by generate_report() itself
+
+
+# ---- start_sit follows the league's actual starting slots ----
+
+
+def _league_with_slots(raw_dir: Path, roster_positions: list[str]) -> None:
+    envelope = json.loads((raw_dir / "league.json").read_text())  # {"fetched_at", "source", "data"} -- see test_league._write
+    envelope["data"]["roster_positions"] = roster_positions
+    (raw_dir / "league.json").write_text(json.dumps(envelope))
+
+
+def _rb_row(pid: str, name: str, rz: float) -> dict:
+    return {**_BARKLEY_SIGNAL_ROW, "player_id": pid, "player_name": name, "red_zone_share": rz, "target_share": 0.05,
+            "target_share_adjusted": 0.05, "epa_trend": 0.0}
+
+
+def _rb_index_row(pid: str, name: str) -> dict:
+    return {**_BARKLEY_ROW, "gsis_id": pid, "display_name": name}
+
+
+def test_start_sit_recommends_as_many_starters_as_the_league_has_slots(tmp_path, monkeypatch):
+    """The first friend's league started two RBs and the report recommended
+    one -- a wrong answer, not a simplification. RB, RB + FLEX with four
+    RBs: two RB starters, the third best in the FLEX, the fourth sits."""
+    rbs = [("00-0000001", "Alpha Back", 0.50), ("00-0000002", "Bravo Back", 0.40), ("00-0000003", "Charlie Back", 0.30), ("00-0000004", "Delta Back", 0.20)]
+    roster = {f"s_{pid}": {"full_name": name, "position": "RB", "team": "PHI"} for pid, name, _ in rbs}
+    players_df = pl.DataFrame([_rb_index_row(pid, name) for pid, name, _ in rbs])
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_rb_row(pid, name, rz) for pid, name, rz in rbs], players_df)
+    _league_with_slots(raw_dir, ["QB", "RB", "RB", "WR", "TE", "FLEX", "K", "BN", "BN"])
+
+    result = report.generate_report(
+        "start_sit", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    by_slot = {e["position"]: e for e in result["entries"]}
+    assert set(by_slot) == {"RB", "FLEX"}
+    rb = by_slot["RB"]
+    assert rb["slots"] == 2
+    assert [s["name"] for s in rb["recommended_starters"]] == ["Alpha Back", "Bravo Back"]
+    assert rb["recommended_starter"]["name"] == "Alpha Back"  # the top pick keeps its name -- Chat's verdict anchor
+    assert [a["name"] for a in rb["alternatives_considered"]] == ["Charlie Back", "Delta Back"]
+    assert rb["reasoning"].startswith("Start Alpha Back and Bravo Back at RB (2 slots).")
+    flex = by_slot["FLEX"]
+    assert flex["slots"] == 1 and flex["eligible_positions"] == ["RB", "WR", "TE"]
+    assert [s["name"] for s in flex["recommended_starters"]] == ["Charlie Back"]
+    assert [a["name"] for a in flex["alternatives_considered"]] == ["Delta Back"]
+    assert all(s["position"] == "RB" for s in flex["recommended_starters"])
+
+
+def test_start_sit_with_exactly_as_many_players_as_slots_has_nothing_to_decide(tmp_path, monkeypatch):
+    roster = {
+        "sleeper_barkley": {"full_name": "Saquon Barkley", "position": "RB", "team": "PHI"},
+        "sleeper_cook": {"full_name": "James Cook", "position": "RB", "team": "BUF"},
+    }
+    players_df = pl.DataFrame([_BARKLEY_ROW, _COOK_ROW])
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_BARKLEY_SIGNAL_ROW, _COOK_SIGNAL_ROW], players_df)
+    _league_with_slots(raw_dir, ["QB", "RB", "RB", "WR", "BN"])
+
+    result = report.generate_report(
+        "start_sit", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    assert result["entries"] == []  # both start; the old one-slot assumption would have benched Cook
+
+
+def test_start_sit_falls_back_to_one_slot_per_position_when_the_league_has_no_slot_structure(tmp_path, monkeypatch):
+    roster = {
+        "sleeper_barkley": {"full_name": "Saquon Barkley", "position": "RB", "team": "PHI"},
+        "sleeper_cook": {"full_name": "James Cook", "position": "RB", "team": "BUF"},
+    }
+    players_df = pl.DataFrame([_BARKLEY_ROW, _COOK_ROW])
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_BARKLEY_SIGNAL_ROW, _COOK_SIGNAL_ROW], players_df)
+    _league_with_slots(raw_dir, [])
+
+    result = report.generate_report(
+        "start_sit", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    assert [(e["position"], e["slots"], e["recommended_starter"]["name"]) for e in result["entries"]] == [("RB", 1, "Saquon Barkley")]
+
+
+def test_start_sit_leaves_out_players_who_cannot_play_and_says_so(tmp_path, monkeypatch):
+    rbs = [("00-0000001", "Alpha Back", 0.50), ("00-0000002", "Bravo Back", 0.40), ("00-0000003", "Charlie Back", 0.30)]
+    roster = {f"s_{pid}": {"full_name": name, "position": "RB", "team": "PHI"} for pid, name, _ in rbs}
+    roster["s_00-0000001"]["injury_status"] = "IR"          # the best back, but on IR
+    roster["s_00-0000002"]["injury_status"] = "Questionable"  # stays in -- that IS the call to help with
+    players_df = pl.DataFrame([_rb_index_row(pid, name) for pid, name, _ in rbs])
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_rb_row(pid, name, rz) for pid, name, rz in rbs], players_df)
+    _league_with_slots(raw_dir, ["QB", "RB", "WR", "BN"])
+
+    result = report.generate_report(
+        "start_sit", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    entry = result["entries"][0]
+    assert entry["recommended_starter"]["name"] == "Bravo Back"
+    assert entry["recommended_starter"]["injury_status"] == "Questionable"
+    assert [a["name"] for a in entry["alternatives_considered"]] == ["Charlie Back"]
+    assert any(note == "Not available this week, left out of the lineup: Alpha Back (IR)." for note in result["notes"])

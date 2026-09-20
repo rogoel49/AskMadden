@@ -541,6 +541,9 @@ def _tool_get_my_roster(tool_input: dict, ctx: RecommendContext) -> dict:
                 "name": p.get("full_name"),
                 "position": p.get("position"),
                 "team": p.get("team"),
+                # Sleeper's own designation (Questionable / Doubtful / Out /
+                # IR / PUP / ...), or None when healthy.
+                "injury_status": p.get("injury_status"),
             }
             for p in players
         ]

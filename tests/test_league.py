@@ -94,7 +94,11 @@ def _seed_league(raw_dir: Path, league_id: str, name: str, scoring: dict) -> Non
             "season": str(_SEASON),
             "settings": {"num_teams": 12},
             "scoring_settings": scoring,
-            "roster_positions": ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "BN"],
+            # One RB slot on purpose: the fixture rosters exactly two RBs, and
+            # since 2026-09-20 start_sit follows the league's real slots, so
+            # two RB slots would mean "both start, nothing to decide" and an
+            # empty report (the equality test below needs an entry).
+            "roster_positions": ["QB", "RB", "WR", "WR", "TE", "FLEX", "BN"],
         },
     )
     _write(

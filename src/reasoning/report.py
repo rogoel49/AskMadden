@@ -65,16 +65,22 @@ and src/rag/player_index.py's identity resolution -- see below.
   Chroma lookup per candidate would be slow and redundant with the one
   parquet read that already has every candidate's numbers.
 
-**Known simplification, documented rather than silently assumed:**
-start_sit groups a roster by Sleeper's own `position` field (QB/RB/WR/TE
--- the same skill positions src/rag/player_index.py's SKILL_POSITIONS
-covers, since those are the only positions with computed matchup
-signals). It does not model a league's actual Sleeper `roster_positions`
-slot structure (FLEX/superflex/bench counts, IDP, etc.) -- a true
-slot-by-slot lineup optimizer is a materially bigger scope than "for
-every roster slot with more than one viable option, recommend who to
-start" needs to demonstrate. Revisit if FLEX-aware recommendations turn
-out to matter once this is used against a real roster.
+**start_sit follows the league's actual starting slots** (since
+2026-09-20 -- the first friend's league started two RBs and the report
+recommended one, which is a wrong answer, not a simplification). It
+reads the league's Sleeper `roster_positions`: a position with N
+dedicated slots gets its top N ranked players as `recommended_starters`
+(and the rest as alternatives); FLEX-type slots (FLEX, SUPER_FLEX,
+REC_FLEX, WRRB_FLEX -- see src/rag/lookup.py's FLEX_ELIGIBILITY) are
+then filled from the players left over after the dedicated slots, ranked
+together across positions by the same rank_candidates() call. Only
+positions with computed signals take part (QB/RB/WR/TE -- K and DEF have
+no matchup signals, so those slots are left to the user). A league whose
+roster_positions aren't known falls back to one slot per position, the
+pre-2026-09-20 behavior. This is a greedy fill (dedicated slots first,
+then flex), not a global optimizer; with one ranking score per player the
+two agree unless a player is worth more in a flex slot than a weaker
+teammate is in a dedicated one, which the score can't express anyway.
 
 **Known simplification for "rising" opportunity signals:** the signals
 table is one point-in-time row per player per as_of_week (season-to-date
@@ -206,10 +212,20 @@ def _resolve_roster_with_signals(
                 "name": signal_result["player_name"],
                 "position": player.get("position") or signal_result.get("position"),
                 "team": player.get("team") or signal_result.get("team"),
+                "injury_status": player.get("injury_status"),
                 "row": tables.row_for(player_id),
             }
         )
     return resolved, unresolved
+
+
+# Sleeper injury designations that mean "cannot play this week". Such a
+# player is left out of the start/sit decision and named in the notes,
+# rather than ranked as if available (a rookie RB on IR was showing up as
+# a SIT candidate with last season's numbers, which reads like a call).
+# Questionable/Doubtful stay in -- that is exactly the call the user wants
+# help with -- and the entry carries the status so the UI can flag it.
+UNAVAILABLE_STATUSES = {"Out", "IR", "PUP", "Sus", "COV", "DNR", "NA"}
 
 
 def _report_header(ctx: recommend.RecommendContext, report_type: str) -> dict:
@@ -229,25 +245,98 @@ def _report_header(ctx: recommend.RecommendContext, report_type: str) -> dict:
     }
 
 
+def _slot_counts(roster_positions: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for slot in lookup.starter_slots(roster_positions):
+        counts[slot] = counts.get(slot, 0) + 1
+    return counts
+
+
+def _player_ref(ranked: dict, injury_status: str | None = None) -> dict:
+    return {
+        "player_id": ranked["player_id"],
+        "name": ranked["name"],
+        "team": ranked["team"],
+        "position": ranked.get("position"),
+        "injury_status": injury_status,
+        "signals_summary": ranked["signals_summary"],
+        "stale": ranked["stale"],
+        "source_season": ranked["source_season"],
+        "source_as_of_week": ranked["source_as_of_week"],
+    }
+
+
+def _start_sit_entry(
+    slot: str, n_slots: int, starters: list[dict], alternatives: list[dict], eligible: tuple[str, ...] | None,
+    injuries: dict[str, str | None] | None = None,
+) -> dict:
+    injuries = injuries or {}
+    where = slot if n_slots == 1 else f"{slot} ({n_slots} slots)"
+    if len(starters) == 1:
+        reasoning = f"Start {starters[0]['name']} at {where}: {starters[0]['signals_summary']}."
+    else:
+        names = ", ".join(s["name"] for s in starters[:-1]) + f" and {starters[-1]['name']}"
+        reasoning = f"Start {names} at {where}. " + " ".join(f"{s['name']}: {s['signals_summary']}." for s in starters)
+    for alt in alternatives:
+        reasoning += f" By comparison, {alt['name']}: {alt['signals_summary']}."
+    entry = {
+        "position": slot,
+        "slots": n_slots,
+        # The top pick, kept under its long-standing name -- it is the
+        # verdict Chat's rank_players is held to (see ranking.py).
+        "recommended_starter": _player_ref(starters[0], injuries.get(starters[0]["player_id"])),
+        "recommended_starters": [_player_ref(s, injuries.get(s["player_id"])) for s in starters],
+        "alternatives_considered": [_player_ref(a, injuries.get(a["player_id"])) for a in alternatives],
+        "reasoning": reasoning,
+    }
+    if eligible is not None:
+        entry["eligible_positions"] = list(eligible)
+    return entry
+
+
 def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> dict:
     resolved, unresolved = _resolve_roster_with_signals(ctx, tables)
-
-    by_position: dict[str, list[dict]] = {}
-    for candidate in resolved:
-        by_position.setdefault(candidate["position"], []).append(candidate)
 
     entries = []
     notes = []
     if unresolved:
         notes.append(f"Could not identity-resolve {len(unresolved)} rostered player(s): {', '.join(unresolved)}.")
+    unavailable = [c for c in resolved if c.get("injury_status") in UNAVAILABLE_STATUSES]
+    if unavailable:
+        notes.append(
+            "Not available this week, left out of the lineup: "
+            + ", ".join(f"{c['name']} ({c['injury_status']})" for c in unavailable) + "."
+        )
+        resolved = [c for c in resolved if c.get("injury_status") not in UNAVAILABLE_STATUSES]
+    injuries = {c["player_id"]: c.get("injury_status") for c in resolved}
+
+    by_position: dict[str, list[dict]] = {}
+    for candidate in resolved:
+        by_position.setdefault(candidate["position"], []).append(candidate)
+
     stale_note = _stale_note(resolved)
     if stale_note:
         notes.append(stale_note)
 
+    roster_positions = list(ctx.league.roster_positions) if ctx.league else []
+    slots = _slot_counts(roster_positions)
+    structure_known = bool(slots)
+    flex_slots = [(slot, n) for slot, n in slots.items() if slot in lookup.FLEX_ELIGIBILITY]
+    flex_eligible_positions = {pos for slot, _ in flex_slots for pos in lookup.FLEX_ELIGIBILITY[slot]}
+    by_id = {c["player_id"]: c for c in resolved}
+    flex_pool: list[dict] = []  # candidates (not ranked refs) still available for a flex slot
+
     for position in sorted(by_position):
         candidates = by_position[position]
-        if len(candidates) < 2:
+        n_slots = slots.get(position, 0) if structure_known else 1
+        if n_slots == 0:
+            # No dedicated slot for this position in this league -- its
+            # players only start via a flex slot, if one takes them.
+            if position in flex_eligible_positions:
+                flex_pool.extend(candidates)
             continue
+        if len(candidates) <= n_slots:
+            continue  # nothing to decide: everyone with this position starts (or there is nobody to compare)
         # The verdict itself -- the same ranking.rank_candidates() call
         # Chat's rank_players tool makes, so the two surfaces can't
         # disagree. On a genuine tie the report keeps its long-standing
@@ -261,36 +350,23 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
                 f"for {ctx.season} week {ctx.as_of_week} -- skipped, nothing to ground a comparison in."
             )
             continue
-        starter, alternatives = ranking["ranked"][0], ranking["ranked"][1:]
-        reasoning = f"Start {starter['name']} at {position}: {starter['signals_summary']}."
-        for alt in alternatives:
-            reasoning += f" By comparison, {alt['name']}: {alt['signals_summary']}."
-        entries.append(
-            {
-                "position": position,
-                "recommended_starter": {
-                    "player_id": starter["player_id"],
-                    "name": starter["name"],
-                    "team": starter["team"],
-                    "stale": starter["stale"],
-                    "source_season": starter["source_season"],
-                    "source_as_of_week": starter["source_as_of_week"],
-                },
-                "alternatives_considered": [
-                    {
-                        "player_id": alt["player_id"],
-                        "name": alt["name"],
-                        "team": alt["team"],
-                        "signals_summary": alt["signals_summary"],
-                        "stale": alt["stale"],
-                        "source_season": alt["source_season"],
-                        "source_as_of_week": alt["source_as_of_week"],
-                    }
-                    for alt in alternatives
-                ],
-                "reasoning": reasoning,
-            }
-        )
+        starters, alternatives = ranking["ranked"][:n_slots], ranking["ranked"][n_slots:]
+        if position in flex_eligible_positions:
+            flex_pool.extend(by_id[alt["player_id"]] for alt in alternatives)
+        entries.append(_start_sit_entry(position, n_slots, starters, alternatives, None, injuries))
+
+    for slot, n_slots in flex_slots:
+        eligible = lookup.FLEX_ELIGIBILITY[slot]
+        pool = [c for c in flex_pool if c["position"] in eligible]
+        if len(pool) <= n_slots:
+            continue
+        ranking = rank_candidates(pool)
+        if len(ranking["ranked"]) < 2:
+            continue
+        starters, alternatives = ranking["ranked"][:n_slots], ranking["ranked"][n_slots:]
+        chosen = {s["player_id"] for s in starters}
+        flex_pool = [c for c in flex_pool if c["player_id"] not in chosen]
+        entries.append(_start_sit_entry(slot, n_slots, starters, alternatives, eligible, injuries))
 
     header = _report_header(ctx, "start_sit")
     header["entries"] = entries

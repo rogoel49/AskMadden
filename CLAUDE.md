@@ -83,8 +83,11 @@ or monetized, it needs to genuinely work for more than one league.
   for season-long value would be actively misleading. See TODO.md's
   Phase 3.5 section for full detail, including the specific real-2024-data
   validation run and two documented scoping simplifications (start_sit
-  groups by position rather than a league's full Sleeper roster-slot
-  structure; waiver_pickups' "rising" target share is a point-in-time
+  grouped by position rather than a league's full Sleeper roster-slot
+  structure -- **no longer true as of 2026-09-20**, start_sit now fills
+  the league's actual `roster_positions`, dedicated slots first then
+  FLEX-type slots, see TODO.md's "Fixed: start/sit recommended one
+  starter per position..." entry; waiver_pickups' "rising" target share is a point-in-time
   value, not an actual week-over-week delta the project doesn't compute
   yet). The `src/scheduler/refresh.py` gap this phase flagged — every
   report and `recommend()` call only as current as the last manual
@@ -330,7 +333,18 @@ or monetized, it needs to genuinely work for more than one league.
   select). `embed.embed()` is now upsert-then-prune under a per-
   directory lock, and the request-path resync stands down while a
   rebuild or cycle is running -- see TODO.md's "Fixed: chat lost every
-  signal during a re-embed..." entry.
+  signal during a re-embed..." entry. **Same day, from the same friend's
+  league:** start_sit recommended one RB in a league that starts two;
+  now slot-aware (`recommended_starters` per entry, FLEX filled from the
+  leftovers, `recommended_starter` kept as the top pick Chat is held
+  to). QBs were unrankable (no target/red-zone share) so the QB slot
+  was always skipped; `ranking.opportunity_score()` has a passer branch
+  (CPOE + implied total, labeled in `score_description`). Players Out /
+  on IR are left out of the lineup and named in `notes`;
+  `get_my_roster` returns `injury_status`. `/api/roster` returns the
+  lineup by slot (`lineup`/`bench`/`reserve`) and the Roster tab draws
+  it Sleeper-style. See TODO.md's "Fixed: start/sit recommended one
+  starter per position..." entry.
 - Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
   Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
   confirmed a complete, honestly-bounded product (composition + signals +
