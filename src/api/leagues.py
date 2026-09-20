@@ -47,6 +47,7 @@ from chromadb.api.shared_system_client import SharedSystemClient
 
 from src.ingest import sleeper
 from src.rag import embed
+from src.scheduler import refresh  # cycle_in_progress(); refresh imports this module lazily, so no cycle
 from src.rag.embed import CHROMA_DIR, RAW_DIR, SIGNALS_DIR
 from src.reasoning.league import LeagueConfig, load_league
 
@@ -304,14 +305,11 @@ def _resync_signals_if_changed(league_id: str, raw_dir: Path, persist_dir: Path,
 
     Serialized on _signals_resync_lock, and called from
     ensure_league_data() -- which every league-scoped request goes through
-    before it touches Chroma -- so a request arriving mid-resync waits for
-    it rather than reading the half-rebuilt collection. (embed() clears the
-    collection before re-adding, so a reader that got past
-    ensure_league_data() before the resync started could still see a
-    partial collection for that moment; at friend-group scale, once per
-    refresh, that is a far smaller problem than serving permanently stale
-    signals, but it is the reason this is a resync-on-demand and not a
-    background job.)
+    before it touches Chroma -- so two requests never both rebuild. It
+    also stands down when the scheduler is mid-cycle or this collection is
+    already being rebuilt (see the inline note below): embed() is
+    upsert-based, so a collection under rebuild is a usable, never-empty
+    collection, and the rebuilder will stamp it when done.
 
     A league with NO stamp at all -- one ingested before this check
     existed -- adopts the current fingerprint WITHOUT re-embedding. The
@@ -331,8 +329,21 @@ def _resync_signals_if_changed(league_id: str, raw_dir: Path, persist_dir: Path,
     if stamp is None:
         _write_stamp(persist_dir, fingerprint)
         return False
+    # Someone else is already rebuilding this league -- the scheduler's
+    # cycle (which re-embeds and stamps every ingested league itself), or
+    # this collection specifically -- so a rebuild here would be the same
+    # work a second time, paid for by this request (20-40s), while the two
+    # interleave their writes into one collection. Serve what is on disk
+    # instead: embed() is upsert-based, so it is never empty mid-rebuild,
+    # and the finisher writes the stamp. Real case, 2026-09-20: a league
+    # select that took over a minute, and a chat answer with no signal
+    # data for two QBs, both while the 6-hourly cycle was mid-embed.
+    if embed.rebuild_in_progress(persist_dir) or refresh.cycle_in_progress():
+        return False
     with _signals_resync_lock:
-        if _read_stamp(persist_dir) == fingerprint:  # another thread just did it
+        if _read_stamp(persist_dir) == fingerprint:  # another request just did it
+            return False
+        if embed.rebuild_in_progress(persist_dir) or refresh.cycle_in_progress():
             return False
         embed.embed(
             persist_dir=persist_dir,

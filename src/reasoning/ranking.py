@@ -269,9 +269,15 @@ def fmt_signal_row(row: dict | None) -> str:
         return "no computed signals available for this player/week"
     prefix = ""
     if row.get("stale"):
+        # Say WHY it's stale: a row is missing from the current-season
+        # table exactly when nflverse has no play with this player as
+        # rusher/receiver/passer before the as-of week -- so either the
+        # season hasn't started, or (the confusing case for a user: a
+        # rostered RB showing last year's numbers in week 2) they haven't
+        # touched the ball yet this season.
         prefix = (
-            f"[STALE -- no current-season signal yet, showing {row.get('source_season')} "
-            f"season-end reference instead] "
+            f"[STALE -- no plays recorded for this player this season before the as-of week, "
+            f"showing {row.get('source_season')} season-end reference instead] "
         )
     parts = []
     if row.get("epa_trend") is not None:

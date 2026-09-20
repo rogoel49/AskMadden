@@ -106,3 +106,59 @@ def test_embed_is_idempotent_on_rebuild(tmp_path):
 
     collection = embed.embed(chunks, persist_dir=persist_dir)
     assert collection.count() == len(chunks)
+
+
+# ---- a rebuild is an upsert + prune, never delete-all + add ----
+
+
+def _chunk(i, text=None):
+    return {"id": f"signal:2026:week2:p{i}", "text": text or f"player {i} entering 2026 week 2: target share {i}%",
+            "metadata": {"type": "player_signal", "player_id": f"p{i}", "week": 2, "season": 2026}}
+
+
+def test_rebuild_updates_changed_chunks_and_prunes_removed_ones(tmp_path):
+    persist_dir = tmp_path / "chroma"
+    embed.embed([_chunk(1), _chunk(2)], persist_dir=persist_dir)
+
+    collection = embed.embed([_chunk(2, "player 2 entering 2026 week 2: target share 99%"), _chunk(3)], persist_dir=persist_dir)
+
+    got = collection.get()
+    assert set(got["ids"]) == {"signal:2026:week2:p2", "signal:2026:week2:p3"}
+    assert "99%" in got["documents"][got["ids"].index("signal:2026:week2:p2")]
+
+
+def test_rebuild_never_empties_the_collection_for_a_concurrent_reader(tmp_path):
+    """The 2026-09-20 bug: a chat that ran during the scheduler's re-embed
+    saw an emptied collection and told the user two QBs had no data. A
+    reader polling throughout a rebuild must never see fewer chunks than
+    were there before it started."""
+    import threading
+
+    import chromadb
+
+    persist_dir = tmp_path / "chroma"
+    before = [_chunk(i) for i in range(150)]
+    embed.embed(before, persist_dir=persist_dir)
+    after = [_chunk(i, f"player {i} entering 2026 week 2: target share {i + 1}%") for i in range(150)]
+
+    reader = chromadb.PersistentClient(path=str(persist_dir)).get_collection(embed.COLLECTION_NAME)
+    observed: list[int] = []
+    worker = threading.Thread(target=embed.embed, args=(after,), kwargs={"persist_dir": persist_dir})
+    worker.start()
+    while worker.is_alive():
+        observed.append(len(reader.get(where={"type": "player_signal"}, include=[])["ids"]))
+    worker.join()
+
+    assert observed, "the reader never got a look in"
+    assert min(observed) == 150, f"a reader saw the collection shrink to {min(observed)} mid-rebuild"
+    assert reader.count() == 150
+    assert not embed.rebuild_in_progress(persist_dir)
+
+
+def test_rebuild_in_progress_reflects_the_per_directory_lock(tmp_path):
+    persist_dir = tmp_path / "chroma"
+    assert embed.rebuild_in_progress(persist_dir) is False
+    with embed.rebuild_lock(persist_dir):
+        assert embed.rebuild_in_progress(persist_dir) is True
+        assert embed.rebuild_in_progress(tmp_path / "other") is False
+    assert embed.rebuild_in_progress(persist_dir) is False

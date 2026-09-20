@@ -111,6 +111,17 @@ from src.signals import matchup_signals
 
 LOGGER = logging.getLogger("askmadden.refresh")
 
+# Set for the duration of run_cycle() in this process. src/api/leagues.py's
+# request-path resync checks it and stands down while a cycle is running,
+# because the cycle re-embeds and stamps every ingested league itself -- a
+# request rebuilding one in parallel is the same work twice, interleaved
+# into the same collection, on the user's clock.
+_cycle_running = threading.Event()
+
+
+def cycle_in_progress() -> bool:
+    return _cycle_running.is_set()
+
 SIGNALS_DIR = matchup_signals.PROCESSED_DIR
 STATUS_PATH = SIGNALS_DIR.parent / "refresh_status.json"
 # Every public function below resolves signals_dir/status_path from these
@@ -376,6 +387,14 @@ def run_cycle(
     computed, so nothing downstream could have changed)."""
     signals_dir = signals_dir or SIGNALS_DIR
     status_path = STATUS_PATH if status_path is _UNSET else status_path
+    _cycle_running.set()
+    try:
+        return _run_cycle(season, as_of_week, signals_dir, league_ids, backfill, status_path)
+    finally:
+        _cycle_running.clear()
+
+
+def _run_cycle(season, as_of_week, signals_dir, league_ids, backfill, status_path) -> dict:
     started = _now()
     record: dict[str, Any] = {
         "started_at": started.isoformat(),
