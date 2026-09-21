@@ -349,7 +349,15 @@ or monetized, it needs to genuinely work for more than one league.
   had topped the waiver list on trend noise), waiver targets set aside
   last-season-only players once the current season has data, and the
   K/DEF and unrankable-player notes say what they mean -- TODO.md's
-  "Fixed: a 5-play player topped the waiver list..." entry.
+  "Fixed: a 5-play player topped the waiver list..." entry. **Eval
+  numbers (2026-09-20):** retrieval 80/84 across four leagues (after
+  fixing a real bug it found: the chat's league-info search now excludes
+  signal chunks via `retrieve.LEAGUE_INFO_ONLY`); the 600-dilemma
+  decision run died on an exhausted API credit balance with ~460
+  answers lost because `run_decision_eval.run()` buffered them -- now
+  resumable via `progress_path`; **rerun once credit exists**, and
+  never run it without the progress file. See TODO.md's "Eval numbers,
+  first real runs" entry.
 - Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
   Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
   confirmed a complete, honestly-bounded product (composition + signals +

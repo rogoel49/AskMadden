@@ -13,7 +13,7 @@ class FakeCollection:
     def __init__(self, candidates):
         self._candidates = candidates
 
-    def query(self, query_texts, n_results):
+    def query(self, query_texts, n_results, where=None):  # `where` mirrors chromadb; the fake ignores it
         ids, docs, metas = zip(*self._candidates) if self._candidates else ([], [], [])
         return {"ids": [list(ids)], "documents": [list(docs)], "metadatas": [list(metas)]}
 

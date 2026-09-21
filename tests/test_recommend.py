@@ -1155,3 +1155,30 @@ def test_infer_week_prefers_sleepers_week_over_the_lagging_display_week(tmp_path
     (raw_dir / "nfl_state.json").write_text(json.dumps({"data": {"season": "2024", "display_week": 8}}))
     assert recommend._infer_season_and_week(raw_dir) == (2024, 8)
 
+
+
+def test_search_league_info_never_returns_player_signal_chunks(tmp_path, monkeypatch):
+    """The index is mostly per-player signal chunks, which sit close to any
+    football question in embedding space and were crowding out the roster
+    and matchup chunks this tool exists to find (measured 2026-09-20:
+    54/84 on the retrieval eval, one league 6/24)."""
+    from src.rag import embed, retrieve
+    from src.reasoning import recommend
+
+    persist_dir = tmp_path / "chroma"
+    chunks = [{"id": "team:1", "text": "Victorious Secret (roster ID 1) roster: Saquon Barkley (RB, PHI), James Cook (RB, BUF)",
+               "metadata": {"type": "team_roster"}},
+              {"id": "matchup:week1:1", "text": "Week 1 matchup 1: roster 1 scored 101.2; roster 2 scored 92.5.",
+               "metadata": {"type": "matchup", "week": 1}}]
+    chunks += [{"id": f"signal:2026:week2:p{i}", "text": f"Player {i} (PHI) entering 2026 week 2: red zone role share 40%; target share 12% on the roster",
+                "metadata": {"type": "player_signal", "player_id": f"p{i}", "week": 2, "season": 2026}} for i in range(60)]
+    embed.embed(chunks, persist_dir=persist_dir)
+    ctx = recommend.RecommendContext(raw_dir=tmp_path, persist_dir=persist_dir, season=2026, as_of_week=2, player_idx=None)
+
+    out = recommend._tool_search_league_info({"query": "Who is on the Victorious Secret roster?"}, ctx)
+
+    assert out["results"], out
+    assert {r["type"] for r in out["results"]} <= {"team_roster", "matchup"}
+    assert any("Saquon Barkley" in r["text"] for r in out["results"])
+    # the unfiltered search still sees signal chunks -- other callers rely on that
+    assert any(h["metadata"]["type"] == "player_signal" for h in retrieve.query("red zone role share", n_results=5, persist_dir=persist_dir))

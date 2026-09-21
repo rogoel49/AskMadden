@@ -1295,6 +1295,53 @@ test rewritten to that split; the K note; the one-story note for an
 unrankable player). Suite 367/367. And the three real Narcos reports
 above from a live server.
 
+## Eval numbers, first real runs (2026-09-20): retrieval 80/84, decision run interrupted
+
+Rohan okayed spending up to $30 of Claude credit on the decision eval,
+so both harnesses ran for real for the first time.
+
+**Retrieval (free, `evals/run_eval.py`): 80/84 = 95.2% across all four
+ingested leagues** (Victorious Secret 3.0 ingested to a scratch dir,
+plus the three per-league dirs), roster + matchup-score questions, as-of-
+week filtered. Saved as `evals/results/2026-09-20_retrieval_run.json`.
+The first pass scored **54/84, one league 6/24** -- and the diagnosis was
+a product bug, not an eval quirk: since Phase 2 each league's index is
+~97% per-player signal chunks (1,331 of 1,367), which sit close to any
+football question in embedding space, so "Who is on X's roster?" came
+back as three signal chunks and no roster, and after the as-of cut a
+matchup question was left with one hit. The chat's `search_league_info`
+tool ran the same unfiltered search despite its own description ("not
+for player signals"). Fix: `retrieve.query()` takes an optional Chroma
+`where`, `retrieve.LEAGUE_INFO_ONLY` (`type != player_signal`) is what
+the tool passes, and `run_eval.query_as_of` applies the same filter so
+the number measures the path a user's question actually takes. The
+unfiltered default is unchanged (other callers and tests rely on it).
+Pinned by `test_search_league_info_never_returns_player_signal_chunks`.
+
+**Decision (`evals/run_decision_eval.py`): run, not finished.** Pilot
+of 5 dilemmas: 2/5, $0.037 per dilemma (2 API calls each, Sonnet 4.5) --
+far cheaper than the $0.05-0.15 guessed earlier, so the run was sized at
+600 of the 1,870-dilemma pool (2024 week 5, `build(max_pairs=10000)`,
+seeded shuffle, 4 parallel shards of 150). All four shards died 21
+minutes in with `Your credit balance is too low to access the Anthropic
+API` -- roughly 460 dilemmas answered (~$17) and **every one of them
+lost**, because `run()` buffered results in memory and only wrote at
+the end. That was the harness's flaw and this session's mistake to run
+it that way. Fixed: `run(progress_path=...)` appends each scored dilemma
+as a JSON line the moment it lands and skips those on a rerun (CLI
+`--progress`, default `evals/results/decision_progress.jsonl`); pinned
+by a test that crashes mid-run and resumes. The landing band now shows
+the real retrieval number and still labels decision accuracy as pending.
+- [ ] **Blocked on credit:** once the Anthropic account has credit
+      again, rerun with the progress file. The exact shard files are
+      in this session's scratch dir; a fresh run is
+      `python -m evals.run_decision_eval --league-id 1389341490030862336`
+      after ingesting that league to `data/raw/sleeper` + embedding, or
+      the scratch-dir variant described in the method field of the
+      results JSON. ~$0.04/dilemma; 400 dilemmas ≈ $15 (±5% at 95%).
+- [ ] Put the decision number on the landing band + README when it
+      exists; matchup-fit stays a placeholder until Phase 4.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import chromadb
 
+from src.rag import retrieve
 from src.rag.embed import CHROMA_DIR, COLLECTION_NAME
 
 EVAL_QUESTIONS_PATH = Path(__file__).resolve().parent / "eval_questions.jsonl"
@@ -34,7 +35,10 @@ def query_as_of(question: dict, collection, n_results: int = 3, overfetch: int =
     than the question's as_of_week -- chunks with no week (rosters, league
     settings) are always in scope."""
     as_of_week = question.get("as_of_week")
-    results = collection.query(query_texts=[question["question"]], n_results=overfetch)
+    # The same filter the product's search_league_info tool applies, so
+    # this measures the path a user's question actually takes; the as-of
+    # cut below is the eval's own rule on top of it.
+    results = collection.query(query_texts=[question["question"]], n_results=overfetch, where=retrieve.LEAGUE_INFO_ONLY)
 
     candidates = [
         {"id": id_, "text": text, "metadata": metadata}

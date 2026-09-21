@@ -743,7 +743,11 @@ def _tool_get_current_matchup(tool_input: dict, ctx: RecommendContext) -> dict:
 
 
 def _tool_search_league_info(tool_input: dict, ctx: RecommendContext) -> dict:
-    results = retrieve.query(tool_input["query"], n_results=5, persist_dir=ctx.persist_dir)
+    # League info only -- see retrieve.LEAGUE_INFO_ONLY. This tool's own
+    # description already tells the model it is not for player signals.
+    results = retrieve.query(
+        tool_input["query"], n_results=5, persist_dir=ctx.persist_dir, where=retrieve.LEAGUE_INFO_ONLY
+    )
     return {"results": [{"text": r["text"], "type": r["metadata"].get("type")} for r in results]}
 
 

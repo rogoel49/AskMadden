@@ -17,13 +17,30 @@ import chromadb
 from src.rag.embed import CHROMA_DIR, COLLECTION_NAME
 
 
-def query(question: str, n_results: int = 5, persist_dir: Path = CHROMA_DIR) -> list[dict]:
+# The metadata filter for "league information" searches: everything the
+# index holds EXCEPT per-player signal chunks. Since Phase 2 those chunks
+# are the bulk of every collection (1,331 of 1,367 in a real league) and,
+# being player prose, sit close to almost any football question in
+# embedding space -- so an unfiltered search for a roster or a matchup
+# score came back as three signal chunks and no roster (measured by
+# evals/run_eval.py on 2026-09-20: 54/84 across four leagues, one league
+# 6/24). Named-player questions have their own structured tool
+# (get_player_signals); a league-info search never wants a signal chunk.
+LEAGUE_INFO_ONLY = {"type": {"$ne": "player_signal"}}
+
+
+def query(
+    question: str, n_results: int = 5, persist_dir: Path = CHROMA_DIR, where: dict | None = None
+) -> list[dict]:
     """Return the n_results chunks most relevant to question, each as
-    {"id", "text", "metadata", "distance"} ordered by relevance."""
+    {"id", "text", "metadata", "distance"} ordered by relevance. `where`
+    is an optional Chroma metadata filter (e.g. LEAGUE_INFO_ONLY); the
+    default searches everything."""
     client = chromadb.PersistentClient(path=str(persist_dir))
     collection = client.get_collection(COLLECTION_NAME)
 
-    results = collection.query(query_texts=[question], n_results=n_results)
+    kwargs = {"where": where} if where else {}
+    results = collection.query(query_texts=[question], n_results=n_results, **kwargs)
     return [
         {"id": id_, "text": text, "metadata": metadata, "distance": distance}
         for id_, text, metadata, distance in zip(
