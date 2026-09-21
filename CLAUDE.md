@@ -205,8 +205,11 @@ or monetized, it needs to genuinely work for more than one league.
   TODO.md's Phase 3.8 section for full detail, including the live-model
   validation gap this sandbox still can't close (no `ANTHROPIC_API_KEY`).
 - Phase 4 (coverage classification stretch): optional, not started
-- Phase 5 (productization — final deliverable): 5.1-5.4 and 5.7
-  implemented; 5.5 and 5.6 partly done (2026-09-18). 5.6: `src/api/
+- Phase 5 (productization — final deliverable): **complete 2026-09-21**
+  — live at https://askmadden.com (Fly.io, custom domain), five leagues
+  and four real users, every checklist item ticked; the open work is
+  ranking quality (see TODO.md's "Where the accuracy actually stands").
+  History of how 5.5/5.6 landed, kept for context: 5.6: `src/api/
   main.py` now serves the frontend itself (`design/` mounted at `/ui`,
   `/` redirects there, the `/ui` prefix kept on purpose so `sw.js`'s
   scope never covers `/api/`), starts the 5.7 refresh from its own

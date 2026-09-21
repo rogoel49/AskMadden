@@ -551,9 +551,10 @@ construction.
       tier" turned out not to exist for this shape — a persistent
       volume plus 2GB for a refresh cycle is a few dollars a month
       wherever it runs.
-- [ ] Deploy for real (never built here: no Docker/flyctl on the
-      machine this was written on — see TODO.md's 5.6 entry)
-- [ ] Get 2-3 friends in different leagues to actually use it
+- [x] Deploy for real — https://askmadden.com on Fly.io since
+      2026-09-20 (see TODO.md's 5.6 entry)
+- [x] Get 2-3 friends in different leagues to actually use it — five
+      leagues, four people, by 2026-09-21
 - [ ] README: "started as one league, generalized to a product," with
       real eval numbers from run_decision_eval.py
 
@@ -891,9 +892,9 @@ into this pattern, just not the model for anything new.
 - [x] Cost/query caps (5.2: per-user daily chat cap)
 - [x] One app serves API + frontend + refresh (5.6); Dockerfile +
       fly.toml written
-- [ ] Deploy it (5.6) — config done, never built or deployed yet
-- [ ] Get real multi-league usage — two leagues in local use as of
-      2026-09-16, none hosted yet
+- [x] Deploy it (5.6) — live at askmadden.com, 2026-09-20
+- [x] Get real multi-league usage — five hosted leagues, four users,
+      2026-09-21
 
 ### Phase 5.7: Automated data refresh (the scheduler)
 - [x] `src/scheduler/refresh.py`: shared signals once, then every
