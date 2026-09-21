@@ -154,11 +154,11 @@ TOOLS: list[dict] = [
             "only 1 TE, Team Y rosters 4 RBs') -- genuine, grounded composition reasoning. Omit "
             "owner_display_name to get every team in the league at once (the useful shape for "
             "surveying who might have surplus/need at a position across the whole league); give it "
-            "to look at one specific team instead. This tool tells you WHAT a team has -- it does "
-            "NOT tell you whether a trade is fair, what a player is worth, or what to offer. Never "
-            "use its output alone to suggest a specific trade or claim one side benefits -- that's "
-            "still a data_gaps entry (reason: out_of_scope_capability), not something to conclude "
-            "from roster composition."
+            "to look at one specific team instead. Every player carries the points proxy (ppg and total "
+            "this season under this league's scoring, and last season's ppg) -- a crude, labeled measure "
+            "of how good they have BEEN, which is what a rough trade comparison can be grounded in. It is "
+            "not a market value and says nothing about fairness; see the system prompt's TRADES section "
+            "for exactly how to use it."
         ),
         "input_schema": {
             "type": "object",
@@ -369,11 +369,21 @@ class RecommendContext:
     # generate_report()'s signals_dir, so Chat and the Feed rank from the
     # same files by construction.
     signals_dir: Path = SIGNALS_DIR
+    # Phase 6: where the league-agnostic weekly stat-line tables live (None =
+    # the default data/processed/player_stats); scored under this league's
+    # settings at load time -- see ranking.SignalTables.load.
+    player_stats_dir: Path | None = None
     _signal_tables: ranking.SignalTables | None = field(default=None, repr=False)
 
     def signal_tables(self) -> ranking.SignalTables:
         if self._signal_tables is None:
-            self._signal_tables = ranking.SignalTables.load(self.signals_dir, self.season, self.as_of_week)
+            self._signal_tables = ranking.SignalTables.load(
+                self.signals_dir,
+                self.season,
+                self.as_of_week,
+                scoring_settings=self.league.scoring_settings if self.league else None,
+                stats_dir=self.player_stats_dir,
+            )
         return self._signal_tables
 
 
@@ -469,32 +479,29 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "about them (e.g. 'a promising rookie' or 'unproven'). Say explicitly in your reasoning that no "
         "computed signal data exists for them, and record a data_gaps entry (reason: no_signal_data, "
         "player_name set) in submit_recommendation instead of reasoning about them generically.\n\n"
-        "A question can have an answerable part and a part nothing here can answer yet -- e.g. 'what's my "
-        "weakest position, and who should I trade for to fix it?' is answerable for the weakest-position "
-        "half (get_my_roster + get_player_signals) AND, now, partially answerable for the trade-partner "
-        "half: get_league_rosters can tell you which teams have surplus/depth at that position (real "
-        "roster composition, e.g. 'Team Y rosters 4 RBs to your weak TE need' is a fact you can state if "
-        "get_league_rosters actually shows it). What it still can't tell you is whether a trade is fair, "
-        "what either side's players are worth, or what to actually offer -- this project doesn't compute "
-        "season-long player value or trade valuation yet. Never let the still-unanswerable part (valuation) "
-        "cause you to give up on the whole question, and never let the newly-answerable part (composition) "
-        "go unused just because valuation is missing: answer every part you can ground -- including "
-        "composition, now that get_league_rosters exists -- then record a data_gaps entry (reason: "
-        "out_of_scope_capability) specifically for the valuation/fairness piece, rather than submitting 'I "
-        "don't have enough information' or silently dropping the composition half.\n\n"
-        "Critical, and stricter than just 'record a gap': never paper over the still-missing valuation "
-        "piece with plausible-sounding advice instead of admitting the gap. Every specific claim in "
-        "recommendation/reasoning -- which team has surplus at a position, a player to target from another "
-        "team, anything about another team's roster composition -- must be backed by an actual "
-        "get_league_rosters (or find_owner/get_player_signals) call you made THIS turn, never by your own "
-        "general fantasy-football knowledge. get_league_rosters tells you WHAT a team has, not what it's "
-        "worth or what a fair trade looks like -- there is still no tool for trade value, fairness, or 'what "
-        "should I offer'. If a question calls for that, you have no tool that can ground an answer: do not "
-        "improvise one, and do not dress up a composition fact (e.g. 'they have extra RBs') as if it proves "
-        "a trade would be fair or good. Say explicitly that you can identify composition (and do so, "
-        "concretely, when get_league_rosters supports it) but can't recommend actual trade value or "
-        "strategy, and record that specific gap as a data_gaps entry (reason: out_of_scope_capability) -- "
-        "never as trade advice.\n\n"
+        "A question can have an answerable part and a part nothing here can answer yet -- answer every part "
+        "you can ground and record a data_gaps entry (reason: out_of_scope_capability) for the rest; never "
+        "submit 'I don't have enough information' when half the question was answerable.\n\n"
+        "TRADES. You can now make rough, explicitly-labeled trade suggestions, and you should when asked -- "
+        "but only from tool output, and only with the label. get_league_rosters gives every team's players "
+        "with a points proxy (ppg and season_points_so_far_proxy = fantasy points per game / total this season "
+        "under THIS league's scoring, weeks before this one; ppg_prior_season = all of last season), and "
+        "get_player_signals gives the same numbers for any named player. A trade suggestion is: (1) the "
+        "position you need (get_my_roster + rank_players/get_player_signals), (2) a team with surplus there "
+        "(get_league_rosters counts), (3) a specific player of theirs and a specific player or two of yours "
+        "whose proxy numbers are in the same range, stated with the actual numbers (e.g. 'your Goedert, 11.2 "
+        "ppg, for their Herbert, 18.4 ppg, is not close; your Hockenson + Cook, 9.8 + 14.1 ppg, gets nearer'). "
+        "Always call it what it is, in the recommendation itself, not a footnote: a points-per-game comparison "
+        "-- a crude proxy for how good each player has BEEN, not a projection, not position-scarcity-adjusted "
+        "(a 12-ppg TE and a 12-ppg RB are not worth the same), not adjusted for injuries, schedule, or the "
+        "other manager's needs, and not a market value -- the other side may see it completely differently. "
+        "Draft picks have no value here at all: if a question involves picks, say that piece can't be "
+        "grounded and record it as a data_gaps entry (reason: out_of_scope_capability). Never invent a number "
+        "the tools didn't return, never claim a trade is 'fair' as if that were measured, and never use your "
+        "own general knowledge of a player's reputation in place of the proxy.\n\n"
+        "Every specific claim in recommendation/reasoning -- which team has surplus at a position, a player "
+        "to target, a player's ppg -- must be backed by an actual tool call you made THIS turn, never by your "
+        "own general fantasy-football knowledge.\n\n"
         "Head-to-head and start/sit comparisons between specific named players ('start X or Y?', 'who's the "
         "better play, X or Y', 'rank my WRs', 'X vs Y this week') have exactly one verdict here: rank_players' "
         "output. For any such question, call rank_players once with every player being compared (it resolves "
@@ -561,14 +568,42 @@ def _tool_find_owner(tool_input: dict, ctx: RecommendContext) -> dict:
     }
 
 
+def _with_points_proxy(roster: dict, ctx: RecommendContext) -> dict:
+    """Phase 6: every rostered player carries the points proxy (ppg this
+    season under this league's scoring, games, last season's ppg) so a
+    trade comparison can be grounded in numbers instead of guessed.
+    Resolution is the same exact/fuzzy name match get_player_signals uses;
+    a name that doesn't resolve just carries no proxy."""
+    tables = ctx.signal_tables()
+    players = []
+    for p in roster.get("players", []):
+        proxy = {"ppg": None, "games_played": None, "season_points_so_far_proxy": None, "ppg_prior_season": None}
+        if p.get("name") and ctx.player_idx is not None:
+            result = player_index.resolve_player(p["name"], ctx.player_idx)
+            if result.match_type == "exact":
+                proxy = {k: v for k, v in tables.proxy_fields(result.candidates[0].player_id).items() if k != "prior_games_played"}
+        players.append({**p, **proxy})
+    return {**roster, "players": players}
+
+
 def _tool_get_league_rosters(tool_input: dict, ctx: RecommendContext) -> dict:
     owner = tool_input.get("owner_display_name")
     if owner:
         roster = lookup.team_roster_for_owner(owner, ctx.raw_dir)
         if roster is None:
             return {"error": f"No team found for owner {owner!r} in this league."}
-        return {"teams": [roster]}
-    return {"teams": lookup.all_team_rosters(ctx.raw_dir)}
+        teams = [roster]
+    else:
+        teams = lookup.all_team_rosters(ctx.raw_dir)
+    return {
+        "teams": [_with_points_proxy(t, ctx) for t in teams],
+        "points_proxy_note": (
+            "ppg / season_points_so_far_proxy = fantasy points per game / total this season under this league's "
+            "scoring, weeks before the current one; ppg_prior_season = last season. A crude proxy for how good a "
+            "player has BEEN -- not a projection, not position-scarcity-adjusted, not injury/schedule-adjusted, "
+            "not a market or trade value. Draft picks have no value here at all."
+        ),
+    }
 
 
 def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
@@ -601,6 +636,11 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
         "player_name": match.player_name,
         "position": match.position,
         "team": match.team,
+        # Phase 6: season points so far under THIS league's scoring, as-of
+        # this week, plus last season's -- a crude, explicitly-labeled
+        # proxy for "how good has this player been", never a projection or
+        # a trade value (see the system prompt).
+        **ctx.signal_tables().proxy_fields(match.player_id),
     }
     if chunk is None:
         # Identity resolved but genuinely nothing computed for them, ever
@@ -837,6 +877,7 @@ def recommend(
     max_turns: int = MAX_TOOL_TURNS,
     roster_id: str | None = None,
     signals_dir: Path = SIGNALS_DIR,
+    player_stats_dir: Path | None = None,
 ) -> dict:
     """Answer question using retrieved facts + computed signals via a
     Claude tool-use agent, returning
@@ -926,6 +967,7 @@ def recommend(
         league=league,
         roster_id=str(roster_id) if roster_id is not None else None,
         signals_dir=signals_dir,
+        player_stats_dir=player_stats_dir,
     )
 
     client = client or anthropic.Anthropic()

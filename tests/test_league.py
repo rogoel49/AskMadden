@@ -59,7 +59,7 @@ _CHASE_ROW = {
 _BARKLEY_SIGNAL = {
     "player_id": "00-0034844", "player_name": "S.Barkley", "team": "PHI", "season": _SEASON, "as_of_week": _WEEK,
     "season_plays": 90, "epa_trend": 0.006847, "red_zone_share": 0.48, "target_share": 0.121951,
-    "target_share_adjusted": None, "opponent": None, "run_funnel_rate_vs_avg": None, "implied_total": None,
+    "target_share_adjusted": None, "opponent": "NYG", "run_funnel_rate_vs_avg": -0.01, "implied_total": 27.0,
 }
 _COOK_SIGNAL = {
     "player_id": "00-0037248", "player_name": "J.Cook", "team": "BUF", "season": _SEASON, "as_of_week": _WEEK,

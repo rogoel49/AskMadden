@@ -107,7 +107,7 @@ import polars as pl
 
 from src.ingest import nflverse, ngs, sleeper
 from src.rag import embed
-from src.signals import matchup_signals
+from src.signals import matchup_signals, player_stats
 
 LOGGER = logging.getLogger("askmadden.refresh")
 
@@ -257,6 +257,14 @@ def refresh_signals(
     """
     signals_dir = signals_dir or SIGNALS_DIR
     weeks = weeks or [as_of_week]
+    # Phase 6: the league-agnostic weekly stat lines this season and last
+    # (the points proxy is computed from them per league at query time).
+    # Cheap (one small download each) and rewritten every cycle so a
+    # corrected box score reaches the ranking.
+    stats_dir = Path(signals_dir).parent / "player_stats"  # data/processed/player_stats in production
+    for stats_season in (season, season - 1):
+        player_stats.write_weekly_stats(stats_season, stats_dir=stats_dir)
+        LOGGER.info("player stats %s written -> %s", stats_season, stats_dir)
     pbp = nflverse.fetch_pbp(season)
     ngs_receiving = ngs.fetch_ngs(season, "receiving")
     ngs_rushing = ngs.fetch_ngs(season, "rushing")

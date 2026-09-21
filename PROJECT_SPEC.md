@@ -913,6 +913,13 @@ into this pattern, just not the model for anything new.
       lagging `display_week`; now `week` (see TODO.md)
 
 ### Phase 6: A crude, explicitly-labeled trade-value proxy
+Implemented 2026-09-21 -- see TODO.md's "Phase 6 built..." entry. Built
+as specified (points so far this season under the league's own scoring,
+as-of, named a proxy everywhere, exposed through get_player_signals and
+get_league_rosters, prompt wording carrying the limitations) with two
+additions the first real eval forced: the same per-game number went into
+the ranking score, and the score's weights were fitted on 2023 and tested
+on 2024 instead of hand-set.
 Deferred past Phase 5, not dropped -- see Phase 6's section above for the
 rationale (Phase 3.8's real-model validation confirmed a complete,
 honestly-bounded product is demo-ready now; trade valuation is a

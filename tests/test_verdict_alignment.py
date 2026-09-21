@@ -53,13 +53,13 @@ _HERBERT_2025_SIGNAL_ROW = {
     "player_id": "00-0036355", "player_name": "J.Herbert", "team": "LAC", "season": 2025, "as_of_week": 19,
     "season_plays": 591, "epa_trend": 0.18788404515740742, "red_zone_share": 0.027586206896551724,
     "target_share": None, "target_share_adjusted": None, "opponent": "NE",
-    "run_funnel_rate_vs_avg": -0.008378604710922277, "implied_total": 21.0,
+    "run_funnel_rate_vs_avg": -0.008378604710922277, "implied_total": 21.0, "cpoe": 3.012150612413699,
 }
 _MAHOMES_2025_SIGNAL_ROW = {
     "player_id": "00-0033873", "player_name": "P.Mahomes", "team": "KC", "season": 2025, "as_of_week": 19,
     "season_plays": 541, "epa_trend": None, "red_zone_share": 0.019230769230769232,
     "target_share": 0.0018115942028985507, "target_share_adjusted": None, "opponent": None,
-    "run_funnel_rate_vs_avg": None, "implied_total": None,
+    "run_funnel_rate_vs_avg": None, "implied_total": None, "cpoe": -2.843081610977693,
 }
 
 _RB_ROSTER = {
@@ -380,7 +380,8 @@ def test_rank_players_flags_a_cross_position_comparison(tmp_path, monkeypatch):
 def test_herbert_vs_mahomes_verdict_matches_the_feed_under_stale_fallback(tmp_path, monkeypatch):
     """The exact real-usage case, with the real 2025 season-end rows and
     an empty current (2026) season: the Feed's ranking says Herbert
-    (opportunity score ~0.46 vs ~0.06 -- Mahomes' 2025 row has no
+    (fitted score ~0.07 vs ~-0.05 on the real 2025 rows, cpoe included; the
+    stale rows' last-week matchup fields are nulled -- Mahomes' 2025 row has no
     computed EPA trend), explicitly stale. rank_players must say the
     same thing, equally explicitly stale."""
     raw_dir, persist_dir, signals_dir = _setup(
@@ -489,7 +490,7 @@ def test_signal_tables_load_once_per_context(tmp_path, monkeypatch):
     ctx = _ctx(raw_dir, persist_dir, signals_dir)
     loads = []
     real_load = ranking.SignalTables.load
-    monkeypatch.setattr(ranking.SignalTables, "load", classmethod(lambda cls, *a: loads.append(a) or real_load(*a)))
+    monkeypatch.setattr(ranking.SignalTables, "load", classmethod(lambda cls, *a, **kw: loads.append(a) or real_load(*a, **kw)))
 
     recommend.dispatch_tool("rank_players", {"player_names": ["Saquon Barkley", "James Cook"]}, ctx)
     recommend.dispatch_tool("rank_players", {"player_names": ["James Cook", "Saquon Barkley"]}, ctx)

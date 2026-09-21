@@ -52,10 +52,11 @@ def test_a_passer_row_is_rankable_on_cpoe_and_implied_total():
 
     qb = {"epa_trend": None, "epa_baseline_plays": 0, "red_zone_share": None, "target_share": None,
           "target_share_adjusted": None, "cpoe": 10.0, "implied_total": 25.0}
-    assert ranking.opportunity_score(qb) == pytest.approx(0.05 * 10.0 + 0.04 * 25.0)
+    assert ranking.opportunity_score(qb) == pytest.approx(ranking.CPOE_WEIGHT * 10.0 + ranking.IMPLIED_TOTAL_WEIGHT * 25.0)
     assert "completion % over expected +10.0" in ranking.fmt_signal_row(qb)
-    # the same row without the passer stat is what a QB used to be: unrankable
-    assert ranking.opportunity_score({**qb, "cpoe": None}) is None
+    # without the passer stat only the implied total is left (it now counts for everyone)
+    assert ranking.opportunity_score({**qb, "cpoe": None}) == pytest.approx(ranking.IMPLIED_TOTAL_WEIGHT * 25.0)
+    assert ranking.opportunity_score({**qb, "cpoe": None, "implied_total": None}) is None
 
 
 def test_two_passers_rank_by_the_better_environment_and_accuracy():
@@ -79,9 +80,24 @@ def test_a_trend_on_a_handful_of_plays_does_not_count_toward_the_score():
     2025, +1.35 EPA/play, 1% target share, 1% red-zone share -> 2.74 under
     the old score, above every player with a real role."""
     row = {"season_plays": 5, "epa_trend": 1.3476, "red_zone_share": 0.0074, "target_share": 0.0108, "target_share_adjusted": None}
-    assert ranking.opportunity_score(row) == pytest.approx(3.0 * 0.0074 + 2.0 * 0.0108)
+    assert ranking.opportunity_score(row) == pytest.approx(ranking.RED_ZONE_SHARE_WEIGHT * 0.0074 + ranking.TARGET_SHARE_WEIGHT * 0.0108)
     assert "on only 5 plays (too few to count)" in ranking.fmt_signal_row(row)
     assert "trending up" not in ranking.fmt_signal_row(row)
     # the same trend with a real sample behind it counts as before
-    assert ranking.opportunity_score({**row, "season_plays": 40}) == pytest.approx(2.0 * 1.3476 + 3.0 * 0.0074 + 2.0 * 0.0108)
+    assert ranking.opportunity_score({**row, "season_plays": 40}) == pytest.approx(
+        ranking.EPA_TREND_WEIGHT * 1.3476 + ranking.RED_ZONE_SHARE_WEIGHT * 0.0074 + ranking.TARGET_SHARE_WEIGHT * 0.0108)
     assert "trending up" in ranking.fmt_signal_row({**row, "season_plays": 40})
+
+
+# ---- the points term is shrunk toward last season (2026-09-21) ----
+
+
+def test_blended_ppg_discounts_a_one_game_sample_toward_last_season():
+    one_big_game = {"ppg": 33.8, "games_played": 1, "ppg_prior_season": 8.2}
+    assert ranking.blended_ppg(one_big_game) == pytest.approx((33.8 + 4 * 8.2) / 5)   # 13.3, not 33.8
+    proven = {"ppg": 19.0, "games_played": 1, "ppg_prior_season": 17.5}
+    assert ranking.blended_ppg(proven) > ranking.blended_ppg(one_big_game)
+    assert ranking.blended_ppg({"ppg": 12.0, "games_played": 3, "ppg_prior_season": None}) == 12.0
+    assert ranking.blended_ppg({"ppg": None, "games_played": 0, "ppg_prior_season": 15.0}) == 15.0
+    assert ranking.blended_ppg({"ppg": None, "games_played": 0, "ppg_prior_season": None}) is None
+    assert ranking.opportunity_score({"ppg": 10.0, "games_played": 4, "ppg_prior_season": None}) == pytest.approx(ranking.PPG_WEIGHT * 10.0)
