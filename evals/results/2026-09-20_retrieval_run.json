@@ -1,0 +1,71 @@
+{
+  "date": "2026-09-20",
+  "retrieval_accuracy": 0.9524,
+  "correct": 80,
+  "total_questions": 84,
+  "leagues": 4,
+  "per_league": {
+    "1389341490030862336": {
+      "correct": 17,
+      "total": 18,
+      "by_type": {
+        "roster": [
+          12,
+          12
+        ],
+        "matchup": [
+          5,
+          6
+        ]
+      }
+    },
+    "1345106432176984064": {
+      "correct": 23,
+      "total": 24,
+      "by_type": {
+        "roster": [
+          11,
+          12
+        ],
+        "matchup": [
+          12,
+          12
+        ]
+      }
+    },
+    "1368085985610436608": {
+      "correct": 18,
+      "total": 18,
+      "by_type": {
+        "roster": [
+          12,
+          12
+        ],
+        "matchup": [
+          6,
+          6
+        ]
+      }
+    },
+    "1398279099310460928": {
+      "correct": 22,
+      "total": 24,
+      "by_type": {
+        "roster": [
+          11,
+          12
+        ],
+        "matchup": [
+          11,
+          12
+        ]
+      }
+    }
+  },
+  "decision_accuracy": null,
+  "before_league_info_filter": {
+    "correct": 54,
+    "total": 84
+  },
+  "method": "evals/build_eval_questions.build(raw_dir) + run_eval.run(persist_dir) for each of the 4 ingested leagues (roster + matchup-score questions), with the product's league-info filter (retrieve.LEAGUE_INFO_ONLY, added the same day after the unfiltered run scored 54/84) and as-of-week filtering."
+}

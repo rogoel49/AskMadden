@@ -23,9 +23,11 @@ parameterization, 5.2 the multi-user API + storage layer, 5.3 the
 responsive frontend wired to it, 5.4 PWA installability, and 5.7 the
 automated data refresh are done; 5.6's "one app serves everything"
 step is done and the deployment config (Dockerfile + fly.toml) is
-written but not yet deployed; 5.5's landing copy is done and its eval
-band still shows labeled placeholders until the eval harnesses run at
-volume. It runs locally against live in-season data today (first real
+written but not yet deployed; 5.5's landing copy is done and the eval
+band shows the first real number (retrieval accuracy 80/84 across four
+leagues, 2026-09-20 -- see Evals below); decision accuracy is still
+labeled pending after its first run was cut off by an exhausted API
+credit balance. It runs locally against live in-season data today (first real
 in-season use: 2026-09-16, two leagues).** Phase 4 is optional stretch work; Phase 6
 (a trade-value proxy) is deliberately deferred past Phase 5.
 
@@ -335,6 +337,21 @@ python -m evals.run_decision_eval
 Known limitation, stated rather than hidden: "higher score" is a
 proxy for good decision-making, not a perfect measure — a sound
 process can still lose to a fluke game.
+
+
+### Results so far (2026-09-20)
+| Metric | Result | Scope |
+|---|---|---|
+| Retrieval accuracy | **80 / 84 (95%)** | roster + matchup-score questions, 4 real leagues, as-of-week filtered; `evals/results/2026-09-20_retrieval_run.json` |
+| Decision accuracy | pending | 5-dilemma pilot 2/5; the 600-dilemma run was cut off by an exhausted API credit balance and its results lost -- `run_decision_eval.run()` now writes per-dilemma progress so a rerun resumes |
+| Matchup-fit accuracy | n/a | needs Phase 4's coverage classification |
+
+The retrieval run found a product bug on its first pass (54/84): the
+per-player signal chunks that make up ~97% of each league's index were
+crowding roster and matchup chunks out of the chat's league-info search.
+That search now excludes signal chunks (`retrieve.LEAGUE_INFO_ONLY`);
+the eval measures that same path. Both numbers are scored separately, as
+CLAUDE.md requires.
 
 ## Tests
 ```

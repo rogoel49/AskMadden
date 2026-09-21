@@ -75,6 +75,7 @@ def run(
     raw_dir: Path = RAW_DIR,
     persist_dir: Path = CHROMA_DIR,
     client: "anthropic.Anthropic | None" = None,
+    progress_path: Path | None = None,
 ) -> dict:
     """league_id: the Sleeper league whose roster/scoring context every
     dilemma is answered in (Phase 5.1 -- recommend() requires it and
@@ -85,8 +86,23 @@ def run(
     questions = load_questions(questions_path)
     client = client or anthropic.Anthropic()
 
+    # progress_path: append each dilemma's result as a JSON line the moment
+    # it is scored, and on a rerun skip every question already there. A
+    # run is one paid API call per dilemma; buffering everything in memory
+    # until the end meant the first real 600-dilemma run (2026-09-20) lost
+    # ~460 finished answers (~$17) when the account's credit ran out 21
+    # minutes in. Never again: pass a path, and a crash costs one dilemma.
     results = []
+    done: dict[str, dict] = {}
+    if progress_path is not None and progress_path.exists():
+        for line in progress_path.read_text().splitlines():
+            if line.strip():
+                prior = json.loads(line)
+                done[prior["question"]] = prior
     for question in questions:
+        if question["question"] in done:
+            results.append(done[question["question"]])
+            continue
         season, week = question["season"], question["week"]
         idx = player_index.build_player_index(season)
         expected_id = _resolve_expected_winner_id(question, idx)
@@ -101,17 +117,19 @@ def run(
             client=client,
         )
         correct = score_dilemma(question, outcome, expected_id)
-        results.append(
-            {
-                "question": question["question"],
-                "expected_winner": question["player_a"]
-                if question["expected_winner"] == "a"
-                else question["player_b"],
-                "recommended": outcome.get("recommendation"),
-                "recommended_player_id": outcome.get("player_id"),
-                "correct": correct,
-            }
-        )
+        result = {
+            "question": question["question"],
+            "position": question.get("position"),
+            "expected_winner": question["player_a"] if question["expected_winner"] == "a" else question["player_b"],
+            "recommended": outcome.get("recommendation"),
+            "recommended_player_id": outcome.get("player_id"),
+            "correct": correct,
+        }
+        results.append(result)
+        if progress_path is not None:
+            progress_path.parent.mkdir(parents=True, exist_ok=True)
+            with progress_path.open("a") as f:
+                f.write(json.dumps(result) + "\n")
 
     scored = [r for r in results if r["correct"] is not None]
     correct_count = sum(1 for r in scored if r["correct"])
@@ -139,11 +157,17 @@ def main() -> None:
         default=os.environ.get("SLEEPER_LEAGUE_ID"),
         help="the Sleeper league to answer each dilemma in (Phase 5.1: required -- defaults to SLEEPER_LEAGUE_ID)",
     )
+    parser.add_argument(
+        "--progress",
+        type=Path,
+        default=RESULTS_DIR / "decision_progress.jsonl",
+        help="per-dilemma JSONL appended as the run goes; rerunning skips what is already there",
+    )
     args = parser.parse_args()
     if not args.league_id:
         raise SystemExit("a Sleeper league ID is required: pass --league-id <id>, or set SLEEPER_LEAGUE_ID in .env")
 
-    summary = run(args.league_id)
+    summary = run(args.league_id, progress_path=args.progress)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = RESULTS_DIR / f"{summary['date']}_decision_run.json"
     out_path.write_text(json.dumps(summary, indent=2))

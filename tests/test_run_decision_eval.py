@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import polars as pl
+import pytest
 
 from evals import run_decision_eval as rde
 from src.rag import embed
@@ -124,3 +125,44 @@ def test_run_scores_a_correctly_recommended_dilemma(tmp_path, monkeypatch):
     assert summary["correct"] == 1
     assert summary["decision_accuracy"] == 1.0
     assert summary["retrieval_accuracy"] is None
+
+
+def test_run_appends_each_result_to_the_progress_file_and_skips_them_on_rerun(tmp_path, monkeypatch):
+    """One paid API call per dilemma; a crash must cost one dilemma, not the
+    run (2026-09-20: ~460 answers lost when credit ran out mid-run)."""
+    import json
+
+    from evals import run_decision_eval as rde
+
+    questions = [
+        {"season": 2024, "week": 5, "position": "RB", "question": f"Week 5, 2024: should I start A{i} or B{i} at RB?",
+         "player_a": f"A{i}", "player_b": f"B{i}", "expected_winner": "a"}
+        for i in range(3)
+    ]
+    qpath = tmp_path / "q.jsonl"
+    qpath.write_text("\n".join(json.dumps(q) for q in questions) + "\n")
+    progress = tmp_path / "progress.jsonl"
+    asked = []
+
+    monkeypatch.setattr(rde.player_index, "build_player_index", lambda season: None)
+    monkeypatch.setattr(rde, "_resolve_expected_winner_id", lambda q, idx: "pid-" + q["player_a"])
+
+    crashed = []
+
+    def fake_recommend(question, league_id, **kwargs):
+        asked.append(question)
+        if len(asked) == 2 and not crashed:  # the account runs dry once, on the second dilemma
+            crashed.append(True)
+            raise RuntimeError("credit balance too low")
+        return {"recommendation": "Start A", "player_id": "pid-" + question.split("start ")[1].split(" ")[0]}
+
+    monkeypatch.setattr(rde.recommend, "recommend", fake_recommend)
+    with pytest.raises(RuntimeError):
+        rde.run("1", questions_path=qpath, raw_dir=tmp_path, persist_dir=tmp_path, client=object(), progress_path=progress)
+    assert len(progress.read_text().splitlines()) == 1  # the one finished dilemma survived the crash
+
+    asked.clear()
+    summary = rde.run("1", questions_path=qpath, raw_dir=tmp_path, persist_dir=tmp_path, client=object(), progress_path=progress)
+    assert asked == [questions[1]["question"], questions[2]["question"]]  # the finished one was not re-bought
+    assert summary["total_dilemmas"] == 3 and summary["correct"] == 3
+    assert len(progress.read_text().splitlines()) == 3
