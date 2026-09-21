@@ -51,7 +51,10 @@ Endpoints (all JSON):
         -> recommend(), one Claude-backed turn; pass back the returned
            `messages` for multi-turn (Phase 3.5's existing support --
            the API only exposes the parameter). Counted against the
-           per-user daily cap (ASKMADDEN_DAILY_QUERY_CAP, default 25).
+           per-user daily cap (ASKMADDEN_DAILY_QUERY_CAP, default 25)
+           and a whole-deployment daily cap
+           (ASKMADDEN_GLOBAL_DAILY_QUERY_CAP, default 100) that bounds
+           the operator's API bill.
 
 **data_gaps and stale markers are passed through as their own fields,
 never collapsed.** Phase 3.6 (stale/source_season/source_as_of_week)
@@ -112,6 +115,13 @@ from src.reasoning.league import LeagueMismatchError
 from src.scheduler import refresh
 
 DEFAULT_DAILY_QUERY_CAP = 25
+# A second, whole-deployment cap on Claude-backed chats per UTC day: the
+# per-user cap bounds one person, this bounds the bill. Nobody pays for
+# Ask Madden, so the operator's API credit is the only thing between a
+# shared link and an unbounded day. At ~$0.05-0.10 a chat, 100/day is at
+# most ~$10 on the worst day; friend-group usage is a fraction of that.
+DEFAULT_GLOBAL_DAILY_QUERY_CAP = 100
+GLOBAL_CAP_USERNAME = "__all_users__"  # the query_counts row the global cap is kept in
 # The shared, league-agnostic signals table every league's reports rank
 # from (see src/api/leagues.py) -- module-level so tests can point it at
 # fixture data.
@@ -163,6 +173,10 @@ def get_storage() -> Storage:
 
 def daily_query_cap() -> int:
     return int(os.environ.get("ASKMADDEN_DAILY_QUERY_CAP", DEFAULT_DAILY_QUERY_CAP))
+
+
+def global_daily_query_cap() -> int:
+    return int(os.environ.get("ASKMADDEN_GLOBAL_DAILY_QUERY_CAP", DEFAULT_GLOBAL_DAILY_QUERY_CAP))
 
 
 def anthropic_client() -> Any:
@@ -404,14 +418,23 @@ def chat(
     body: ChatRequest,
     storage: Storage = Depends(get_storage),
     cap: int = Depends(daily_query_cap),
+    global_cap: int = Depends(global_daily_query_cap),
     client: Any = Depends(anthropic_client),
 ) -> dict:
     session = _session_or_404(storage, body.session_id)
     config = _league_for_session(session)
+    # Whole-deployment cap first (a cheap read), then the per-user one
+    # (check-and-increment), then count the query against the global row.
+    if storage.queries_today(GLOBAL_CAP_USERNAME) >= global_cap:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Ask Madden has used all {global_cap} of today's chat queries across everyone -- try again tomorrow (UTC).",
+        )
     try:
         used = storage.record_query(session["username"], cap)
     except QueryCapExceeded as e:
         raise HTTPException(status_code=429, detail=str(e)) from e
+    storage.record_query(GLOBAL_CAP_USERNAME, global_cap + 1)  # +1: the read above already admitted this one
 
     result = recommend.recommend(
         body.question,

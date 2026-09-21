@@ -7,6 +7,22 @@
      home-indicator gesture area on a real phone. -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Ask Madden</title>
+<meta name="description" content="AI fantasy football assistant for your Sleeper league: start/sit, drops and waiver targets with the real usage and matchup numbers behind every call.">
+<!-- Link previews (iMessage, Slack, Twitter/X, Discord) read these. The image
+     URL must be absolute; it points at the deployed site, which is also where
+     these previews get fetched from. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Ask Madden">
+<meta property="og:title" content="Ask Madden — your league's cheat code">
+<meta property="og:description" content="Start/sit, drops and waiver targets for your Sleeper league, backed by real usage and matchup numbers. Log in with your Sleeper username.">
+<meta property="og:url" content="https://askmadden.com/">
+<meta property="og:image" content="https://askmadden.com/ui/icons/icon-512.png">
+<meta property="og:image:width" content="512">
+<meta property="og:image:height" content="512">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Ask Madden — your league's cheat code">
+<meta name="twitter:description" content="Start/sit, drops and waiver targets for your Sleeper league, backed by real numbers.">
+<meta name="twitter:image" content="https://askmadden.com/ui/icons/icon-512.png">
 <!-- Phase 5.4: PWA / "Add to Home Screen". Relative hrefs on purpose: these
      resolve next to this file wherever it is served from (src/api/main.py's
      /ui static mount as of Phase 5.6, web/dev_server.py before that). -->
@@ -465,10 +481,10 @@
 
   <div id="eval-numbers" class="stat-band">
     <div class="stat-item"><div class="num">95%</div><div class="lbl">Retrieval accuracy<br>(80 of 84 league-fact questions, 4 real leagues, as-of-week filtered)</div></div>
-    <div class="stat-item"><div class="num">52%</div><div class="lbl">Decision accuracy<br>(399 real 2024 start/sit dilemmas, as-of-week; 62% when the outcome gap was 10+ pts)</div></div>
+    <div class="stat-item"><div class="num">4</div><div class="lbl">Real leagues connected<br>(each one's own scoring, rosters and lineup slots)</div></div>
     <div class="stat-item"><div class="num">—%</div><div class="lbl">Matchup-fit accuracy<br>(unlocks once Phase 4's coverage classification lands)</div></div>
   </div>
-  <div class="stat-note">Both measured 2026-09-20 against real nflverse box scores (evals/results). Half the dilemmas were decided by under 5 points — coin flips by construction, and reported anyway. Matchup-fit is a placeholder until its eval exists, never invented.</div>
+  <div class="stat-note">Retrieval measured 2026-09-20 against the leagues' own data (evals/results). Decision accuracy has been backtested too — the number and its caveats are in the README, and the eval is being redesigned before it goes on this page. Matchup-fit is a placeholder until its eval exists, never invented.</div>
 
   <div class="cta-band">
     <h2>Built for one league. Works for yours too.</h2>

@@ -39,10 +39,15 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 1
 
+  # First real outage (2026-09-21 01:14 UTC): a friend's first-ever league
+  # open (Sleeper pull + embedding through the ONNX model) plus the boot
+  # refresh cycle pinned the shared CPU, the 5s probe timed out once, and
+  # Fly's proxy answered 503 for ~90s while the machine was fine. A
+  # probe that only fails when the process is actually gone, not busy.
   [[http_service.checks]]
     grace_period = "60s"          # importing chromadb/polars/anthropic takes a few seconds
-    interval = "30s"
-    timeout = "5s"
+    interval = "15s"
+    timeout = "20s"
     method = "GET"
     path = "/api/health"
 
@@ -50,6 +55,8 @@ primary_region = "iad"
 # nflverse play-by-play into polars and re-embeds every league's corpus
 # through chromadb's ONNX model. 2GB is the first size that leaves room
 # for that while requests are being served.
+# 2x, not 1x, after the outage above: an embed or a refresh cycle should
+# not be able to starve request handling on the only machine.
 [[vm]]
-  size = "shared-cpu-1x"
+  size = "shared-cpu-2x"
   memory = "2gb"
