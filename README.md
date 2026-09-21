@@ -24,10 +24,9 @@ responsive frontend wired to it, 5.4 PWA installability, and 5.7 the
 automated data refresh are done; 5.6's "one app serves everything"
 step is done and the deployment config (Dockerfile + fly.toml) is
 written but not yet deployed; 5.5's landing copy is done and the eval
-band shows the first real number (retrieval accuracy 80/84 across four
-leagues, 2026-09-20 -- see Evals below); decision accuracy is still
-labeled pending after its first run was cut off by an exhausted API
-credit balance. It runs locally against live in-season data today (first real
+band shows real numbers (retrieval 80/84 across four leagues, decision
+206/399 on 2024 dilemmas, both 2026-09-20 -- see Evals below). It is
+deployed at https://askmadden.fly.dev (Fly.io, one machine + volume). It runs locally against live in-season data today (first real
 in-season use: 2026-09-16, two leagues).** Phase 4 is optional stretch work; Phase 6
 (a trade-value proxy) is deliberately deferred past Phase 5.
 
@@ -343,8 +342,16 @@ process can still lose to a fluke game.
 | Metric | Result | Scope |
 |---|---|---|
 | Retrieval accuracy | **80 / 84 (95%)** | roster + matchup-score questions, 4 real leagues, as-of-week filtered; `evals/results/2026-09-20_retrieval_run.json` |
-| Decision accuracy | pending | 5-dilemma pilot 2/5; the 600-dilemma run was cut off by an exhausted API credit balance and its results lost -- `run_decision_eval.run()` now writes per-dilemma progress so a rerun resumes |
+| Decision accuracy | **206 / 399 (52%)** | 400 programmatic 2024 week-5 start/sit dilemmas (same position, both players ≥ 8 pts), signals as-of week 5, Sonnet 4.5; by actual point gap: <5 pts 47%, 5-10 52%, 10-20 61%, 20+ 69%; `evals/results/2026-09-20_decision_run.json` |
 | Matchup-fit accuracy | n/a | needs Phase 4's coverage classification |
+
+The decision number is honest and unflattering: barely above a coin
+flip overall. Half the dilemmas were pairs whose actual outcomes were
+within 5 points of each other, which no week-4-signals model should be
+expected to call, and on those it scored 47%; where the gap was 10+
+points it scored 62% (57/92). Whether a better signal set moves that is
+exactly what Phase 4/6/7 work should be graded on -- this is the
+baseline they have to beat.
 
 The retrieval run found a product bug on its first pass (54/84): the
 per-player signal chunks that make up ~97% of each league's index were

@@ -1332,15 +1332,42 @@ as a JSON line the moment it lands and skips those on a rerun (CLI
 `--progress`, default `evals/results/decision_progress.jsonl`); pinned
 by a test that crashes mid-run and resumes. The landing band now shows
 the real retrieval number and still labels decision accuracy as pending.
-- [ ] **Blocked on credit:** once the Anthropic account has credit
-      again, rerun with the progress file. The exact shard files are
+- [x] **Rerun done (2026-09-20, after Rohan topped up):** 400 dilemmas
+      in 4 shards with progress files, one mid-run hang (stuck API
+      connections after 292; killed and resumed with a 120s request
+      timeout, nothing lost). **Decision accuracy 206/399 = 51.6%**
+      (one unscoreable answer). By position: QB 29/53, RB 61/115, TE
+      18/34, WR 98/197. By the pair's actual point gap: <5 pts 93/199
+      (47%), 5-10 56/108 (52%), 10-20 48/79 (61%), 20+ 9/13 (69%).
+      Half the pool is decided by under 5 points -- coin flips by
+      construction, since `build()` pairs any two same-position players
+      who both scored 8+, and it never looks at margin (by design, so it
+      can't bias toward the winner). Reported as measured; the 10+ pt
+      subset (57/92 = 62%) is the more meaningful read of whether the
+      signals say anything, and it is the baseline Phase 4/6/7 signal
+      work has to beat. ~$15. Saved as
+      `evals/results/2026-09-20_decision_run.json`; landing band and
+      README updated. Old text of this item:
+      once the Anthropic account has credit again, rerun with the
+      progress file. The exact shard files are
       in this session's scratch dir; a fresh run is
       `python -m evals.run_decision_eval --league-id 1389341490030862336`
       after ingesting that league to `data/raw/sleeper` + embedding, or
       the scratch-dir variant described in the method field of the
       results JSON. ~$0.04/dilemma; 400 dilemmas ≈ $15 (±5% at 95%).
-- [ ] Put the decision number on the landing band + README when it
-      exists; matchup-fit stays a placeholder until Phase 4.
+- [x] Decision number on the landing band + README; matchup-fit stays
+      a placeholder until Phase 4.
+- [x] **Deployed (2026-09-20):** `fly launch` / volume / secret /
+      `fly deploy --remote-only` from this session after Rohan logged
+      flyctl in from a real terminal (`! fly auth login` in Claude Code
+      is non-interactive and fails). First-ever image build succeeded
+      (195MB); machine healthy at https://askmadden.fly.dev, `/api/health`
+      shows the in-process refresh completed a cycle on the fresh
+      volume. `fly launch` rewrote fly.toml (quote style + stripped
+      comments only); the commented version was restored. Domain:
+      askmadden.com bought on Cloudflare Registrar; `fly certs add` done
+      for the apex and www; the four DNS records (A/AAAA for @ and www,
+      proxy OFF) are Rohan's to add; a poller is watching for issuance.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

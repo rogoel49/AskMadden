@@ -355,9 +355,14 @@ or monetized, it needs to genuinely work for more than one league.
   signal chunks via `retrieve.LEAGUE_INFO_ONLY`); the 600-dilemma
   decision run died on an exhausted API credit balance with ~460
   answers lost because `run_decision_eval.run()` buffered them -- now
-  resumable via `progress_path`; **rerun once credit exists**, and
-  never run it without the progress file. See TODO.md's "Eval numbers,
-  first real runs" entry.
+  resumable via `progress_path`, rerun the same day: **decision
+  accuracy 206/399 = 52%** (62% where the actual gap was 10+ pts) --
+  honest and unflattering, the baseline later signal work must beat.
+  Never run it without the progress file. **Deployed the same day:**
+  https://askmadden.fly.dev (Fly.io, `fly launch`/volume/secret/deploy
+  from this session; first image build succeeded); askmadden.com bought
+  on Cloudflare, certs added, DNS records pending on Rohan's side. See
+  TODO.md's "Eval numbers, first real runs" entry.
 - Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
   Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
   confirmed a complete, honestly-bounded product (composition + signals +
