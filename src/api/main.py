@@ -121,6 +121,11 @@ DEFAULT_DAILY_QUERY_CAP = 25
 # shared link and an unbounded day. At ~$0.05-0.10 a chat, 100/day is at
 # most ~$10 on the worst day; friend-group usage is a fraction of that.
 DEFAULT_GLOBAL_DAILY_QUERY_CAP = 100
+POINTS_PROXY_NOTE = (
+    "Trade comparisons above are points-per-game under this league's scoring: how each player has been scoring, "
+    "not a projection, not adjusted for position scarcity, injuries, schedule, or the other manager's needs, and "
+    "not a market value. Draft picks are not valued. The other side may see it completely differently."
+)
 GLOBAL_CAP_USERNAME = "__all_users__"  # the query_counts row the global cap is kept in
 # The shared, league-agnostic signals table every league's reports rank
 # from (see src/api/leagues.py) -- module-level so tests can point it at
@@ -447,9 +452,15 @@ def chat(
         client=client,
         roster_id=session["roster_id"],
     )
+    # Phase 6: whenever this turn compared players via the points proxy
+    # (any get_league_rosters call), the caveat is attached here,
+    # deterministically -- the first live trade answer used the numbers
+    # correctly but left the "crude proxy" label out of its text.
+    used_proxy = any(call.get("name") == "get_league_rosters" for call in result["tool_calls"])
     return {
         "recommendation": result["recommendation"],
         "reasoning": result["reasoning"],
+        "points_proxy_note": POINTS_PROXY_NOTE if used_proxy else None,
         "player_id": result["player_id"],
         # Phase 3.7, verbatim: [{reason, detail, player_name?}] -- [] means fully grounded.
         "data_gaps": result["data_gaps"],

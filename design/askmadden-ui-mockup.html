@@ -294,6 +294,7 @@
   .msg .bubble .why ul{ padding-left:18px; }
   .msg .bubble .why li{ margin:2px 0; }
   .msg .bubble .why strong, .msg .bubble strong{ color:var(--text); font-weight:600; }
+  .msg .bubble .proxy-note{ border-left:2px solid var(--amber); padding-left:9px; color:var(--text-faint); font-size:11.5px; }
   .msg.error .bubble{ border-left-color:var(--coral); }
   .roster-mid .matchup{ text-transform:uppercase; letter-spacing:.03em; }
   .chip svg{ width:9px; height:9px; margin-right:3px; vertical-align:-1px; }
@@ -896,7 +897,9 @@
   function answerHtml(body){
     const why = body.reasoning ? `<div class="why">${md(body.reasoning)}</div>` : '';
     const err = body.error ? `<div class="why">(${esc(body.error)})</div>` : '';
-    return `${md(body.recommendation)}${why}${err}${gapChips(body)}`;
+    // Phase 6: attached by the API whenever the turn compared players on the points proxy.
+    const proxy = body.points_proxy_note ? `<div class="why proxy-note">${esc(body.points_proxy_note)}</div>` : '';
+    return `${md(body.recommendation)}${why}${proxy}${err}${gapChips(body)}`;
   }
   async function runChat(question, container, historyKey){
     if (!state.session) { bubble(container, 'assistant', 'Pick a league first.', 'error'); return null; }

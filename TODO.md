@@ -1459,8 +1459,18 @@ stat lines and wrote real tables into `data/processed/player_stats`
 the fetch for every test.
 - [ ] Rerun the live decision eval against the fitted ranking (~$15,
       400 dilemmas, progress file) and compare with 52%.
-- [ ] Real-model check of the TRADES wording on the exact Dynasty of
-      Chips question ("Goedert for Josh Allen and a 2nd").
+- [x] Real-model check on the hosted app, same day, Dynasty of Chips,
+      same two-turn question: the agent now returns four concrete
+      proposals with the numbers from get_league_rosters ("Your Dallas
+      Goedert (21.7 ppg week 1, 10.34 ppg last season) for their Ladd
+      McConkey (16.7 ppg week 1, 9.24 ppg last season)... They only have
+      2 TEs vs your 4"), `data_gaps: []`. Two prompt-following gaps: it
+      never addressed the "2nd round pick" half (should have been a
+      data_gaps entry), and the "crude proxy" caveat did not appear in
+      its text. The caveat is now attached by the API deterministically
+      (`points_proxy_note` on any turn that called get_league_rosters,
+      rendered under the answer) rather than hoped for; the pick gap is
+      still prompt-only.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

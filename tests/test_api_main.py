@@ -502,3 +502,16 @@ def test_chat_marks_the_system_prompt_and_tools_cacheable(api):
     assert kwargs["system"][-1]["cache_control"] == {"type": "ephemeral"}
     assert kwargs["tools"][-1]["cache_control"] == {"type": "ephemeral"}
     assert all("cache_control" not in t for t in kwargs["tools"][:-1])
+
+
+def test_chat_attaches_the_points_proxy_note_only_when_the_turn_compared_rosters(api):
+    """Phase 6: the first live trade answer used the numbers right but left
+    the 'crude proxy' caveat out of its text; the API attaches it."""
+    session_id = _login_and_session(api)
+    body = {"session_id": session_id, "question": "who has surplus at TE?", "season": _SEASON, "as_of_week": _WEEK}
+    _script_grounded_answer(api["claude"])
+    api["claude"].responses.insert(0, _resp(_tool("get_league_rosters", {}, "t0")))  # a roster comparison this turn
+    resp = api["client"].post("/api/chat", json=body).json()
+    assert resp["points_proxy_note"].startswith("Trade comparisons above are points-per-game")
+    _script_grounded_answer(api["claude"])
+    assert api["client"].post("/api/chat", json=body).json()["points_proxy_note"] is None
