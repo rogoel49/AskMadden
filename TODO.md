@@ -1564,10 +1564,13 @@ signals-backed recommendations. No password/OAuth, no payments — a
 portfolio deliverable, not a business. See PROJECT_SPEC.md's Phase 5
 section for full detail, rationale, and success criteria.
 
-5.1, 5.2, 5.3, 5.4 and 5.7 are implemented (see their sections
-below). 5.5's landing copy is done and its eval band is still gated on
-eval runs at volume; 5.6's "one app serves everything" step and the
-deployment config are done, the actual deploy is not (see 5.6 below).
+**Phase 5 is complete as of 2026-09-21**: 5.1-5.7 all implemented, the
+product is live at https://askmadden.com with five leagues and four
+real users, and the landing band shows measured numbers (retrieval)
+plus a deliberate placeholder (matchup-fit). Phase 6 (points proxy +
+labeled trade pitches) is also built. What remains open is quality,
+not scope -- see the "Where the accuracy actually stands" section
+below and the Backlog.
 Phase 4 is explicitly optional and not a blocker (see
 above) — the actual gate was Phases 1-3.8, which are done. Phase 3.7's
 anti-fabrication addendum and Phase 3.8's roster-composition tool
@@ -2782,17 +2785,23 @@ it shares the app's design tokens by construction.
 - [x] Deployment config written: `Dockerfile`, `deploy/entrypoint.sh`,
       `.dockerignore`, `fly.toml`, `constraints.txt` (see below for
       what each does and why)
-- [ ] Deploy to a host (Fly.io is the configured one; Railway/Render
-      work with the same image) — needs Rohan's account, a payment
-      method (no current free tier gives a persistent disk plus 2GB),
-      and `flyctl`; the README's Deploying section is the copy-paste
-      sequence. Not done: neither Docker nor flyctl is installed on
-      the machine this was written on, so **the image has never been
-      built** — the first `fly deploy` is the build test.
-- [ ] Get 2-3 friends in different leagues to actually use it
-- [ ] README: document the "started as one league, generalized to a
-      product" story, with real eval numbers from run_decision_eval.py
-      (the story is there; the numbers are 5.5's open item)
+- [x] Deploy to a host — **done 2026-09-20**: Fly.io app `askmadden`
+      (one shared-cpu-2x/2GB machine in iad, 3GB volume, HTTPS), custom
+      domain askmadden.com + www (Cloudflare Registrar, DNS-only
+      records, certs issued). First image build succeeded remotely.
+      Every merge since is deployed with `fly deploy --remote-only`.
+      One outage so far (2026-09-21 01:14 UTC, ~90s of 503s: a 5s health
+      probe timed out during a first-time league ingest; probe is 20s
+      and the CPU 2x now). Refresh runs in-process on the one machine.
+- [x] Get 2-3 friends in different leagues to actually use it —
+      **done**: as of 2026-09-21 the hosted app has five leagues
+      ingested by four people (Victorious Secret 3.0, Dynasty of Chips,
+      Narcos, Boilerbros, Neal in the Endzone), and every bug fixed on
+      09-20/21 came from one of them (the two-RB lineup, the IR sit
+      card, the pre-draft draft board, the 503s, the trade refusal).
+- [x] README: the "one league → product" story with real eval numbers
+      (retrieval 80/84; live decision 209/400 with the one-hard-week
+      caveat; offline ranking 61.8% / 59.9%) — see README's Evals.
 
 #### What was built (2026-09-18)
 **`src/api/main.py` now serves the frontend itself.** `design/` is a
