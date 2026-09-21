@@ -77,6 +77,10 @@ class LeagueConfig:
     # interpret.
     scoring_settings: dict[str, Any]
     roster_positions: list[str] = field(default_factory=list)
+    # Sleeper's league status: "pre_draft", "drafting", "in_season",
+    # "complete". A pre_draft league has empty rosters everywhere, which
+    # the reports must say rather than rank the whole NFL as "unrostered".
+    status: str | None = None
     raw_dir: Path = RAW_DIR
     persist_dir: Path = CHROMA_DIR
 
@@ -133,6 +137,7 @@ def load_league(
         season=league.get("season"),
         scoring_settings=dict(league.get("scoring_settings") or {}),
         roster_positions=list(league.get("roster_positions") or []),
+        status=league.get("status"),
         raw_dir=raw_dir,
         persist_dir=persist_dir,
     )

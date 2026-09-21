@@ -21,6 +21,23 @@ import polars as pl
 RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "nflverse"
 
 
+def bye_weeks(season: int, schedules=None) -> dict[str, int]:
+    """Each team's regular-season bye week: the one week 1-18 the team
+    has no game on the schedule. Empty dict if the schedule isn't there."""
+    import polars as pl
+
+    schedules = schedules if schedules is not None else fetch_schedules(season)
+    reg = schedules.filter((pl.col("season") == season) & (pl.col("game_type") == "REG"))
+    weeks = set(reg["week"].unique().to_list())
+    byes: dict[str, int] = {}
+    for team in set(reg["home_team"].to_list()) | set(reg["away_team"].to_list()):
+        played = set(reg.filter((pl.col("home_team") == team) | (pl.col("away_team") == team))["week"].to_list())
+        off = sorted(weeks - played)
+        if len(off) == 1:
+            byes[team] = int(off[0])
+    return byes
+
+
 def fetch_weekly_stats(season: int) -> pl.DataFrame:
     """Real, measured weekly player stats for `season` (reg + postseason)."""
     return nfl.load_player_stats(seasons=[season], summary_level="week")

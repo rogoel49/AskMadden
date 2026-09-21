@@ -360,7 +360,7 @@ def create_session(body: SessionRequest, storage: Storage = Depends(get_storage)
     except requests.RequestException as e:  # first-use ingest hits Sleeper (and nflverse)
         raise HTTPException(status_code=502, detail=f"upstream data source unreachable while ingesting league: {e}") from e
     session = storage.create_session(body.username, league_id=body.league_id, roster_id=roster_id)
-    return {**session, "league_name": config.name, "scoring_settings": config.scoring_settings}
+    return {**session, "league_name": config.name, "scoring_settings": config.scoring_settings, "status": config.status}
 
 
 @app.get("/api/sessions/{session_id}")

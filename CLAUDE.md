@@ -375,7 +375,14 @@ or monetized, it needs to genuinely work for more than one league.
   this season's ppg shrunk toward last season's (`blended_ppg`). The
   system prompt's TRADES section allows rough, labeled proposals from
   tool output only; picks remain a data_gaps entry. Waiver targets rank
-  within position. See TODO.md's "Phase 6 built..." entry.
+  within position. See TODO.md's "Phase 6 built..." entry. Same day:
+  `get_league_rosters` also carries each team's needs/surplus vs. its
+  real starting slots and each player's injury status and bye week, and
+  the prompt pitches trades with those reasons and invites refinement;
+  a `pre_draft` league (Sleeper `status`, now on `LeagueConfig` and
+  `/api/sessions`) gets an honest "hasn't drafted yet" instead of the
+  whole NFL as waiver targets; the fit also holds on held-out 2025
+  (59.9%). See TODO.md's "Fixed: a pre-draft league..." entry.
 - Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
   after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
   this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit

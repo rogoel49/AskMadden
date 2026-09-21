@@ -13,14 +13,14 @@
      these previews get fetched from. -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Ask Madden">
-<meta property="og:title" content="Ask Madden — your league's cheat code">
+<meta property="og:title" content="Ask Madden: Your League's Cheat Code">
 <meta property="og:description" content="Start/sit, drops and waiver targets for your Sleeper league, backed by real usage and matchup numbers. Log in with your Sleeper username.">
 <meta property="og:url" content="https://askmadden.com/">
 <meta property="og:image" content="https://askmadden.com/ui/icons/icon-512.png">
 <meta property="og:image:width" content="512">
 <meta property="og:image:height" content="512">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Ask Madden — your league's cheat code">
+<meta name="twitter:title" content="Ask Madden: Your League's Cheat Code">
 <meta name="twitter:description" content="Start/sit, drops and waiver targets for your Sleeper league, backed by real numbers.">
 <meta name="twitter:image" content="https://askmadden.com/ui/icons/icon-512.png">
 <!-- Phase 5.4: PWA / "Add to Home Screen". Relative hrefs on purpose: these
@@ -565,6 +565,7 @@
 
             <section class="panel active" id="panel-feed">
               <div class="section-label"><h2>Start today</h2><a href="#" onclick="loadFeed(true);return false;">Refresh →</a></div>
+              <div id="league-banner" hidden></div>
               <div class="hscroll" id="feed-start-sit"><div class="state-card"><p>Loading start/sit…</p></div></div>
               <div class="section-label"><h2>Drop candidates</h2></div>
               <div id="feed-drop"><div class="state-card"><p>Loading…</p></div></div>
@@ -751,6 +752,13 @@
     document.getElementById('hdr-sub').textContent = sub;
     document.getElementById('hdr-sub-d').textContent = sub;
     document.getElementById('hdr-team-initials').textContent = initials(state.username);
+    // A league that hasn't drafted has no rosters: say so at the top of the
+    // Feed instead of ranking the whole NFL as waiver targets.
+    const banner = document.getElementById('league-banner');
+    if (s.status === 'pre_draft') {
+      banner.innerHTML = `<div class="state-card"><div class="tag-mini">LEAGUE HASN'T DRAFTED YET</div><p>Sleeper lists ${esc(name)} as pre-draft, so no team has any players. Start/sit and drop calls appear once you've drafted; until then, Waiver targets is the full player pool ranked by the score — a draft board, not waivers.</p></div>`;
+      banner.hidden = false;
+    } else { banner.hidden = true; banner.innerHTML = ''; }
   }
 
   function togglePaste(){ document.getElementById('paste-box').classList.toggle('show'); }
