@@ -236,6 +236,7 @@ def all_team_rosters(raw_dir: Path = RAW_DIR) -> list[dict]:
                 "name": (players.get(pid) or {}).get("full_name"),
                 "position": (players.get(pid) or {}).get("position"),
                 "team": (players.get(pid) or {}).get("team"),
+                "injury_status": (players.get(pid) or {}).get("injury_status"),
             }
             for pid in (team.get("players") or [])
         ]

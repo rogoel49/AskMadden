@@ -163,6 +163,8 @@ from src.reasoning.ranking import (
 )
 
 REPORT_TYPES = ("start_sit", "drop", "waiver_pickups")
+PRE_DRAFT_STATUS = "pre_draft"
+PRE_DRAFT_NOTE = "This league hasn't drafted yet (Sleeper status: pre_draft), so no team has any players."
 
 
 def _stale_note(candidates: list[dict]) -> str | None:
@@ -643,6 +645,21 @@ def generate_report(
     tables = SignalTables.load(
         signals_dir, season, as_of_week, scoring_settings=league.scoring_settings, stats_dir=player_stats_dir
     )
+
+    # A league that hasn't drafted has no rosters: nothing to start, sit or
+    # drop, and "unrostered" is the entire NFL. Found live 2026-09-21 -- a
+    # pre_draft league's feed told its owner to target Jahmyr Gibbs on
+    # waivers. Say so instead.
+    if league.status == PRE_DRAFT_STATUS:
+        if report_type in ("start_sit", "drop"):
+            header = _report_header(ctx, report_type)
+            header["entries"] = []
+            header["notes"] = [PRE_DRAFT_NOTE]
+            return header
+        report = _waiver_pickups_report(raw_dir, ctx, tables, top_n=waiver_top_n)
+        report["notes"].insert(0, PRE_DRAFT_NOTE + " Every player is unrostered, so this list is the full pool ranked "
+                               "by the score -- a draft board, not a waiver list.")
+        return report
 
     if report_type == "start_sit":
         return _start_sit_report(ctx, tables)

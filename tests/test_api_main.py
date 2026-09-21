@@ -515,3 +515,9 @@ def test_chat_attaches_the_points_proxy_note_only_when_the_turn_compared_rosters
     assert resp["points_proxy_note"].startswith("Trade comparisons above are points-per-game")
     _script_grounded_answer(api["claude"])
     assert api["client"].post("/api/chat", json=body).json()["points_proxy_note"] is None
+
+
+def test_session_carries_the_leagues_sleeper_status(api):
+    api["client"].post("/api/leagues", json={"username": "rogoel49"})
+    resp = api["client"].post("/api/sessions", json={"username": "rogoel49", "league_id": VS30_ID}).json()
+    assert "status" in resp  # the fixture league has no status field -> None; a real one says in_season / pre_draft

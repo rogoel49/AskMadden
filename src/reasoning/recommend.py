@@ -73,6 +73,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from src.ingest import sleeper
+from src.ingest import nflverse
 from src.rag import lookup, player_index, retrieve
 from src.rag.embed import CHROMA_DIR, RAW_DIR
 from src.reasoning import ranking
@@ -375,6 +376,19 @@ class RecommendContext:
     player_stats_dir: Path | None = None
     _signal_tables: ranking.SignalTables | None = field(default=None, repr=False)
 
+    _bye_weeks: dict | None = field(default=None, repr=False)
+
+    def bye_weeks(self) -> dict[str, int]:
+        """Team -> bye week for this season, from the nflverse schedule;
+        empty if it can't be fetched (a trade answer without byes beats
+        no answer)."""
+        if self._bye_weeks is None:
+            try:
+                self._bye_weeks = nflverse.bye_weeks(self.season)
+            except Exception:  # network, missing season
+                self._bye_weeks = {}
+        return self._bye_weeks
+
     def signal_tables(self) -> ranking.SignalTables:
         if self._signal_tables is None:
             self._signal_tables = ranking.SignalTables.load(
@@ -499,6 +513,14 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "grounded and record it as a data_gaps entry (reason: out_of_scope_capability). Never invent a number "
         "the tools didn't return, never claim a trade is 'fair' as if that were measured, and never use your "
         "own general knowledge of a player's reputation in place of the proxy.\n\n"
+        "Make each proposal a real pitch, with its reasons from the same tool output: the other team's `needs` and "
+        "`surplus` (why they would listen -- 'they start 2 RBs and have 5 healthy ones; they're down to 1 healthy "
+        "TE'), `injury_status` (never propose acquiring a player who is Out/IR without saying so; a Questionable "
+        "tag is a reason the price may be lower), `bye_week` / `on_bye_this_week` (a player you'd be starting on "
+        "his bye is worth less to you this week, and flag two of your starters sharing a bye), and how thin the "
+        "sample is (`games_played` -- one big week is not a season; say 'on 1 game' when that's what it is). "
+        "Then invite refinement explicitly: tell the user they can steer you ('no tight ends', 'only from teams "
+        "that need a QB', 'avoid week-7 byes') and you'll re-run the comparison with those constraints.\n\n"
         "Every specific claim in recommendation/reasoning -- which team has surplus at a position, a player "
         "to target, a player's ppg -- must be backed by an actual tool call you made THIS turn, never by your "
         "own general fantasy-football knowledge.\n\n"
@@ -568,13 +590,40 @@ def _tool_find_owner(tool_input: dict, ctx: RecommendContext) -> dict:
     }
 
 
+UNAVAILABLE_INJURY_STATUSES = {"Out", "IR", "PUP", "Sus", "COV", "DNR", "NA"}
+
+
+def _team_needs_and_surplus(players: list[dict], roster_positions: list[str]) -> dict:
+    """Per position: dedicated starting slots vs. healthy players -- the
+    other manager's side of a trade, from the same league data. `needs`
+    = positions where healthy players don't exceed the dedicated slots
+    (nothing to spare, or short); `surplus` = at least two healthy
+    players beyond the dedicated slots. FLEX-type slots aren't counted
+    as dedicated to anyone."""
+    slots: dict[str, int] = {}
+    for slot in lookup.starter_slots(roster_positions):
+        if slot not in lookup.FLEX_ELIGIBILITY:
+            slots[slot] = slots.get(slot, 0) + 1
+    healthy: dict[str, int] = {}
+    for p in players:
+        if p.get("position") and p.get("injury_status") not in UNAVAILABLE_INJURY_STATUSES:
+            healthy[p["position"]] = healthy.get(p["position"], 0) + 1
+    needs = sorted(pos for pos, n in slots.items() if pos in player_index.SKILL_POSITIONS and healthy.get(pos, 0) <= n)
+    surplus = sorted(pos for pos, n in slots.items() if pos in player_index.SKILL_POSITIONS and healthy.get(pos, 0) >= n + 2)
+    return {"starting_slots": slots, "healthy_by_position": healthy, "needs": needs, "surplus": surplus}
+
+
 def _with_points_proxy(roster: dict, ctx: RecommendContext) -> dict:
     """Phase 6: every rostered player carries the points proxy (ppg this
-    season under this league's scoring, games, last season's ppg) so a
-    trade comparison can be grounded in numbers instead of guessed.
-    Resolution is the same exact/fuzzy name match get_player_signals uses;
-    a name that doesn't resolve just carries no proxy."""
+    season under this league's scoring, games, last season's ppg), their
+    Sleeper injury status and their team's bye week, and every team
+    carries its needs/surplus against the league's real starting slots
+    -- so a trade comparison can be grounded in numbers and in the other
+    manager's situation instead of guessed. Resolution is the same
+    exact/fuzzy name match get_player_signals uses; a name that doesn't
+    resolve just carries no proxy."""
     tables = ctx.signal_tables()
+    byes = ctx.bye_weeks()
     players = []
     for p in roster.get("players", []):
         proxy = {"ppg": None, "games_played": None, "season_points_so_far_proxy": None, "ppg_prior_season": None}
@@ -582,8 +631,10 @@ def _with_points_proxy(roster: dict, ctx: RecommendContext) -> dict:
             result = player_index.resolve_player(p["name"], ctx.player_idx)
             if result.match_type == "exact":
                 proxy = {k: v for k, v in tables.proxy_fields(result.candidates[0].player_id).items() if k != "prior_games_played"}
-        players.append({**p, **proxy})
-    return {**roster, "players": players}
+        bye = byes.get(p.get("team") or "")
+        players.append({**p, **proxy, "bye_week": bye, "on_bye_this_week": bye == ctx.as_of_week if bye else False})
+    roster_positions = list(ctx.league.roster_positions) if ctx.league else []
+    return {**roster, "players": players, **_team_needs_and_surplus(players, roster_positions)}
 
 
 def _tool_get_league_rosters(tool_input: dict, ctx: RecommendContext) -> dict:
@@ -600,8 +651,10 @@ def _tool_get_league_rosters(tool_input: dict, ctx: RecommendContext) -> dict:
         "points_proxy_note": (
             "ppg / season_points_so_far_proxy = fantasy points per game / total this season under this league's "
             "scoring, weeks before the current one; ppg_prior_season = last season. A crude proxy for how good a "
-            "player has BEEN -- not a projection, not position-scarcity-adjusted, not injury/schedule-adjusted, "
-            "not a market or trade value. Draft picks have no value here at all."
+            "player has BEEN -- not a projection, not position-scarcity-adjusted, not a market or trade value. "
+            "Draft picks have no value here at all. Each player also carries injury_status (Sleeper's) and "
+            "bye_week; each team carries needs / surplus (healthy players vs. the league's dedicated starting "
+            "slots) -- the other manager's situation, so a proposal can say why they'd listen."
         ),
     }
 

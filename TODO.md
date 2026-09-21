@@ -1472,6 +1472,62 @@ the fetch for every test.
       rendered under the answer) rather than hoped for; the pick gap is
       still prompt-only.
 
+## Fixed: a pre-draft league was told to target Jahmyr Gibbs on waivers; trade pitches now carry the other manager's situation (2026-09-21)
+
+**"It's telling me to target Gibbs in free agency."** A third friend's
+league, "Neal in the Endzone" (1389359006669082625). Diagnosed on the
+live volume with `fly machine exec`: Sleeper status `pre_draft`, eight
+teams, zero players on every roster. So his roster really was empty
+(no start/sit, no drop candidates) and "unrostered" was the entire NFL,
+which the waiver report ranked honestly and uselessly. Not a loading
+problem -- the app was right and silent about why. Fix: `LeagueConfig`
+carries Sleeper's `status`; `/api/sessions` returns it; for a
+`pre_draft` league `generate_report` returns no start/sit or drop
+entries with `PRE_DRAFT_NOTE`, and the waiver report keeps its list but
+says it is the full pool ranked -- a draft board, not waivers; the Feed
+shows a "league hasn't drafted yet" card at the top. Draft-day use
+becomes a (small) feature rather than a bug. (Finding the league took a
+detour: Aayush isn't in Victorious Secret 3.0 under that name, and the
+username guesses that resolved on Sleeper belonged to other people; the
+volume listing is what found it.)
+
+**Trade pitches with reasons.** Rohan: "why can't we implement this?"
+about the caveat's list of what the proxy ignores. Everything on that
+list except a real market value was already in league data:
+`get_league_rosters` now gives each team `starting_slots` (dedicated,
+from the league's roster_positions; FLEX-type slots count for nobody),
+`healthy_by_position`, `needs` (healthy players <= slots) and `surplus`
+(>= slots + 2); each player carries Sleeper's `injury_status` (Out/IR/
+PUP/Sus/COV/DNR/NA don't count as healthy), `bye_week` from the
+nflverse schedule (`nflverse.bye_weeks()`, lazy on the context, empty
+on failure) and `on_bye_this_week`. The TRADES prompt section tells the
+model to pitch with those reasons ("they start 2 RBs and have 5
+healthy ones; they're down to 1 healthy TE"), to say "on 1 game" when
+that's the sample, never to propose acquiring an Out/IR player without
+saying so, and to invite refinement ("no tight ends", "only from teams
+that need a QB", "avoid week-7 byes") so the chat becomes the
+springboard. Still not modeled, and still in the caveat: position
+scarcity, remaining schedule strength, market value.
+
+**Offline test on 2025** (Rohan asked): the adopted weights, trained on
+2023 only, score 59.9% on 19,674 held-out 2025 pairs (70.6% at 10+ pt
+gaps) vs 57.6% for the old hand weights and 59.5% for ppg alone;
+60.8% across 2024+2025 combined (38,957 pairs). Consistent with 2024,
+a point lower. Weights unchanged.
+
+**Live decision eval rerun** against the fitted ranking: launched
+(same 400 dilemmas, 4 shards, progress files); result recorded below
+when it lands.
+
+**Also:** the iMessage/Slack preview title is "Ask Madden: Your
+League's Cheat Code" (the em-dash form was showing as just the
+tagline).
+
+**Validated:** suite 390/390 (`tests/test_predraft_and_trade_context.py`:
+pre-draft notes for all three reports, in-season unaffected, bye weeks
+from a schedule slice, needs/surplus/injury/bye on the roster tool, the
+prompt phrases; `/api/sessions` carries status).
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper
