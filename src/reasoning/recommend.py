@@ -934,12 +934,21 @@ def recommend(
     messages.append({"role": "user", "content": question})
     tool_calls: list[dict] = []
 
+    # Prompt caching: the system prompt (per league/week) and the tool
+    # definitions (~8KB, static) are the same for every turn of every chat
+    # in a league, and together they are most of each call's input. Marking
+    # them cacheable makes repeat reads ~10% of the normal input price. The
+    # first real eval run showed cache_read_input_tokens == 0 on every call
+    # -- nothing was being cached -- so this is the single biggest lever on
+    # per-chat cost (2026-09-20).
+    cached_system = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+    cached_tools = [*TOOLS[:-1], {**TOOLS[-1], "cache_control": {"type": "ephemeral"}}]
     for _ in range(max_turns):
         response = client.messages.create(
             model=model,
             max_tokens=1024,
-            system=system_prompt,
-            tools=TOOLS,
+            system=cached_system,
+            tools=cached_tools,
             messages=messages,
         )
         messages.append({"role": "assistant", "content": response.content})

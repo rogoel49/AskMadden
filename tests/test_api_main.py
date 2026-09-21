@@ -471,3 +471,34 @@ def test_roster_endpoint_lays_the_lineup_out_by_slot(api):
     assert all(s["player"] is None for s in body["lineup"][1:])
     assert [p["name"] for p in body["bench"]] == ["James Cook"]
     assert body["reserve"] == []
+
+
+def test_a_global_daily_cap_bounds_the_whole_deployment(api):
+    """Nobody pays; the operator's API credit is the only limit. A user
+    under their own cap still stops at the deployment-wide cap."""
+    main.app.dependency_overrides[main.global_daily_query_cap] = lambda: 2
+    session_id = _login_and_session(api)
+    body = {"session_id": session_id, "question": "q", "season": _SEASON, "as_of_week": _WEEK}
+    codes = []
+    for _ in range(3):
+        _script_grounded_answer(api["claude"])
+        codes.append(api["client"].post("/api/chat", json=body).status_code)
+    assert codes == [200, 200, 429], codes
+    assert "across everyone" in api["client"].post("/api/chat", json=body).json()["detail"]
+    assert api["storage"].queries_today(main.GLOBAL_CAP_USERNAME) == 2
+    assert api["storage"].queries_today("rogoel49") == 2  # the refused ones were not charged to the user either
+
+
+def test_chat_marks_the_system_prompt_and_tools_cacheable(api):
+    """Prompt caching: the first real eval run showed zero cached tokens on
+    every call. The system prompt and tool definitions are the bulk of
+    each call's input and identical across a league's chats."""
+    session_id = _login_and_session(api)
+    _script_grounded_answer(api["claude"])
+    assert api["client"].post(
+        "/api/chat", json={"session_id": session_id, "question": "q", "season": _SEASON, "as_of_week": _WEEK}
+    ).status_code == 200
+    kwargs = api["claude"].calls[-1]
+    assert kwargs["system"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert kwargs["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert all("cache_control" not in t for t in kwargs["tools"][:-1])
