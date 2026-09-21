@@ -1551,6 +1551,79 @@ pre-draft notes for all three reports, in-season unaffected, bye weeks
 from a schedule slice, needs/surplus/injury/bye on the roster tool, the
 prompt phrases; `/api/sessions` carries status).
 
+## Where the accuracy actually stands, and the plan to move it (2026-09-21)
+
+Rohan: "is our current reasoning method just not good enough? it's a
+hard sell that our recommendations aren't that accurate." Straight
+answer, with what's measured.
+
+**What we know.** Every number below is on real nflverse box scores,
+strictly as-of-week, same-position pairs where both players were
+fantasy-relevant that week.
+
+| what | pairs | accuracy |
+|---|---|---|
+| fitted ranking, held-out 2024 | 19,283 | 61.8% (72% where the gap was 10+ pts) |
+| fitted ranking, held-out 2025 | 19,674 | 59.9% (71% at 10+) |
+| points-per-game alone | same | 61.5% / 59.5% |
+| old hand-set weights | same | 57.6% / 57.6% |
+| last season's ppg alone | same | 58% |
+| live agent, 2024 week 5 only | 400 | 52.2% (agent = ranking on 400/400) |
+
+**Three honest conclusions.**
+1. *The reasoning layer is not the problem.* The agent follows the
+   deterministic ranking on 400/400 dilemmas; it adds explanation,
+   never error. Accuracy is the ranking's, and the ranking's is the
+   features'.
+2. *The features are the problem, and their ceiling is real.* Weekly
+   fantasy points are dominated by touchdown variance; half of all
+   same-position pairs are decided by under 5 points and no
+   week-ahead model calls those. Points-per-game alone matches the
+   whole fitted score, which says the usage signals (target share,
+   red-zone share, EPA trend, run-funnel lean) carry almost no
+   *incremental* week-ahead information. They were chosen to be
+   explainable, and they are; they were never validated as predictive
+   until now.
+3. *The headline is wrong, not just low.* "52% on all pairs" averages
+   coin-flips (gap < 5) with real calls (gap 10+, where the ranking is
+   72%). The honest, sellable framing is accuracy on decisions that
+   matter plus calibrated confidence -- and a comparison to what a
+   user would otherwise do (last season's ppg: 58%; a consensus
+   projection, which we can't measure historically without a paid
+   feed).
+
+**Plan, in order. Each step is measured on the free offline harness
+before it ships; nothing goes into the product on a hunch.**
+- [ ] **Step 1 -- confidence on every verdict (free, product-visible
+      this week).** The fitted model is a logistic model: P(a beats b)
+      = sigmoid(score_a - score_b). Expose it: `rank_players` and the
+      Feed say "lean Gibbs, 71%" or "coin flip, 52%" instead of a bare
+      verdict. Calibration is checkable offline (bucket predicted
+      probability vs. actual win rate on 2024/2025). This turns "our
+      picks are 60% right" into "when we say 70%, we're right 70% of
+      the time" -- which is the sell.
+- [ ] **Step 2 -- multi-week ground truth.** Extend
+      `evals/ground_truth.jsonl` to every 2024 week (`build_ground_truth
+      --weeks 1..18`), so the live eval samples the season and tracks
+      the offline number; keep it small (it only needs to prove the
+      agent follows the ranking, 400/400 already does).
+- [ ] **Step 3 -- features with actual week-ahead signal, one at a
+      time, each accepted only if held-out accuracy moves.** Candidates,
+      cheapest first: opponent points allowed by position (from the
+      weekly stat lines + schedules, no new source); snap share and
+      routes (nflverse `load_snap_counts`, FTN charting) as a volume
+      measure that leads target share; Vegas spread alongside the
+      implied total (game script); teammate injuries (target vacuum);
+      per-position models instead of one shared weight vector. Report
+      the table above with a new row per feature.
+- [ ] **Step 4 -- a nonlinear model, only if Step 3 stalls.** Gradient
+      boosting on the same features, same harness; keep it only if it
+      beats the linear score by more than noise (~1 pt on 19k pairs),
+      and keep the linear score's explanation text either way.
+- [ ] **Step 5 -- Phase 4 / 7 signals** (coverage classification,
+      scheme fit) through the same gate; matchup-fit stays a landing
+      placeholder until one earns a number.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper
