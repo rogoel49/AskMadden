@@ -1,0 +1,3256 @@
+{
+  "date": "2026-09-21",
+  "season": 2024,
+  "week": 5,
+  "model": "claude-sonnet-4-5-20250929",
+  "ranking": "fitted (evals/results/2026-09-20_ranking_fit_blend4.json) with the points-per-game proxy",
+  "total_dilemmas": 400,
+  "scored_dilemmas": 400,
+  "correct": 209,
+  "decision_accuracy": 0.5225,
+  "by_position": {
+    "QB": {
+      "correct": 27,
+      "scored": 53
+    },
+    "RB": {
+      "correct": 61,
+      "scored": 115
+    },
+    "TE": {
+      "correct": 22,
+      "scored": 34
+    },
+    "WR": {
+      "correct": 99,
+      "scored": 198
+    }
+  },
+  "by_actual_point_gap": {
+    "<5": {
+      "correct": 96,
+      "scored": 200
+    },
+    "5-10": {
+      "correct": 60,
+      "scored": 108
+    },
+    "10+": {
+      "correct": 53,
+      "scored": 92
+    }
+  },
+  "previous_run": {
+    "file": "2026-09-20_decision_run.json",
+    "decision_accuracy": 0.5163,
+    "same_pick_on": [
+      278,
+      399
+    ]
+  },
+  "retrieval_accuracy": null,
+  "estimated_cost_usd": 14.8,
+  "method": "Same 400 dilemmas and shards as 2026-09-20_decision_run.json (seeded shuffle, first 400 of 1870), rerun with run_decision_eval.run(progress_path=...) against the fitted, ppg-aware ranking; player_stats_2024/2023 tables written to data/processed/player_stats first; as-of-week 5 throughout.",
+  "results": [
+    {
+      "question": "Week 5, 2024: should I start Michael Wilson or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Michael Wilson",
+      "recommended": "Start Tyler Lockett at WR over Michael Wilson",
+      "recommended_player_id": "00-0032211",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start George Kittle or Mo Alie-Cox at TE?",
+      "position": "TE",
+      "expected_winner": "George Kittle",
+      "recommended": "Start George Kittle at TE.",
+      "recommended_player_id": "00-0033288",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Garrett Wilson or Rashid Shaheed at WR?",
+      "position": "WR",
+      "expected_winner": "Garrett Wilson",
+      "recommended": "Start Rashid Shaheed at WR.",
+      "recommended_player_id": "00-0037545",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jeremy McNichols or Travis Etienne at RB?",
+      "position": "RB",
+      "expected_winner": "Jeremy McNichols",
+      "recommended": "Start Travis Etienne at RB.",
+      "recommended_player_id": "00-0036973",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jakobi Meyers or Rashid Shaheed at WR?",
+      "position": "WR",
+      "expected_winner": "Rashid Shaheed",
+      "recommended": "Start Jakobi Meyers at WR.",
+      "recommended_player_id": "00-0034960",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Allen Lazard at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Allen Lazard over Alec Pierce at WR in Week 5.",
+      "recommended_player_id": "00-0034521",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Garrett Wilson or Jalen Coker at WR?",
+      "position": "WR",
+      "expected_winner": "Garrett Wilson",
+      "recommended": "Start Garrett Wilson at WR.",
+      "recommended_player_id": "00-0037740",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brandon Aiyuk or Rashid Shaheed at WR?",
+      "position": "WR",
+      "expected_winner": "Brandon Aiyuk",
+      "recommended": "Start Brandon Aiyuk at WR over Rashid Shaheed.",
+      "recommended_player_id": "00-0036261",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start JuJu Smith-Schuster or Rashod Bateman at WR?",
+      "position": "WR",
+      "expected_winner": "JuJu Smith-Schuster",
+      "recommended": "Start Rashod Bateman over JuJu Smith-Schuster at WR.",
+      "recommended_player_id": "00-0036550",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jalen Tolbert or Justin Jefferson at WR?",
+      "position": "WR",
+      "expected_winner": "Jalen Tolbert",
+      "recommended": "Start Justin Jefferson at WR.",
+      "recommended_player_id": "00-0036322",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start DJ Moore or Xavier Worthy at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start DJ Moore over Xavier Worthy this week.",
+      "recommended_player_id": "00-0034827",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Ameer Abdullah or Cam Akers at RB?",
+      "position": "RB",
+      "expected_winner": "Ameer Abdullah",
+      "recommended": "Start Cam Akers at RB.",
+      "recommended_player_id": "00-0036414",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Josh Allen or Patrick Mahomes at QB?",
+      "position": "QB",
+      "expected_winner": "Josh Allen",
+      "recommended": "Start Josh Allen at QB.",
+      "recommended_player_id": "00-0034857",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Nico Collins at WR?",
+      "position": "WR",
+      "expected_winner": "Nico Collins",
+      "recommended": "Start Nico Collins at WR.",
+      "recommended_player_id": "00-0036554",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alvin Kamara or James Conner at RB?",
+      "position": "RB",
+      "expected_winner": "James Conner",
+      "recommended": "Start Alvin Kamara at RB.",
+      "recommended_player_id": "00-0033906",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Charlie Kolar or Pat Freiermuth at TE?",
+      "position": "TE",
+      "expected_winner": "Charlie Kolar",
+      "recommended": "Start Pat Freiermuth at TE this week.",
+      "recommended_player_id": "00-0036894",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Terry McLaurin or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Terry McLaurin",
+      "recommended": "Start Terry McLaurin over Tyler Lockett at WR this week.",
+      "recommended_player_id": "00-0035659",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Dyami Brown or Michael Wilson at WR?",
+      "position": "WR",
+      "expected_winner": "Dyami Brown",
+      "recommended": "Start Michael Wilson at WR.",
+      "recommended_player_id": "00-0038559",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Keon Coleman or Nico Collins at WR?",
+      "position": "WR",
+      "expected_winner": "Nico Collins",
+      "recommended": "Start Nico Collins at WR.",
+      "recommended_player_id": "00-0036554",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or KhaDarel Hodge at WR?",
+      "position": "WR",
+      "expected_winner": "KhaDarel Hodge",
+      "recommended": "Start Amari Cooper",
+      "recommended_player_id": "00-0031544",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jordan Whittington or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Jordan Whittington",
+      "recommended": "Start Tyler Lockett at WR this week.",
+      "recommended_player_id": "00-0032211",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jeremy McNichols or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Rico Dowdle at RB.",
+      "recommended_player_id": "00-0036139",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start JuJu Smith-Schuster or Ray-Ray McCloud at WR?",
+      "position": "WR",
+      "expected_winner": "JuJu Smith-Schuster",
+      "recommended": "Start JuJu Smith-Schuster over Ray-Ray McCloud at WR.",
+      "recommended_player_id": "00-0033857",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Ja'Marr Chase or Keon Coleman at WR?",
+      "position": "WR",
+      "expected_winner": "Ja'Marr Chase",
+      "recommended": "Start Ja'Marr Chase",
+      "recommended_player_id": "00-0036900",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Mike Evans at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Mike Evans at WR.",
+      "recommended_player_id": "00-0031408",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Tyler Lockett",
+      "recommended": "Start CeeDee Lamb at WR.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jalen Tolbert or Tutu Atwell at WR?",
+      "position": "WR",
+      "expected_winner": "Jalen Tolbert",
+      "recommended": "Start Tutu Atwell",
+      "recommended_player_id": "00-0036849",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Ja'Marr Chase or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Ja'Marr Chase",
+      "recommended": "Start Jayden Reed at WR over Ja'Marr Chase.",
+      "recommended_player_id": "00-0039146",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alexander Mattison or Jeremy McNichols at RB?",
+      "position": "RB",
+      "expected_winner": "Jeremy McNichols",
+      "recommended": "Start Alexander Mattison over Jeremy McNichols at RB.",
+      "recommended_player_id": "00-0034972",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jakobi Meyers or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start Jayden Reed",
+      "recommended_player_id": "00-0039146",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chris Godwin Jr. or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start Jayden Reed at WR.",
+      "recommended_player_id": "00-0039146",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start James Cook or Kyren Williams at RB?",
+      "position": "RB",
+      "expected_winner": "James Cook",
+      "recommended": "Start Kyren Williams at RB over James Cook.",
+      "recommended_player_id": "00-0037840",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Colby Parkinson or Foster Moreau at TE?",
+      "position": "TE",
+      "expected_winner": "Colby Parkinson",
+      "recommended": "Start Colby Parkinson at TE",
+      "recommended_player_id": "00-0036244",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Michael Pittman or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Michael Pittman",
+      "recommended": "Start Michael Pittman over Tyler Lockett at WR.",
+      "recommended_player_id": "00-0036252",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or JuJu Smith-Schuster at WR?",
+      "position": "WR",
+      "expected_winner": "JuJu Smith-Schuster",
+      "recommended": "Start CeeDee Lamb",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Chris Godwin Jr. or DeMario Douglas at WR?",
+      "position": "WR",
+      "expected_winner": "Chris Godwin Jr.",
+      "recommended": "Start Chris Godwin Jr.",
+      "recommended_player_id": "00-0033921",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Geno Smith or Josh Allen at QB?",
+      "position": "QB",
+      "expected_winner": "Geno Smith",
+      "recommended": "Start Josh Allen at QB.",
+      "recommended_player_id": "00-0034857",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Tee Higgins or Wan'Dale Robinson at WR?",
+      "position": "WR",
+      "expected_winner": "Tee Higgins",
+      "recommended": "Start Tee Higgins at WR over Wan'Dale Robinson.",
+      "recommended_player_id": "00-0036410",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Ameer Abdullah or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Rico Dowdle at RB over Ameer Abdullah.",
+      "recommended_player_id": "00-0036139",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaleel McLaughlin or Jeremy McNichols at RB?",
+      "position": "RB",
+      "expected_winner": "Jeremy McNichols",
+      "recommended": "Start Jaleel McLaughlin.",
+      "recommended_player_id": "00-0038794",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start DeMario Douglas or Garrett Wilson at WR?",
+      "position": "WR",
+      "expected_winner": "Garrett Wilson",
+      "recommended": "Start Garrett Wilson at WR.",
+      "recommended_player_id": "00-0037740",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Michael Pittman or Rashid Shaheed at WR?",
+      "position": "WR",
+      "expected_winner": "Rashid Shaheed",
+      "recommended": "Start Michael Pittman Jr. over Rashid Shaheed at WR in Week 5.",
+      "recommended_player_id": "00-0036252",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Darnell Mooney or Jalen Coker at WR?",
+      "position": "WR",
+      "expected_winner": "Darnell Mooney",
+      "recommended": "Start Darnell Mooney at WR.",
+      "recommended_player_id": "00-0036309",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Kareem Hunt or Travis Etienne at RB?",
+      "position": "RB",
+      "expected_winner": "Kareem Hunt",
+      "recommended": "Start Travis Etienne at RB.",
+      "recommended_player_id": "00-0036973",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brenton Strange or Foster Moreau at TE?",
+      "position": "TE",
+      "expected_winner": "Brenton Strange",
+      "recommended": "Start Brenton Strange at TE this week.",
+      "recommended_player_id": "00-0038935",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DeMario Douglas or Tyreek Hill at WR?",
+      "position": "WR",
+      "expected_winner": "Tyreek Hill",
+      "recommended": "Start Tyreek Hill at WR.",
+      "recommended_player_id": "00-0033040",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Thomas Jr. or Darnell Mooney at WR?",
+      "position": "WR",
+      "expected_winner": "Darnell Mooney",
+      "recommended": "Start Brian Thomas Jr. at WR this week.",
+      "recommended_player_id": "00-0039893",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Roschon Johnson or Tyrone Tracy Jr. at RB?",
+      "position": "RB",
+      "expected_winner": "Roschon Johnson",
+      "recommended": "Start Roschon Johnson at RB.",
+      "recommended_player_id": "00-0039021",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Javonte Williams or Kareem Hunt at RB?",
+      "position": "RB",
+      "expected_winner": "Kareem Hunt",
+      "recommended": "Start Javonte Williams at RB over Kareem Hunt.",
+      "recommended_player_id": "00-0036997",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jalen Coker or Jordan Whittington at WR?",
+      "position": "WR",
+      "expected_winner": "Jordan Whittington",
+      "recommended": "Start Jordan Whittington at WR over Jalen Coker.",
+      "recommended_player_id": "00-0039751",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Dak Prescott or Kirk Cousins at QB?",
+      "position": "QB",
+      "expected_winner": "Kirk Cousins",
+      "recommended": "Start Dak Prescott at QB.",
+      "recommended_player_id": "00-0033077",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start George Kittle or Jonnu Smith at TE?",
+      "position": "TE",
+      "expected_winner": "George Kittle",
+      "recommended": "Start George Kittle at TE this week.",
+      "recommended_player_id": "00-0033288",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chase Brown or James Cook at RB?",
+      "position": "RB",
+      "expected_winner": "James Cook",
+      "recommended": "Start James Cook at RB.",
+      "recommended_player_id": "00-0037248",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Gardner Minshew or Geno Smith at QB?",
+      "position": "QB",
+      "expected_winner": "Geno Smith",
+      "recommended": "Start Geno Smith at QB this week.",
+      "recommended_player_id": "00-0030565",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Javonte Williams or Rhamondre Stevenson at RB?",
+      "position": "RB",
+      "expected_winner": "Rhamondre Stevenson",
+      "recommended": "Start Rhamondre Stevenson at RB over Javonte Williams.",
+      "recommended_player_id": "00-0036875",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start C.J. Stroud or Kirk Cousins at QB?",
+      "position": "QB",
+      "expected_winner": "Kirk Cousins",
+      "recommended": "Start C.J. Stroud at QB.",
+      "recommended_player_id": "00-0039163",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start James Conner or Tyrone Tracy Jr. at RB?",
+      "position": "RB",
+      "expected_winner": "Tyrone Tracy Jr.",
+      "recommended": "Start James Conner at RB.",
+      "recommended_player_id": "00-0033553",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or Jakobi Meyers at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Drake London at WR.",
+      "recommended_player_id": "00-0037238",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alexander Mattison or Travis Etienne at RB?",
+      "position": "RB",
+      "expected_winner": "Alexander Mattison",
+      "recommended": "Start Travis Etienne at RB.",
+      "recommended_player_id": "00-0036973",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Allen Lazard",
+      "recommended": "Start Tyler Lockett at WR over Allen Lazard.",
+      "recommended_player_id": "00-0032211",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Mike Evans at WR?",
+      "position": "WR",
+      "expected_winner": "Mike Evans",
+      "recommended": "Start Mike Evans at WR over Allen Lazard.",
+      "recommended_player_id": "00-0031408",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chuba Hubbard or Derrick Henry at RB?",
+      "position": "RB",
+      "expected_winner": "Derrick Henry",
+      "recommended": "Start Derrick Henry at RB.",
+      "recommended_player_id": "00-0032764",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brock Bowers or Tucker Kraft at TE?",
+      "position": "TE",
+      "expected_winner": "Tucker Kraft",
+      "recommended": "Start Brock Bowers at TE in Week 5.",
+      "recommended_player_id": "00-0039338",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alvin Kamara or Jaylen Wright at RB?",
+      "position": "RB",
+      "expected_winner": "Alvin Kamara",
+      "recommended": "Start Alvin Kamara at RB.",
+      "recommended_player_id": "00-0033906",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Josh Allen or Matthew Stafford at QB?",
+      "position": "QB",
+      "expected_winner": "Josh Allen",
+      "recommended": "Start Josh Allen at QB.",
+      "recommended_player_id": "00-0034857",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start Jayden Reed at WR over Amari Cooper",
+      "recommended_player_id": "00-0039146",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Christian Kirk or Jaxon Smith-Njigba at WR?",
+      "position": "WR",
+      "expected_winner": "Jaxon Smith-Njigba",
+      "recommended": "Start Christian Kirk over Jaxon Smith-Njigba at WR for week 5.",
+      "recommended_player_id": "00-0034775",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Rachaad White or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Rachaad White at RB over Rico Dowdle.",
+      "recommended_player_id": "00-0037256",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Garrett Wilson or Michael Pittman at WR?",
+      "position": "WR",
+      "expected_winner": "Garrett Wilson",
+      "recommended": "Start Michael Pittman at WR over Garrett Wilson.",
+      "recommended_player_id": "00-0036252",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Darius Slayton or Josh Downs at WR?",
+      "position": "WR",
+      "expected_winner": "Darius Slayton",
+      "recommended": "Start Josh Downs at WR over Darius Slayton.",
+      "recommended_player_id": "00-0038997",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Kyle Pitts or Tucker Kraft at TE?",
+      "position": "TE",
+      "expected_winner": "Tucker Kraft",
+      "recommended": "Start Tucker Kraft at TE.",
+      "recommended_player_id": "00-0038996",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brock Bowers or Charlie Kolar at TE?",
+      "position": "TE",
+      "expected_winner": "Brock Bowers",
+      "recommended": "Start Brock Bowers at TE.",
+      "recommended_player_id": "00-0039338",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chuba Hubbard or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Chuba Hubbard at RB over Rico Dowdle.",
+      "recommended_player_id": "00-0036555",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Michael Wilson at WR?",
+      "position": "WR",
+      "expected_winner": "Michael Wilson",
+      "recommended": "Start CeeDee Lamb over Michael Wilson at WR.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Michael Wilson at WR?",
+      "position": "WR",
+      "expected_winner": "Allen Lazard",
+      "recommended": "Start Allen Lazard at WR.",
+      "recommended_player_id": "00-0034521",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Tee Higgins at WR?",
+      "position": "WR",
+      "expected_winner": "Tee Higgins",
+      "recommended": "Start CeeDee Lamb at WR.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alvin Kamara or Kyren Williams at RB?",
+      "position": "RB",
+      "expected_winner": "Kyren Williams",
+      "recommended": "Start Kyren Williams at RB over Alvin Kamara for Week 5.",
+      "recommended_player_id": "00-0037840",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Rashid Shaheed at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Rashid Shaheed at WR.",
+      "recommended_player_id": "00-0037545",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Daniel Jones or Joe Burrow at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Burrow",
+      "recommended": "Start Joe Burrow at QB.",
+      "recommended_player_id": "00-0036442",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alexander Mattison or Trey Sermon at RB?",
+      "position": "RB",
+      "expected_winner": "Trey Sermon",
+      "recommended": "Start Alexander Mattison at RB.",
+      "recommended_player_id": "00-0034972",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Michael Wilson or Mike Evans at WR?",
+      "position": "WR",
+      "expected_winner": "Mike Evans",
+      "recommended": "Start Mike Evans at WR.",
+      "recommended_player_id": "00-0031408",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Garrett Wilson or Justin Jefferson at WR?",
+      "position": "WR",
+      "expected_winner": "Garrett Wilson",
+      "recommended": "Start Justin Jefferson at WR.",
+      "recommended_player_id": "00-0036322",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Dyami Brown or Tyreek Hill at WR?",
+      "position": "WR",
+      "expected_winner": "Dyami Brown",
+      "recommended": "Start Tyreek Hill.",
+      "recommended_player_id": "00-0033040",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Darnell Mooney at WR?",
+      "position": "WR",
+      "expected_winner": "Darnell Mooney",
+      "recommended": "Start Alec Pierce at WR",
+      "recommended_player_id": "00-0037664",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Derrick Henry or Najee Harris at RB?",
+      "position": "RB",
+      "expected_winner": "Derrick Henry",
+      "recommended": "Start Derrick Henry at RB.",
+      "recommended_player_id": "00-0032764",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Daniel Jones or Derek Carr at QB?",
+      "position": "QB",
+      "expected_winner": "Daniel Jones",
+      "recommended": "Start Derek Carr at QB in Week 5.",
+      "recommended_player_id": "00-0031280",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Rashid Shaheed or Tutu Atwell at WR?",
+      "position": "WR",
+      "expected_winner": "Rashid Shaheed",
+      "recommended": "Start Rashid Shaheed over Tutu Atwell at WR in Week 5.",
+      "recommended_player_id": "00-0037545",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Dare Ogunbowale or James Cook at RB?",
+      "position": "RB",
+      "expected_winner": "James Cook",
+      "recommended": "Start James Cook at RB.",
+      "recommended_player_id": "00-0037248",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or Michael Pittman at WR?",
+      "position": "WR",
+      "expected_winner": "Michael Pittman",
+      "recommended": "Start Amari Cooper over Michael Pittman at WR.",
+      "recommended_player_id": "00-0031544",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Michael Pittman at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Michael Pittman at WR.",
+      "recommended_player_id": "00-0036252",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Jalen Coker at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Alec Pierce",
+      "recommended_player_id": "00-0037664",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or Terry McLaurin at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Drake London",
+      "recommended_player_id": "00-0037238",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Zay Flowers at WR?",
+      "position": "WR",
+      "expected_winner": "Zay Flowers",
+      "recommended": "Start Zay Flowers",
+      "recommended_player_id": "00-0039064",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Ja'Marr Chase or Zay Flowers at WR?",
+      "position": "WR",
+      "expected_winner": "Ja'Marr Chase",
+      "recommended": "Start Ja'Marr Chase at WR.",
+      "recommended_player_id": "00-0036900",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start Jayden Reed at WR.",
+      "recommended_player_id": "00-0039146",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Ray-Ray McCloud or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Ray-Ray McCloud",
+      "recommended": "Start Tyler Lockett at WR.",
+      "recommended_player_id": "00-0032211",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Nico Collins or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Nico Collins",
+      "recommended": "Start Nico Collins at WR over Tyler Lockett.",
+      "recommended_player_id": "00-0036554",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jayden Reed or Josh Downs at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start Jayden Reed at WR.",
+      "recommended_player_id": "00-0039146",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Justin Jefferson or Zay Flowers at WR?",
+      "position": "WR",
+      "expected_winner": "Zay Flowers",
+      "recommended": "Start Justin Jefferson at WR over Zay Flowers.",
+      "recommended_player_id": "00-0036322",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Colby Parkinson or Jonnu Smith at TE?",
+      "position": "TE",
+      "expected_winner": "Colby Parkinson",
+      "recommended": "Start Colby Parkinson at TE this week.",
+      "recommended_player_id": "00-0036244",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jakobi Meyers or Tutu Atwell at WR?",
+      "position": "WR",
+      "expected_winner": "Jakobi Meyers",
+      "recommended": "Start Jakobi Meyers at WR.",
+      "recommended_player_id": "00-0034960",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jalen Tolbert or Tee Higgins at WR?",
+      "position": "WR",
+      "expected_winner": "Tee Higgins",
+      "recommended": "Start Tee Higgins over Jalen Tolbert at WR.",
+      "recommended_player_id": "00-0036410",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brock Purdy or Kyler Murray at QB?",
+      "position": "QB",
+      "expected_winner": "Kyler Murray",
+      "recommended": "Start Brock Purdy at QB.",
+      "recommended_player_id": "00-0037834",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start JuJu Smith-Schuster or Justin Jefferson at WR?",
+      "position": "WR",
+      "expected_winner": "JuJu Smith-Schuster",
+      "recommended": "Start Justin Jefferson at WR.",
+      "recommended_player_id": "00-0036322",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Geno Smith or Joe Flacco at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Flacco",
+      "recommended": "Start Joe Flacco at QB this week.",
+      "recommended_player_id": "00-0026158",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DJ Moore or Tyreek Hill at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start Tyreek Hill at WR.",
+      "recommended_player_id": "00-0033040",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Rashod Bateman or Xavier Worthy at WR?",
+      "position": "WR",
+      "expected_winner": "Rashod Bateman",
+      "recommended": "Start Xavier Worthy over Rashod Bateman at WR for Week 5.",
+      "recommended_player_id": "00-0039894",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alexander Mattison or Javonte Williams at RB?",
+      "position": "RB",
+      "expected_winner": "Javonte Williams",
+      "recommended": "Start Javonte Williams at RB over Alexander Mattison.",
+      "recommended_player_id": "00-0036997",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Charlie Kolar or Trey McBride at TE?",
+      "position": "TE",
+      "expected_winner": "Charlie Kolar",
+      "recommended": "Start Trey McBride.",
+      "recommended_player_id": "00-0037744",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brock Purdy or Joe Flacco at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Flacco",
+      "recommended": "Start Joe Flacco at QB in Week 5.",
+      "recommended_player_id": "00-0026158",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaleel McLaughlin or Najee Harris at RB?",
+      "position": "RB",
+      "expected_winner": "Jaleel McLaughlin",
+      "recommended": "Start Najee Harris at RB over Jaleel McLaughlin.",
+      "recommended_player_id": "00-0036893",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaleel McLaughlin or Rachaad White at RB?",
+      "position": "RB",
+      "expected_winner": "Jaleel McLaughlin",
+      "recommended": "Start Rachaad White",
+      "recommended_player_id": "00-0037256",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Colby Parkinson or Travis Kelce at TE?",
+      "position": "TE",
+      "expected_winner": "Travis Kelce",
+      "recommended": "Start Travis Kelce at TE in week 5.",
+      "recommended_player_id": "00-0030506",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Thomas Jr. or CeeDee Lamb at WR?",
+      "position": "WR",
+      "expected_winner": "Brian Thomas Jr.",
+      "recommended": "Start CeeDee Lamb at WR.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Dak Prescott or Jayden Daniels at QB?",
+      "position": "QB",
+      "expected_winner": "Jayden Daniels",
+      "recommended": "Start Jayden Daniels at QB this week.",
+      "recommended_player_id": "00-0039910",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Tee Higgins or Terry McLaurin at WR?",
+      "position": "WR",
+      "expected_winner": "Tee Higgins",
+      "recommended": "Start Terry McLaurin at WR.",
+      "recommended_player_id": "00-0035659",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brenton Strange or Jake Ferguson at TE?",
+      "position": "TE",
+      "expected_winner": "Brenton Strange",
+      "recommended": "Start Jake Ferguson at TE.",
+      "recommended_player_id": "00-0038041",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Bo Nix or Trevor Lawrence at QB?",
+      "position": "QB",
+      "expected_winner": "Bo Nix",
+      "recommended": "Start Trevor Lawrence at QB.",
+      "recommended_player_id": "00-0036971",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaxon Smith-Njigba or Mike Evans at WR?",
+      "position": "WR",
+      "expected_winner": "Mike Evans",
+      "recommended": "Start Mike Evans at WR.",
+      "recommended_player_id": "00-0031408",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Najee Harris or Roschon Johnson at RB?",
+      "position": "RB",
+      "expected_winner": "Roschon Johnson",
+      "recommended": "Start Najee Harris.",
+      "recommended_player_id": "00-0036893",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Najee Harris or Raheem Mostert at RB?",
+      "position": "RB",
+      "expected_winner": "Raheem Mostert",
+      "recommended": "Start Raheem Mostert over Najee Harris at RB this week.",
+      "recommended_player_id": "00-0031687",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Garrett Wilson or Xavier Worthy at WR?",
+      "position": "WR",
+      "expected_winner": "Garrett Wilson",
+      "recommended": "Start Xavier Worthy over Garrett Wilson at WR.",
+      "recommended_player_id": "00-0039894",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Mike Evans at WR?",
+      "position": "WR",
+      "expected_winner": "Mike Evans",
+      "recommended": "Start CeeDee Lamb at WR over Mike Evans.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Thomas Jr. or Rashod Bateman at WR?",
+      "position": "WR",
+      "expected_winner": "Brian Thomas Jr.",
+      "recommended": "Start Brian Thomas Jr. at WR this week.",
+      "recommended_player_id": "00-0039893",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaylen Wright or Kyren Williams at RB?",
+      "position": "RB",
+      "expected_winner": "Kyren Williams",
+      "recommended": "Start Kyren Williams at RB.",
+      "recommended_player_id": "00-0037840",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Bijan Robinson or Dare Ogunbowale at RB?",
+      "position": "RB",
+      "expected_winner": "Dare Ogunbowale",
+      "recommended": "Start Bijan Robinson at RB.",
+      "recommended_player_id": "00-0038542",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Thomas Jr. or Drake London at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Brian Thomas Jr. at WR.",
+      "recommended_player_id": "00-0039893",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Colby Parkinson or Isaiah Likely at TE?",
+      "position": "TE",
+      "expected_winner": "Isaiah Likely",
+      "recommended": "Start Isaiah Likely at TE over Colby Parkinson.",
+      "recommended_player_id": "00-0037838",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Rashod Bateman or Tee Higgins at WR?",
+      "position": "WR",
+      "expected_winner": "Tee Higgins",
+      "recommended": "Start Tee Higgins at WR over Rashod Bateman",
+      "recommended_player_id": "00-0036410",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Geno Smith or Kirk Cousins at QB?",
+      "position": "QB",
+      "expected_winner": "Kirk Cousins",
+      "recommended": "Start Geno Smith at QB.",
+      "recommended_player_id": "00-0030565",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Wan'Dale Robinson at WR?",
+      "position": "WR",
+      "expected_winner": "Wan'Dale Robinson",
+      "recommended": "Start CeeDee Lamb at WR",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Rashod Bateman or Wan'Dale Robinson at WR?",
+      "position": "WR",
+      "expected_winner": "Rashod Bateman",
+      "recommended": "Start Wan'Dale Robinson",
+      "recommended_player_id": "00-0038117",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start DeMario Douglas or Jordan Whittington at WR?",
+      "position": "WR",
+      "expected_winner": "Jordan Whittington",
+      "recommended": "Start Jordan Whittington at WR",
+      "recommended_player_id": "00-0039751",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Bijan Robinson or D'Andre Swift at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start Bijan Robinson at RB",
+      "recommended_player_id": "00-0038542",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Baker Mayfield or Jayden Daniels at QB?",
+      "position": "QB",
+      "expected_winner": "Baker Mayfield",
+      "recommended": "Start Jayden Daniels at QB in week 5.",
+      "recommended_player_id": "00-0039910",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start D'Andre Swift or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start D'Andre Swift at RB in Week 5.",
+      "recommended_player_id": "00-0036275",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DJ Moore or Michael Pittman at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start DJ Moore at WR this week.",
+      "recommended_player_id": "00-0034827",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or DJ Moore at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start DJ Moore at WR.",
+      "recommended_player_id": "00-0034827",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Travis Etienne or Tyrone Tracy Jr. at RB?",
+      "position": "RB",
+      "expected_winner": "Tyrone Tracy Jr.",
+      "recommended": "Start Travis Etienne over Tyrone Tracy Jr. at RB.",
+      "recommended_player_id": "00-0036973",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Tucker Kraft or Tyler Conklin at TE?",
+      "position": "TE",
+      "expected_winner": "Tucker Kraft",
+      "recommended": "Start Tucker Kraft at TE.",
+      "recommended_player_id": "00-0038996",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Bijan Robinson or James Conner at RB?",
+      "position": "RB",
+      "expected_winner": "James Conner",
+      "recommended": "Start James Conner at RB for Week 5.",
+      "recommended_player_id": "00-0033553",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Joe Flacco or Jordan Love at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Flacco",
+      "recommended": "Start Joe Flacco at QB.",
+      "recommended_player_id": "00-0026158",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaxon Smith-Njigba or KhaDarel Hodge at WR?",
+      "position": "WR",
+      "expected_winner": "KhaDarel Hodge",
+      "recommended": "Start Jaxon Smith-Njigba at WR.",
+      "recommended_player_id": "00-0038543",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Dare Ogunbowale or Javonte Williams at RB?",
+      "position": "RB",
+      "expected_winner": "Javonte Williams",
+      "recommended": "Start Javonte Williams at RB.",
+      "recommended_player_id": "00-0036997",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or Josh Downs at WR?",
+      "position": "WR",
+      "expected_winner": "Josh Downs",
+      "recommended": "Start Amari Cooper at WR over Josh Downs.",
+      "recommended_player_id": "00-0031544",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Justin Fields or Kirk Cousins at QB?",
+      "position": "QB",
+      "expected_winner": "Kirk Cousins",
+      "recommended": "Start Justin Fields",
+      "recommended_player_id": "00-0036945",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Demarcus Robinson or Rashod Bateman at WR?",
+      "position": "WR",
+      "expected_winner": "Rashod Bateman",
+      "recommended": "Start Demarcus Robinson",
+      "recommended_player_id": "00-0032775",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alexander Mattison or Dare Ogunbowale at RB?",
+      "position": "RB",
+      "expected_winner": "Dare Ogunbowale",
+      "recommended": "Start Alexander Mattison at RB",
+      "recommended_player_id": "00-0034972",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Kyren Williams or Rhamondre Stevenson at RB?",
+      "position": "RB",
+      "expected_winner": "Rhamondre Stevenson",
+      "recommended": "Start Kyren Williams at RB over Rhamondre Stevenson.",
+      "recommended_player_id": "00-0037840",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Robinson or Kyren Williams at RB?",
+      "position": "RB",
+      "expected_winner": "Kyren Williams",
+      "recommended": "Start Kyren Williams at RB.",
+      "recommended_player_id": "00-0037840",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start James Cook or Kareem Hunt at RB?",
+      "position": "RB",
+      "expected_winner": "Kareem Hunt",
+      "recommended": "Start James Cook at RB.",
+      "recommended_player_id": "00-0037248",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Darnell Mooney at WR?",
+      "position": "WR",
+      "expected_winner": "Darnell Mooney",
+      "recommended": "Start Allen Lazard over Darnell Mooney at WR.",
+      "recommended_player_id": "00-0034521",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Christian Kirk or DJ Moore at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start DJ Moore at WR.",
+      "recommended_player_id": "00-0034827",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Kareem Hunt or Trey Sermon at RB?",
+      "position": "RB",
+      "expected_winner": "Kareem Hunt",
+      "recommended": "Start Kareem Hunt",
+      "recommended_player_id": "00-0033923",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Wan'Dale Robinson at WR?",
+      "position": "WR",
+      "expected_winner": "Wan'Dale Robinson",
+      "recommended": "Start Allen Lazard at WR.",
+      "recommended_player_id": "00-0034521",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Raheem Mostert or Tank Bigsby at RB?",
+      "position": "RB",
+      "expected_winner": "Tank Bigsby",
+      "recommended": "Start Raheem Mostert over Tank Bigsby at RB.",
+      "recommended_player_id": "00-0031687",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Caleb Williams or Derek Carr at QB?",
+      "position": "QB",
+      "expected_winner": "Caleb Williams",
+      "recommended": "Start Derek Carr at QB in Week 5.",
+      "recommended_player_id": "00-0031280",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Ray-Ray McCloud or Wan'Dale Robinson at WR?",
+      "position": "WR",
+      "expected_winner": "Wan'Dale Robinson",
+      "recommended": "Start Wan'Dale Robinson at WR over Ray-Ray McCloud.",
+      "recommended_player_id": "00-0038117",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DJ Moore or Drake London at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start DJ Moore",
+      "recommended_player_id": "00-0034827",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Demarcus Robinson at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Demarcus Robinson at WR.",
+      "recommended_player_id": "00-0032775",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Michael Wilson at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Alec Pierce over Michael Wilson at WR.",
+      "recommended_player_id": "00-0037664",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaxon Smith-Njigba or Josh Downs at WR?",
+      "position": "WR",
+      "expected_winner": "Josh Downs",
+      "recommended": "Start Jaxon Smith-Njigba over Josh Downs at WR.",
+      "recommended_player_id": "00-0038543",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brandon Aiyuk or Jaxon Smith-Njigba at WR?",
+      "position": "WR",
+      "expected_winner": "Brandon Aiyuk",
+      "recommended": "Start Brandon Aiyuk at WR over Jaxon Smith-Njigba",
+      "recommended_player_id": "00-0036261",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Justin Jefferson or Ray-Ray McCloud at WR?",
+      "position": "WR",
+      "expected_winner": "Justin Jefferson",
+      "recommended": "Start Justin Jefferson at WR.",
+      "recommended_player_id": "00-0036322",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start JuJu Smith-Schuster or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "JuJu Smith-Schuster",
+      "recommended": "Start Tyler Lockett at WR over JuJu Smith-Schuster.",
+      "recommended_player_id": "00-0032211",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Christian Kirk or Ja'Marr Chase at WR?",
+      "position": "WR",
+      "expected_winner": "Ja'Marr Chase",
+      "recommended": "Start Ja'Marr Chase at WR.",
+      "recommended_player_id": "00-0036900",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start KhaDarel Hodge or Michael Pittman at WR?",
+      "position": "WR",
+      "expected_winner": "KhaDarel Hodge",
+      "recommended": "Start Michael Pittman at WR.",
+      "recommended_player_id": "00-0036252",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Justin Jefferson or Keon Coleman at WR?",
+      "position": "WR",
+      "expected_winner": "Justin Jefferson",
+      "recommended": "Start Justin Jefferson at WR.",
+      "recommended_player_id": "00-0036322",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DeMario Douglas or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start Jayden Reed at WR",
+      "recommended_player_id": "00-0039146",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Isaiah Likely or Tyler Conklin at TE?",
+      "position": "TE",
+      "expected_winner": "Isaiah Likely",
+      "recommended": "Start Isaiah Likely at TE.",
+      "recommended_player_id": "00-0037838",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Rico Dowdle or Tyrone Tracy Jr. at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Rico Dowdle at RB.",
+      "recommended_player_id": "00-0036139",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Cam Akers or D'Andre Swift at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start D'Andre Swift at RB.",
+      "recommended_player_id": "00-0036275",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Raheem Mostert or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Raheem Mostert.",
+      "recommended_player_id": "00-0031687",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Aaron Rodgers or Joe Burrow at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Burrow",
+      "recommended": "Start Joe Burrow at QB in Week 5.",
+      "recommended_player_id": "00-0036442",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Cam Akers or Trey Sermon at RB?",
+      "position": "RB",
+      "expected_winner": "Trey Sermon",
+      "recommended": "Start Cam Akers at RB over Trey Sermon.",
+      "recommended_player_id": "00-0036414",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jalen Tolbert or Xavier Worthy at WR?",
+      "position": "WR",
+      "expected_winner": "Jalen Tolbert",
+      "recommended": "Start Xavier Worthy at WR.",
+      "recommended_player_id": "00-0039894",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Robinson or Chuba Hubbard at RB?",
+      "position": "RB",
+      "expected_winner": "Chuba Hubbard",
+      "recommended": "Start Brian Robinson at RB.",
+      "recommended_player_id": "00-0037746",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start D'Andre Swift or Tank Bigsby at RB?",
+      "position": "RB",
+      "expected_winner": "Tank Bigsby",
+      "recommended": "Start D'Andre Swift at RB.",
+      "recommended_player_id": "00-0036275",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alexander Mattison or Tank Bigsby at RB?",
+      "position": "RB",
+      "expected_winner": "Tank Bigsby",
+      "recommended": "Start Alexander Mattison over Tank Bigsby at RB.",
+      "recommended_player_id": "00-0034972",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Nico Collins or Tyreek Hill at WR?",
+      "position": "WR",
+      "expected_winner": "Nico Collins",
+      "recommended": "Start Nico Collins at WR.",
+      "recommended_player_id": "00-0036554",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start D'Andre Swift or Travis Etienne at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start Travis Etienne at RB.",
+      "recommended_player_id": "00-0036973",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaxon Smith-Njigba or Xavier Worthy at WR?",
+      "position": "WR",
+      "expected_winner": "Jaxon Smith-Njigba",
+      "recommended": "Start Xavier Worthy at WR",
+      "recommended_player_id": "00-0039894",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brock Bowers or Kyle Pitts at TE?",
+      "position": "TE",
+      "expected_winner": "Brock Bowers",
+      "recommended": "Start Brock Bowers at TE",
+      "recommended_player_id": "00-0039338",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DJ Moore or Rashid Shaheed at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start DJ Moore",
+      "recommended_player_id": "00-0034827",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Mike Evans or Rashod Bateman at WR?",
+      "position": "WR",
+      "expected_winner": "Mike Evans",
+      "recommended": "Start Mike Evans at WR.",
+      "recommended_player_id": "00-0031408",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Kareem Hunt or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Kareem Hunt at RB over Rico Dowdle.",
+      "recommended_player_id": "00-0033923",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or Ray-Ray McCloud at WR?",
+      "position": "WR",
+      "expected_winner": "Ray-Ray McCloud",
+      "recommended": "Start Amari Cooper over Ray-Ray McCloud at WR.",
+      "recommended_player_id": "00-0031544",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or DJ Moore at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start CeeDee Lamb at WR.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brock Purdy or Trevor Lawrence at QB?",
+      "position": "QB",
+      "expected_winner": "Trevor Lawrence",
+      "recommended": "Start Brock Purdy over Trevor Lawrence at QB in Week 5.",
+      "recommended_player_id": "00-0037834",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Thomas Jr. or Nico Collins at WR?",
+      "position": "WR",
+      "expected_winner": "Brian Thomas Jr.",
+      "recommended": "Start Nico Collins at WR.",
+      "recommended_player_id": "00-0036554",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Darius Slayton or DeMario Douglas at WR?",
+      "position": "WR",
+      "expected_winner": "Darius Slayton",
+      "recommended": "Start Darius Slayton over DeMario Douglas at WR in Week 5.",
+      "recommended_player_id": "00-0035535",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alexander Mattison or Jaleel McLaughlin at RB?",
+      "position": "RB",
+      "expected_winner": "Jaleel McLaughlin",
+      "recommended": "Start Alexander Mattison",
+      "recommended_player_id": "00-0034972",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start James Conner or Raheem Mostert at RB?",
+      "position": "RB",
+      "expected_winner": "James Conner",
+      "recommended": "Start James Conner at RB.",
+      "recommended_player_id": "00-0033553",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Derrick Henry or Kenneth Walker III at RB?",
+      "position": "RB",
+      "expected_winner": "Derrick Henry",
+      "recommended": "Start Derrick Henry at RB.",
+      "recommended_player_id": "00-0032764",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaxon Smith-Njigba or Nico Collins at WR?",
+      "position": "WR",
+      "expected_winner": "Nico Collins",
+      "recommended": "Start Nico Collins at WR",
+      "recommended_player_id": "00-0036554",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Charlie Kolar or Colby Parkinson at TE?",
+      "position": "TE",
+      "expected_winner": "Charlie Kolar",
+      "recommended": "Start Colby Parkinson at TE this week.",
+      "recommended_player_id": "00-0036244",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Chuba Hubbard or Trey Sermon at RB?",
+      "position": "RB",
+      "expected_winner": "Chuba Hubbard",
+      "recommended": "Start Chuba Hubbard at RB.",
+      "recommended_player_id": "00-0036555",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Derrick Henry or Jaleel McLaughlin at RB?",
+      "position": "RB",
+      "expected_winner": "Derrick Henry",
+      "recommended": "Start Derrick Henry",
+      "recommended_player_id": "00-0032764",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Baker Mayfield or Kyler Murray at QB?",
+      "position": "QB",
+      "expected_winner": "Kyler Murray",
+      "recommended": "Start Baker Mayfield at QB",
+      "recommended_player_id": "00-0034855",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Joe Burrow or Matthew Stafford at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Burrow",
+      "recommended": "Start Joe Burrow at QB.",
+      "recommended_player_id": "00-0036442",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Jaxon Smith-Njigba at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Jaxon Smith-Njigba at WR.",
+      "recommended_player_id": "00-0038543",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaxon Smith-Njigba or Rashod Bateman at WR?",
+      "position": "WR",
+      "expected_winner": "Rashod Bateman",
+      "recommended": "Start Jaxon Smith-Njigba at WR over Rashod Bateman.",
+      "recommended_player_id": "00-0038543",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jayden Reed or Stefon Diggs at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start Jayden Reed",
+      "recommended_player_id": "00-0039146",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chris Godwin Jr. or Jaxon Smith-Njigba at WR?",
+      "position": "WR",
+      "expected_winner": "Jaxon Smith-Njigba",
+      "recommended": "Start Chris Godwin Jr.",
+      "recommended_player_id": "00-0033921",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Charlie Kolar or Tucker Kraft at TE?",
+      "position": "TE",
+      "expected_winner": "Tucker Kraft",
+      "recommended": "Start Tucker Kraft at TE over Charlie Kolar",
+      "recommended_player_id": "00-0038996",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Josh Jacobs or Roschon Johnson at RB?",
+      "position": "RB",
+      "expected_winner": "Josh Jacobs",
+      "recommended": "Start Josh Jacobs at RB.",
+      "recommended_player_id": "00-0035700",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Dyami Brown or Nico Collins at WR?",
+      "position": "WR",
+      "expected_winner": "Nico Collins",
+      "recommended": "Start Nico Collins at WR.",
+      "recommended_player_id": "00-0036554",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Demarcus Robinson or Justin Jefferson at WR?",
+      "position": "WR",
+      "expected_winner": "Justin Jefferson",
+      "recommended": "Start Justin Jefferson at WR.",
+      "recommended_player_id": "00-0036322",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Deshaun Watson or Kirk Cousins at QB?",
+      "position": "QB",
+      "expected_winner": "Kirk Cousins",
+      "recommended": "Start Kirk Cousins at QB.",
+      "recommended_player_id": "00-0029604",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start C.J. Stroud or Josh Allen at QB?",
+      "position": "QB",
+      "expected_winner": "C.J. Stroud",
+      "recommended": "Start Josh Allen at QB.",
+      "recommended_player_id": "00-0034857",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alvin Kamara or Derrick Henry at RB?",
+      "position": "RB",
+      "expected_winner": "Derrick Henry",
+      "recommended": "Start Alvin Kamara at RB.",
+      "recommended_player_id": "00-0033906",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Demarcus Robinson or Rashid Shaheed at WR?",
+      "position": "WR",
+      "expected_winner": "Rashid Shaheed",
+      "recommended": "Start Rashid Shaheed at WR.",
+      "recommended_player_id": "00-0037545",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jordan Whittington or Tyreek Hill at WR?",
+      "position": "WR",
+      "expected_winner": "Jordan Whittington",
+      "recommended": "Start Tyreek Hill at WR.",
+      "recommended_player_id": "00-0033040",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaleel McLaughlin or James Cook at RB?",
+      "position": "RB",
+      "expected_winner": "James Cook",
+      "recommended": "Start James Cook at RB.",
+      "recommended_player_id": "00-0037248",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Darius Slayton or Demarcus Robinson at WR?",
+      "position": "WR",
+      "expected_winner": "Darius Slayton",
+      "recommended": "Start Demarcus Robinson",
+      "recommended_player_id": "00-0032775",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Chris Godwin Jr. or Josh Downs at WR?",
+      "position": "WR",
+      "expected_winner": "Josh Downs",
+      "recommended": "Start Chris Godwin Jr.",
+      "recommended_player_id": "00-0033921",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Darius Slayton or Michael Pittman at WR?",
+      "position": "WR",
+      "expected_winner": "Darius Slayton",
+      "recommended": "Start Michael Pittman at WR.",
+      "recommended_player_id": "00-0036252",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Joe Flacco or Josh Allen at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Flacco",
+      "recommended": "Start Josh Allen at QB.",
+      "recommended_player_id": "00-0034857",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Bo Nix or Daniel Jones at QB?",
+      "position": "QB",
+      "expected_winner": "Bo Nix",
+      "recommended": "Start Daniel Jones at QB.",
+      "recommended_player_id": "00-0035710",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Bijan Robinson or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Bijan Robinson at RB.",
+      "recommended_player_id": "00-0038542",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Chase Brown or Roschon Johnson at RB?",
+      "position": "RB",
+      "expected_winner": "Chase Brown",
+      "recommended": "Start Chase Brown",
+      "recommended_player_id": "00-0038597",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chase Brown or Chuba Hubbard at RB?",
+      "position": "RB",
+      "expected_winner": "Chuba Hubbard",
+      "recommended": "Start Chuba Hubbard at RB over Chase Brown this week.",
+      "recommended_player_id": "00-0036555",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Demarcus Robinson or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start Jayden Reed at WR over Demarcus Robinson.",
+      "recommended_player_id": "00-0039146",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Brandon Aiyuk at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Brandon Aiyuk at WR.",
+      "recommended_player_id": "00-0036261",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Keon Coleman or Zay Flowers at WR?",
+      "position": "WR",
+      "expected_winner": "Zay Flowers",
+      "recommended": "Start Zay Flowers at WR.",
+      "recommended_player_id": "00-0039064",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DJ Moore or Josh Downs at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start DJ Moore",
+      "recommended_player_id": "00-0034827",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Baker Mayfield or Daniel Jones at QB?",
+      "position": "QB",
+      "expected_winner": "Baker Mayfield",
+      "recommended": "Start Baker Mayfield at QB this week.",
+      "recommended_player_id": "00-0034855",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start D'Andre Swift or Trey Sermon at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start D'Andre Swift at RB over Trey Sermon.",
+      "recommended_player_id": "00-0036275",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or Jalen Coker at WR?",
+      "position": "WR",
+      "expected_winner": "Jalen Coker",
+      "recommended": "Start Amari Cooper over Jalen Coker at WR.",
+      "recommended_player_id": "00-0031544",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Charlie Kolar or Jake Ferguson at TE?",
+      "position": "TE",
+      "expected_winner": "Charlie Kolar",
+      "recommended": "Start Jake Ferguson at TE.",
+      "recommended_player_id": "00-0038041",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Dak Prescott or Lamar Jackson at QB?",
+      "position": "QB",
+      "expected_winner": "Lamar Jackson",
+      "recommended": "Start Lamar Jackson at QB.",
+      "recommended_player_id": "00-0034796",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Dyami Brown or Tutu Atwell at WR?",
+      "position": "WR",
+      "expected_winner": "Dyami Brown",
+      "recommended": "Start Tutu Atwell at WR",
+      "recommended_player_id": "00-0036849",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or Mike Evans at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Mike Evans at WR over Drake London.",
+      "recommended_player_id": "00-0031408",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Derrick Henry or Raheem Mostert at RB?",
+      "position": "RB",
+      "expected_winner": "Derrick Henry",
+      "recommended": "Start Derrick Henry at RB.",
+      "recommended_player_id": "00-0032764",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Rhamondre Stevenson or Tyrone Tracy Jr. at RB?",
+      "position": "RB",
+      "expected_winner": "Rhamondre Stevenson",
+      "recommended": "Start Rhamondre Stevenson at RB.",
+      "recommended_player_id": "00-0036875",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Jalen Coker at WR?",
+      "position": "WR",
+      "expected_winner": "Allen Lazard",
+      "recommended": "Start Allen Lazard at WR.",
+      "recommended_player_id": "00-0034521",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaleel McLaughlin or Roschon Johnson at RB?",
+      "position": "RB",
+      "expected_winner": "Roschon Johnson",
+      "recommended": "Start Roschon Johnson at RB.",
+      "recommended_player_id": "00-0039021",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jeremy McNichols or Roschon Johnson at RB?",
+      "position": "RB",
+      "expected_winner": "Roschon Johnson",
+      "recommended": "Start Roschon Johnson",
+      "recommended_player_id": "00-0039021",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Josh Downs or Ray-Ray McCloud at WR?",
+      "position": "WR",
+      "expected_winner": "Josh Downs",
+      "recommended": "Start Josh Downs.",
+      "recommended_player_id": "00-0038997",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Justin Jefferson or Rashid Shaheed at WR?",
+      "position": "WR",
+      "expected_winner": "Rashid Shaheed",
+      "recommended": "Start Justin Jefferson at WR this week.",
+      "recommended_player_id": "00-0036322",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Christian Kirk or Jakobi Meyers at WR?",
+      "position": "WR",
+      "expected_winner": "Christian Kirk",
+      "recommended": "Start Jakobi Meyers at WR.",
+      "recommended_player_id": "00-0034960",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Daniel Jones or Deshaun Watson at QB?",
+      "position": "QB",
+      "expected_winner": "Daniel Jones",
+      "recommended": "Start Deshaun Watson at QB this week.",
+      "recommended_player_id": "00-0033537",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or Jaxon Smith-Njigba at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Drake London at WR over Jaxon Smith-Njigba for Week 5.",
+      "recommended_player_id": "00-0037238",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaxon Smith-Njigba or Rashid Shaheed at WR?",
+      "position": "WR",
+      "expected_winner": "Rashid Shaheed",
+      "recommended": "Start Rashid Shaheed at WR.",
+      "recommended_player_id": "00-0037545",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Deshaun Watson or Lamar Jackson at QB?",
+      "position": "QB",
+      "expected_winner": "Lamar Jackson",
+      "recommended": "Start Lamar Jackson",
+      "recommended_player_id": "00-0034796",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Cam Akers or Jaleel McLaughlin at RB?",
+      "position": "RB",
+      "expected_winner": "Cam Akers",
+      "recommended": "Start Cam Akers over Jaleel McLaughlin at RB.",
+      "recommended_player_id": "00-0036414",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Bo Nix or Brock Purdy at QB?",
+      "position": "QB",
+      "expected_winner": "Bo Nix",
+      "recommended": "Start Brock Purdy at QB.",
+      "recommended_player_id": "00-0037834",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Baker Mayfield or Brock Purdy at QB?",
+      "position": "QB",
+      "expected_winner": "Baker Mayfield",
+      "recommended": "Start Brock Purdy at QB.",
+      "recommended_player_id": "00-0037834",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start James Cook or Jordan Mason at RB?",
+      "position": "RB",
+      "expected_winner": "James Cook",
+      "recommended": "Start James Cook.",
+      "recommended_player_id": "00-0037248",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Joe Burrow or Trevor Lawrence at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Burrow",
+      "recommended": "Start Joe Burrow at QB this week.",
+      "recommended_player_id": "00-0036442",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alvin Kamara or Kareem Hunt at RB?",
+      "position": "RB",
+      "expected_winner": "Kareem Hunt",
+      "recommended": "Start Alvin Kamara at RB.",
+      "recommended_player_id": "00-0033906",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Bijan Robinson or Derrick Henry at RB?",
+      "position": "RB",
+      "expected_winner": "Derrick Henry",
+      "recommended": "Start Derrick Henry at RB.",
+      "recommended_player_id": "00-0032764",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Tyreek Hill at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Tyreek Hill at WR.",
+      "recommended_player_id": "00-0033040",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaylen Wright or Trey Sermon at RB?",
+      "position": "RB",
+      "expected_winner": "Trey Sermon",
+      "recommended": "Start Trey Sermon at RB over Jaylen Wright in week 5.",
+      "recommended_player_id": "00-0036984",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Bo Nix or Dak Prescott at QB?",
+      "position": "QB",
+      "expected_winner": "Bo Nix",
+      "recommended": "Start Dak Prescott at QB.",
+      "recommended_player_id": "00-0033077",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or KhaDarel Hodge at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Drake London",
+      "recommended_player_id": "00-0037238",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DJ Moore or Demarcus Robinson at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start DJ Moore over Demarcus Robinson at WR.",
+      "recommended_player_id": "00-0034827",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start James Conner or Kyren Williams at RB?",
+      "position": "RB",
+      "expected_winner": "Kyren Williams",
+      "recommended": "Start Kyren Williams at RB.",
+      "recommended_player_id": "00-0037840",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Kyren Williams or Rachaad White at RB?",
+      "position": "RB",
+      "expected_winner": "Kyren Williams",
+      "recommended": "Start Kyren Williams at RB.",
+      "recommended_player_id": "00-0037840",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Deshaun Watson or Joe Flacco at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Flacco",
+      "recommended": "Start Joe Flacco at QB in Week 5.",
+      "recommended_player_id": "00-0026158",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start George Kittle or Jake Ferguson at TE?",
+      "position": "TE",
+      "expected_winner": "George Kittle",
+      "recommended": "Start George Kittle at TE.",
+      "recommended_player_id": "00-0033288",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Dyami Brown or Xavier Worthy at WR?",
+      "position": "WR",
+      "expected_winner": "Dyami Brown",
+      "recommended": "Start Xavier Worthy",
+      "recommended_player_id": "00-0039894",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Chase Brown or Jaylen Wright at RB?",
+      "position": "RB",
+      "expected_winner": "Chase Brown",
+      "recommended": "Start Chase Brown over Jaylen Wright at RB.",
+      "recommended_player_id": "00-0038597",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jakobi Meyers or Michael Pittman at WR?",
+      "position": "WR",
+      "expected_winner": "Michael Pittman",
+      "recommended": "Start Jakobi Meyers at WR.",
+      "recommended_player_id": "00-0034960",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Xavier Worthy at WR?",
+      "position": "WR",
+      "expected_winner": "Allen Lazard",
+      "recommended": "Start Xavier Worthy at WR",
+      "recommended_player_id": "00-0039894",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jordan Mason or Travis Etienne at RB?",
+      "position": "RB",
+      "expected_winner": "Travis Etienne",
+      "recommended": "Start Travis Etienne at RB for Week 5.",
+      "recommended_player_id": "00-0036973",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Caleb Williams or Geno Smith at QB?",
+      "position": "QB",
+      "expected_winner": "Caleb Williams",
+      "recommended": "Start Geno Smith at QB.",
+      "recommended_player_id": "00-0030565",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Kareem Hunt or Tyrone Tracy Jr. at RB?",
+      "position": "RB",
+      "expected_winner": "Kareem Hunt",
+      "recommended": "Start Kareem Hunt at RB",
+      "recommended_player_id": "00-0033923",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Ja'Marr Chase or JuJu Smith-Schuster at WR?",
+      "position": "WR",
+      "expected_winner": "Ja'Marr Chase",
+      "recommended": "Start Ja'Marr Chase at WR.",
+      "recommended_player_id": "00-0036900",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chuba Hubbard or Travis Etienne at RB?",
+      "position": "RB",
+      "expected_winner": "Chuba Hubbard",
+      "recommended": "Start Travis Etienne at RB.",
+      "recommended_player_id": "00-0036973",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Cam Akers or Travis Etienne at RB?",
+      "position": "RB",
+      "expected_winner": "Cam Akers",
+      "recommended": "Start Travis Etienne at RB.",
+      "recommended_player_id": "00-0036973",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jordan Whittington or Michael Pittman at WR?",
+      "position": "WR",
+      "expected_winner": "Jordan Whittington",
+      "recommended": "Start Michael Pittman at WR.",
+      "recommended_player_id": "00-0036252",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Geno Smith or Jordan Love at QB?",
+      "position": "QB",
+      "expected_winner": "Geno Smith",
+      "recommended": "Start Jordan Love at QB.",
+      "recommended_player_id": "00-0036264",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Aaron Rodgers or Dak Prescott at QB?",
+      "position": "QB",
+      "expected_winner": "Dak Prescott",
+      "recommended": "Start Dak Prescott at QB over Aaron Rodgers.",
+      "recommended_player_id": "00-0033077",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chase Brown or Raheem Mostert at RB?",
+      "position": "RB",
+      "expected_winner": "Chase Brown",
+      "recommended": "Start Raheem Mostert over Chase Brown at RB this week.",
+      "recommended_player_id": "00-0031687",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Darius Slayton at WR?",
+      "position": "WR",
+      "expected_winner": "Darius Slayton",
+      "recommended": "Start Alec Pierce at WR.",
+      "recommended_player_id": "00-0037664",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or Jalen Tolbert at WR?",
+      "position": "WR",
+      "expected_winner": "Jalen Tolbert",
+      "recommended": "Start Amari Cooper at WR.",
+      "recommended_player_id": "00-0031544",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Cam Akers or Rachaad White at RB?",
+      "position": "RB",
+      "expected_winner": "Cam Akers",
+      "recommended": "Start Rachaad White over Cam Akers at RB for Week 5.",
+      "recommended_player_id": "00-0037256",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Josh Allen or Justin Fields at QB?",
+      "position": "QB",
+      "expected_winner": "Justin Fields",
+      "recommended": "Start Josh Allen at QB",
+      "recommended_player_id": "00-0034857",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Dare Ogunbowale or Jeremy McNichols at RB?",
+      "position": "RB",
+      "expected_winner": "Dare Ogunbowale",
+      "recommended": "Start Dare Ogunbowale at RB this week.",
+      "recommended_player_id": "00-0033854",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Bijan Robinson or Javonte Williams at RB?",
+      "position": "RB",
+      "expected_winner": "Javonte Williams",
+      "recommended": "Start Bijan Robinson at RB.",
+      "recommended_player_id": "00-0038542",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Kirk Cousins or Matthew Stafford at QB?",
+      "position": "QB",
+      "expected_winner": "Kirk Cousins",
+      "recommended": "Start Kirk Cousins over Matthew Stafford at QB.",
+      "recommended_player_id": "00-0029604",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chase Brown or Tyrone Tracy Jr. at RB?",
+      "position": "RB",
+      "expected_winner": "Chase Brown",
+      "recommended": "Start Chase Brown over Tyrone Tracy Jr.",
+      "recommended_player_id": "00-0038597",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DeMario Douglas or Ray-Ray McCloud at WR?",
+      "position": "WR",
+      "expected_winner": "Ray-Ray McCloud",
+      "recommended": "Start Ray-Ray McCloud at WR over DeMario Douglas.",
+      "recommended_player_id": "00-0034407",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Justin Fields or Matthew Stafford at QB?",
+      "position": "QB",
+      "expected_winner": "Justin Fields",
+      "recommended": "Start Justin Fields at QB this week.",
+      "recommended_player_id": "00-0036945",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Foster Moreau or Pat Freiermuth at TE?",
+      "position": "TE",
+      "expected_winner": "Pat Freiermuth",
+      "recommended": "Start Pat Freiermuth at TE over Foster Moreau.",
+      "recommended_player_id": "00-0036894",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Josh Jacobs or Raheem Mostert at RB?",
+      "position": "RB",
+      "expected_winner": "Josh Jacobs",
+      "recommended": "Start Josh Jacobs at RB",
+      "recommended_player_id": "00-0035700",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Dyami Brown or Rashod Bateman at WR?",
+      "position": "WR",
+      "expected_winner": "Rashod Bateman",
+      "recommended": "Start Rashod Bateman at WR this week.",
+      "recommended_player_id": "00-0036550",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jordan Mason or Kareem Hunt at RB?",
+      "position": "RB",
+      "expected_winner": "Kareem Hunt",
+      "recommended": "Start Jordan Mason over Kareem Hunt at RB in week 5.",
+      "recommended_player_id": "00-0037525",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Foster Moreau or Tucker Kraft at TE?",
+      "position": "TE",
+      "expected_winner": "Tucker Kraft",
+      "recommended": "Start Tucker Kraft at TE.",
+      "recommended_player_id": "00-0038996",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Christian Kirk or Michael Wilson at WR?",
+      "position": "WR",
+      "expected_winner": "Christian Kirk",
+      "recommended": "Start Christian Kirk over Michael Wilson at WR in week 5.",
+      "recommended_player_id": "00-0034775",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Darius Slayton or Jalen Tolbert at WR?",
+      "position": "WR",
+      "expected_winner": "Darius Slayton",
+      "recommended": "Start Jalen Tolbert at WR",
+      "recommended_player_id": "00-0037666",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jakobi Meyers or Zay Flowers at WR?",
+      "position": "WR",
+      "expected_winner": "Zay Flowers",
+      "recommended": "Start Jakobi Meyers at WR this week.",
+      "recommended_player_id": "00-0034960",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Tutu Atwell at WR?",
+      "position": "WR",
+      "expected_winner": "Tutu Atwell",
+      "recommended": "Start CeeDee Lamb at WR over Tutu Atwell.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brandon Aiyuk or DJ Moore at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start DJ Moore at WR.",
+      "recommended_player_id": "00-0034827",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Derrick Henry or Jaylen Wright at RB?",
+      "position": "RB",
+      "expected_winner": "Derrick Henry",
+      "recommended": "Start Derrick Henry at RB.",
+      "recommended_player_id": "00-0032764",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jalen Tolbert or Michael Pittman at WR?",
+      "position": "WR",
+      "expected_winner": "Jalen Tolbert",
+      "recommended": "Start Michael Pittman at WR.",
+      "recommended_player_id": "00-0036252",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Aaron Rodgers or Deshaun Watson at QB?",
+      "position": "QB",
+      "expected_winner": "Aaron Rodgers",
+      "recommended": "Start Deshaun Watson at QB.",
+      "recommended_player_id": "00-0033537",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Thomas Jr. or JuJu Smith-Schuster at WR?",
+      "position": "WR",
+      "expected_winner": "Brian Thomas Jr.",
+      "recommended": "Start Brian Thomas Jr. over JuJu Smith-Schuster at WR.",
+      "recommended_player_id": "00-0039893",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Kareem Hunt or Kyren Williams at RB?",
+      "position": "RB",
+      "expected_winner": "Kareem Hunt",
+      "recommended": "Start Kyren Williams at RB.",
+      "recommended_player_id": "00-0037840",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Thomas Jr. or Chris Godwin Jr. at WR?",
+      "position": "WR",
+      "expected_winner": "Brian Thomas Jr.",
+      "recommended": "Start Chris Godwin Jr. at WR over Brian Thomas Jr. for Week 5.",
+      "recommended_player_id": "00-0033921",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Darnell Mooney or Nico Collins at WR?",
+      "position": "WR",
+      "expected_winner": "Darnell Mooney",
+      "recommended": "Start Nico Collins at WR over Darnell Mooney.",
+      "recommended_player_id": "00-0036554",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaleel McLaughlin or Raheem Mostert at RB?",
+      "position": "RB",
+      "expected_winner": "Raheem Mostert",
+      "recommended": "Start Raheem Mostert at RB.",
+      "recommended_player_id": "00-0031687",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Garrett Wilson or Jordan Whittington at WR?",
+      "position": "WR",
+      "expected_winner": "Garrett Wilson",
+      "recommended": "Start Garrett Wilson at WR.",
+      "recommended_player_id": "00-0037740",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaxon Smith-Njigba or JuJu Smith-Schuster at WR?",
+      "position": "WR",
+      "expected_winner": "JuJu Smith-Schuster",
+      "recommended": "Start Jaxon Smith-Njigba over JuJu Smith-Schuster at WR.",
+      "recommended_player_id": "00-0038543",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jalen Tolbert or Ray-Ray McCloud at WR?",
+      "position": "WR",
+      "expected_winner": "Jalen Tolbert",
+      "recommended": "Start Jalen Tolbert over Ray-Ray McCloud at WR for Week 5.",
+      "recommended_player_id": "00-0037666",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Darius Slayton or Tee Higgins at WR?",
+      "position": "WR",
+      "expected_winner": "Tee Higgins",
+      "recommended": "Start Tee Higgins",
+      "recommended_player_id": "00-0036410",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brenton Strange or Trey McBride at TE?",
+      "position": "TE",
+      "expected_winner": "Brenton Strange",
+      "recommended": "Start Trey McBride at TE.",
+      "recommended_player_id": "00-0037744",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or Garrett Wilson at WR?",
+      "position": "WR",
+      "expected_winner": "Garrett Wilson",
+      "recommended": "Start Amari Cooper at WR.",
+      "recommended_player_id": "00-0031544",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Drake London at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Drake London at WR.",
+      "recommended_player_id": "00-0037238",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaylen Wright or Raheem Mostert at RB?",
+      "position": "RB",
+      "expected_winner": "Raheem Mostert",
+      "recommended": "Start Raheem Mostert over Jaylen Wright at RB in Week 5.",
+      "recommended_player_id": "00-0031687",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Aaron Rodgers or Trevor Lawrence at QB?",
+      "position": "QB",
+      "expected_winner": "Trevor Lawrence",
+      "recommended": "Start Trevor Lawrence at QB this week.",
+      "recommended_player_id": "00-0036971",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brian Thomas Jr. or Josh Downs at WR?",
+      "position": "WR",
+      "expected_winner": "Brian Thomas Jr.",
+      "recommended": "Start Brian Thomas Jr. at WR over Josh Downs.",
+      "recommended_player_id": "00-0039893",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Najee Harris or Trey Sermon at RB?",
+      "position": "RB",
+      "expected_winner": "Trey Sermon",
+      "recommended": "Start Najee Harris at RB.",
+      "recommended_player_id": "00-0036893",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaleel McLaughlin or Josh Jacobs at RB?",
+      "position": "RB",
+      "expected_winner": "Josh Jacobs",
+      "recommended": "Start Josh Jacobs at RB.",
+      "recommended_player_id": "00-0035700",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or JuJu Smith-Schuster at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Drake London at WR.",
+      "recommended_player_id": "00-0037238",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Christian Kirk or Mike Evans at WR?",
+      "position": "WR",
+      "expected_winner": "Mike Evans",
+      "recommended": "Start Mike Evans over Christian Kirk at WR.",
+      "recommended_player_id": "00-0031408",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Derrick Henry or Josh Jacobs at RB?",
+      "position": "RB",
+      "expected_winner": "Derrick Henry",
+      "recommended": "Start Derrick Henry at RB.",
+      "recommended_player_id": "00-0032764",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jalen Coker or Tee Higgins at WR?",
+      "position": "WR",
+      "expected_winner": "Tee Higgins",
+      "recommended": "Start Tee Higgins at WR.",
+      "recommended_player_id": "00-0036410",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Najee Harris or Travis Etienne at RB?",
+      "position": "RB",
+      "expected_winner": "Travis Etienne",
+      "recommended": "Start Travis Etienne at RB over Najee Harris",
+      "recommended_player_id": "00-0036973",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Drake London",
+      "recommended_player_id": "00-0037238",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or CeeDee Lamb at WR?",
+      "position": "WR",
+      "expected_winner": "CeeDee Lamb",
+      "recommended": "Start CeeDee Lamb at WR.",
+      "recommended_player_id": "00-0036358",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alvin Kamara or Chuba Hubbard at RB?",
+      "position": "RB",
+      "expected_winner": "Chuba Hubbard",
+      "recommended": "Start Alvin Kamara over Chuba Hubbard at RB.",
+      "recommended_player_id": "00-0033906",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Allen Lazard or Ray-Ray McCloud at WR?",
+      "position": "WR",
+      "expected_winner": "Allen Lazard",
+      "recommended": "Start Allen Lazard at WR.",
+      "recommended_player_id": "00-0034521",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Christian Kirk at WR?",
+      "position": "WR",
+      "expected_winner": "Christian Kirk",
+      "recommended": "Start CeeDee Lamb at WR over Christian Kirk.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Dyami Brown at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Alec Pierce over Dyami Brown this week.",
+      "recommended_player_id": "00-0037664",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or Wan'Dale Robinson at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Drake London at WR.",
+      "recommended_player_id": "00-0037238",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DeMario Douglas or Dyami Brown at WR?",
+      "position": "WR",
+      "expected_winner": "Dyami Brown",
+      "recommended": "Start DeMario Douglas",
+      "recommended_player_id": "00-0038621",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Darnell Mooney or Zay Flowers at WR?",
+      "position": "WR",
+      "expected_winner": "Darnell Mooney",
+      "recommended": "Start Zay Flowers at WR over Darnell Mooney.",
+      "recommended_player_id": "00-0039064",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Austin Ekeler or Rhamondre Stevenson at RB?",
+      "position": "RB",
+      "expected_winner": "Rhamondre Stevenson",
+      "recommended": "Start Rhamondre Stevenson at RB.",
+      "recommended_player_id": "00-0036875",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Josh Downs at WR?",
+      "position": "WR",
+      "expected_winner": "Josh Downs",
+      "recommended": "Start CeeDee Lamb at WR.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Austin Ekeler or D'Andre Swift at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start Austin Ekeler.",
+      "recommended_player_id": "00-0033699",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brenton Strange or Tucker Kraft at TE?",
+      "position": "TE",
+      "expected_winner": "Tucker Kraft",
+      "recommended": "Start Tucker Kraft at TE this week.",
+      "recommended_player_id": "00-0038996",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Kenneth Walker III or Trey Sermon at RB?",
+      "position": "RB",
+      "expected_winner": "Trey Sermon",
+      "recommended": "Start Kenneth Walker III over Trey Sermon at RB.",
+      "recommended_player_id": "00-0038134",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jordan Mason or Kenneth Walker III at RB?",
+      "position": "RB",
+      "expected_winner": "Kenneth Walker III",
+      "recommended": "Start Kenneth Walker III at RB.",
+      "recommended_player_id": "00-0038134",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Garrett Wilson or Tutu Atwell at WR?",
+      "position": "WR",
+      "expected_winner": "Garrett Wilson",
+      "recommended": "Start Garrett Wilson at WR.",
+      "recommended_player_id": "00-0037740",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Bijan Robinson or Kareem Hunt at RB?",
+      "position": "RB",
+      "expected_winner": "Kareem Hunt",
+      "recommended": "Start Bijan Robinson.",
+      "recommended_player_id": "00-0038542",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Dare Ogunbowale or Kyren Williams at RB?",
+      "position": "RB",
+      "expected_winner": "Kyren Williams",
+      "recommended": "Start Kyren Williams at RB.",
+      "recommended_player_id": "00-0037840",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Ja'Marr Chase or Terry McLaurin at WR?",
+      "position": "WR",
+      "expected_winner": "Ja'Marr Chase",
+      "recommended": "Start Ja'Marr Chase at WR.",
+      "recommended_player_id": "00-0036900",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brock Bowers or Foster Moreau at TE?",
+      "position": "TE",
+      "expected_winner": "Brock Bowers",
+      "recommended": "Start Brock Bowers at TE.",
+      "recommended_player_id": "00-0039338",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jalen Coker or Nico Collins at WR?",
+      "position": "WR",
+      "expected_winner": "Nico Collins",
+      "recommended": "Start Nico Collins at WR.",
+      "recommended_player_id": "00-0036554",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Darius Slayton or Darnell Mooney at WR?",
+      "position": "WR",
+      "expected_winner": "Darnell Mooney",
+      "recommended": "Start Darnell Mooney at WR over Darius Slayton in Week 5.",
+      "recommended_player_id": "00-0036309",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alexander Mattison or D'Andre Swift at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start D'Andre Swift at RB over Alexander Mattison.",
+      "recommended_player_id": "00-0036275",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start CeeDee Lamb or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start CeeDee Lamb at WR this week.",
+      "recommended_player_id": "00-0036358",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brandon Aiyuk or Michael Wilson at WR?",
+      "position": "WR",
+      "expected_winner": "Brandon Aiyuk",
+      "recommended": "Start Brandon Aiyuk",
+      "recommended_player_id": "00-0036261",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Kyle Pitts or Pat Freiermuth at TE?",
+      "position": "TE",
+      "expected_winner": "Kyle Pitts",
+      "recommended": "Start Pat Freiermuth at TE this week.",
+      "recommended_player_id": "00-0036894",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Chuba Hubbard or Josh Jacobs at RB?",
+      "position": "RB",
+      "expected_winner": "Josh Jacobs",
+      "recommended": "Start Josh Jacobs at RB.",
+      "recommended_player_id": "00-0035700",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Deshaun Watson or Gardner Minshew at QB?",
+      "position": "QB",
+      "expected_winner": "Gardner Minshew",
+      "recommended": "Start Deshaun Watson",
+      "recommended_player_id": "00-0033537",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start George Kittle or Kyle Pitts at TE?",
+      "position": "TE",
+      "expected_winner": "George Kittle",
+      "recommended": "Start George Kittle at TE in Week 5.",
+      "recommended_player_id": "00-0033288",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start D'Andre Swift or Dare Ogunbowale at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start D'Andre Swift at RB.",
+      "recommended_player_id": "00-0036275",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or Justin Jefferson at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Justin Jefferson at WR.",
+      "recommended_player_id": "00-0036322",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Alec Pierce or Christian Kirk at WR?",
+      "position": "WR",
+      "expected_winner": "Alec Pierce",
+      "recommended": "Start Christian Kirk over Alec Pierce at WR for Week 5.",
+      "recommended_player_id": "00-0034775",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Deshaun Watson or Jayden Daniels at QB?",
+      "position": "QB",
+      "expected_winner": "Jayden Daniels",
+      "recommended": "Start Jayden Daniels at QB.",
+      "recommended_player_id": "00-0039910",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chris Godwin Jr. or Christian Kirk at WR?",
+      "position": "WR",
+      "expected_winner": "Christian Kirk",
+      "recommended": "Start Chris Godwin Jr. at WR over Christian Kirk.",
+      "recommended_player_id": "00-0033921",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start James Conner or Kenneth Walker III at RB?",
+      "position": "RB",
+      "expected_winner": "James Conner",
+      "recommended": "Start Kenneth Walker III",
+      "recommended_player_id": "00-0038134",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brenton Strange or Travis Kelce at TE?",
+      "position": "TE",
+      "expected_winner": "Travis Kelce",
+      "recommended": "Start Travis Kelce at TE.",
+      "recommended_player_id": "00-0030506",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Isaiah Likely or Jordan Akins at TE?",
+      "position": "TE",
+      "expected_winner": "Isaiah Likely",
+      "recommended": "Start Isaiah Likely at TE.",
+      "recommended_player_id": "00-0037838",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Bijan Robinson or Kenneth Walker III at RB?",
+      "position": "RB",
+      "expected_winner": "Kenneth Walker III",
+      "recommended": "Start Kenneth Walker III over Bijan Robinson at RB in Week 5.",
+      "recommended_player_id": "00-0038134",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start DJ Moore or Tutu Atwell at WR?",
+      "position": "WR",
+      "expected_winner": "DJ Moore",
+      "recommended": "Start DJ Moore",
+      "recommended_player_id": "00-0034827",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jayden Daniels or Joe Burrow at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Burrow",
+      "recommended": "Start Jayden Daniels at QB for week 5.",
+      "recommended_player_id": "00-0039910",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Caleb Williams or Lamar Jackson at QB?",
+      "position": "QB",
+      "expected_winner": "Lamar Jackson",
+      "recommended": "Start Lamar Jackson at QB.",
+      "recommended_player_id": "00-0034796",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Michael Pittman or Tyreek Hill at WR?",
+      "position": "WR",
+      "expected_winner": "Michael Pittman",
+      "recommended": "Start Tyreek Hill at WR.",
+      "recommended_player_id": "00-0033040",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Demarcus Robinson or Ja'Marr Chase at WR?",
+      "position": "WR",
+      "expected_winner": "Ja'Marr Chase",
+      "recommended": "Start Ja'Marr Chase at WR.",
+      "recommended_player_id": "00-0036900",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Gardner Minshew or Jordan Love at QB?",
+      "position": "QB",
+      "expected_winner": "Jordan Love",
+      "recommended": "Start Jordan Love at QB.",
+      "recommended_player_id": "00-0036264",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Joe Burrow or Josh Allen at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Burrow",
+      "recommended": "Start Josh Allen at QB.",
+      "recommended_player_id": "00-0034857",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Amari Cooper or Justin Jefferson at WR?",
+      "position": "WR",
+      "expected_winner": "Justin Jefferson",
+      "recommended": "Start Justin Jefferson at WR.",
+      "recommended_player_id": "00-0036322",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start James Conner or Tank Bigsby at RB?",
+      "position": "RB",
+      "expected_winner": "Tank Bigsby",
+      "recommended": "Start James Conner at RB.",
+      "recommended_player_id": "00-0033553",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Drake London or Jalen Tolbert at WR?",
+      "position": "WR",
+      "expected_winner": "Drake London",
+      "recommended": "Start Drake London at WR over Jalen Tolbert.",
+      "recommended_player_id": "00-0037238",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Cam Akers or Jaylen Wright at RB?",
+      "position": "RB",
+      "expected_winner": "Cam Akers",
+      "recommended": "Start Cam Akers at RB.",
+      "recommended_player_id": "00-0036414",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Dyami Brown or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Dyami Brown",
+      "recommended": "Start Jayden Reed",
+      "recommended_player_id": "00-0039146",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jake Ferguson or Mo Alie-Cox at TE?",
+      "position": "TE",
+      "expected_winner": "Mo Alie-Cox",
+      "recommended": "Start Jake Ferguson at TE.",
+      "recommended_player_id": "00-0038041",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brock Bowers or Jake Ferguson at TE?",
+      "position": "TE",
+      "expected_winner": "Brock Bowers",
+      "recommended": "Start Jake Ferguson at TE.",
+      "recommended_player_id": "00-0038041",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start D'Andre Swift or Jordan Mason at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start Jordan Mason at RB.",
+      "recommended_player_id": "00-0037525",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Charlie Kolar or Kyle Pitts at TE?",
+      "position": "TE",
+      "expected_winner": "Charlie Kolar",
+      "recommended": "Start Kyle Pitts at TE in week 5, 2024.",
+      "recommended_player_id": "00-0036970",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Aaron Rodgers or Joe Flacco at QB?",
+      "position": "QB",
+      "expected_winner": "Joe Flacco",
+      "recommended": "Start Joe Flacco at QB this week.",
+      "recommended_player_id": "00-0026158",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start D'Andre Swift or Kareem Hunt at RB?",
+      "position": "RB",
+      "expected_winner": "D'Andre Swift",
+      "recommended": "Start D'Andre Swift at RB.",
+      "recommended_player_id": "00-0036275",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Colby Parkinson or Jake Ferguson at TE?",
+      "position": "TE",
+      "expected_winner": "Jake Ferguson",
+      "recommended": "Start Jake Ferguson at TE.",
+      "recommended_player_id": "00-0038041",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Chris Godwin Jr. or Ja'Marr Chase at WR?",
+      "position": "WR",
+      "expected_winner": "Ja'Marr Chase",
+      "recommended": "Start Ja'Marr Chase at WR.",
+      "recommended_player_id": "00-0036900",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Justin Jefferson or Terry McLaurin at WR?",
+      "position": "WR",
+      "expected_winner": "Justin Jefferson",
+      "recommended": "Start Justin Jefferson",
+      "recommended_player_id": "00-0036322",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jakobi Meyers or Terry McLaurin at WR?",
+      "position": "WR",
+      "expected_winner": "Terry McLaurin",
+      "recommended": "Start Jakobi Meyers over Terry McLaurin at WR.",
+      "recommended_player_id": "00-0034960",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaxon Smith-Njigba or Jayden Reed at WR?",
+      "position": "WR",
+      "expected_winner": "Jayden Reed",
+      "recommended": "Start Jayden Reed at WR.",
+      "recommended_player_id": "00-0039146",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Christian Kirk or Keon Coleman at WR?",
+      "position": "WR",
+      "expected_winner": "Keon Coleman",
+      "recommended": "Start Christian Kirk over Keon Coleman at WR for Week 5.",
+      "recommended_player_id": "00-0034775",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jakobi Meyers or Michael Wilson at WR?",
+      "position": "WR",
+      "expected_winner": "Michael Wilson",
+      "recommended": "Start Jakobi Meyers.",
+      "recommended_player_id": "00-0034960",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Bijan Robinson or Jaleel McLaughlin at RB?",
+      "position": "RB",
+      "expected_winner": "Jaleel McLaughlin",
+      "recommended": "Start Bijan Robinson at RB.",
+      "recommended_player_id": "00-0038542",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Gardner Minshew or Jayden Daniels at QB?",
+      "position": "QB",
+      "expected_winner": "Jayden Daniels",
+      "recommended": "Start Jayden Daniels at QB.",
+      "recommended_player_id": "00-0039910",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Brandon Aiyuk or Brian Thomas Jr. at WR?",
+      "position": "WR",
+      "expected_winner": "Brian Thomas Jr.",
+      "recommended": "Start Brian Thomas Jr. at WR over Brandon Aiyuk.",
+      "recommended_player_id": "00-0039893",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Alvin Kamara or Rhamondre Stevenson at RB?",
+      "position": "RB",
+      "expected_winner": "Rhamondre Stevenson",
+      "recommended": "Start Alvin Kamara",
+      "recommended_player_id": "00-0033906",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jordan Mason or Tank Bigsby at RB?",
+      "position": "RB",
+      "expected_winner": "Tank Bigsby",
+      "recommended": "Start Jordan Mason at RB.",
+      "recommended_player_id": "00-0037525",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Justin Jefferson or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Justin Jefferson",
+      "recommended": "Start Justin Jefferson at WR.",
+      "recommended_player_id": "00-0036322",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jordan Whittington or KhaDarel Hodge at WR?",
+      "position": "WR",
+      "expected_winner": "KhaDarel Hodge",
+      "recommended": "Start Jordan Whittington over KhaDarel Hodge at WR.",
+      "recommended_player_id": "00-0039751",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Najee Harris or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Najee Harris",
+      "recommended_player_id": "00-0036893",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Darius Slayton or Mike Evans at WR?",
+      "position": "WR",
+      "expected_winner": "Darius Slayton",
+      "recommended": "Start Mike Evans at WR.",
+      "recommended_player_id": "00-0031408",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Brock Purdy or Gardner Minshew at QB?",
+      "position": "QB",
+      "expected_winner": "Brock Purdy",
+      "recommended": "Start Brock Purdy at QB over Gardner Minshew in Week 5.",
+      "recommended_player_id": "00-0037834",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Charlie Kolar or Jordan Akins at TE?",
+      "position": "TE",
+      "expected_winner": "Charlie Kolar",
+      "recommended": "Start Jordan Akins.",
+      "recommended_player_id": "00-0034364",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Jayden Daniels or Patrick Mahomes at QB?",
+      "position": "QB",
+      "expected_winner": "Jayden Daniels",
+      "recommended": "Start Jayden Daniels at QB.",
+      "recommended_player_id": "00-0039910",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start KhaDarel Hodge or Rashod Bateman at WR?",
+      "position": "WR",
+      "expected_winner": "Rashod Bateman",
+      "recommended": "Start Rashod Bateman at WR.",
+      "recommended_player_id": "00-0036550",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Jaleel McLaughlin or Rico Dowdle at RB?",
+      "position": "RB",
+      "expected_winner": "Rico Dowdle",
+      "recommended": "Start Rico Dowdle over Jaleel McLaughlin at RB in week 5.",
+      "recommended_player_id": "00-0036139",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start KhaDarel Hodge or Ray-Ray McCloud at WR?",
+      "position": "WR",
+      "expected_winner": "KhaDarel Hodge",
+      "recommended": "Start Ray-Ray McCloud at WR over KhaDarel Hodge.",
+      "recommended_player_id": "00-0034407",
+      "correct": false
+    },
+    {
+      "question": "Week 5, 2024: should I start Mike Evans or Tyler Lockett at WR?",
+      "position": "WR",
+      "expected_winner": "Mike Evans",
+      "recommended": "Start Mike Evans",
+      "recommended_player_id": "00-0031408",
+      "correct": true
+    },
+    {
+      "question": "Week 5, 2024: should I start Travis Etienne or Trey Sermon at RB?",
+      "position": "RB",
+      "expected_winner": "Trey Sermon",
+      "recommended": "Start Travis Etienne over Trey Sermon at RB.",
+      "recommended_player_id": "00-0036973",
+      "correct": false
+    }
+  ]
+}

@@ -342,14 +342,17 @@ process can still lose to a fluke game.
 | Metric | Result | Scope |
 |---|---|---|
 | Retrieval accuracy | **80 / 84 (95%)** | roster + matchup-score questions, 4 real leagues, as-of-week filtered; `evals/results/2026-09-20_retrieval_run.json` |
-| Decision accuracy | **206 / 399 (52%)** | 400 programmatic 2024 week-5 start/sit dilemmas (same position, both players ≥ 8 pts), signals as-of week 5, Sonnet 4.5; by actual point gap: <5 pts 47%, 5-10 52%, 10-20 61%, 20+ 69%; `evals/results/2026-09-20_decision_run.json` |
+| Decision accuracy, live agent | **209 / 400 (52%)** with the fitted ranking (206 / 399 before it) | 400 programmatic 2024 **week-5** start/sit dilemmas (same position, both players ≥ 8 pts), Sonnet 4.5; the agent picked the deterministic ranking's player on 400/400, so this is the ranking's accuracy on one hard week -- on every such week-5 pair (1,875) the fitted score gets 53%, the old weights 54%, points-per-game 52%; `evals/results/2026-09-21_decision_run.json` |
 | Ranking score, offline (`evals/fit_ranking_weights.py`) | **61.8%** pairwise on 19,283 held-out 2024 pairs (72% when the gap was 10+ pts); **59.9%** on 19,674 held-out 2025 pairs (71% at 10+) | weights fitted on 2023 only; the hand-set weights they replaced scored 57.6% on both seasons, points-per-game alone 61.5% / 59.5%; `evals/results/2026-09-20_ranking_fit_blend4.json` |
 | Matchup-fit accuracy | n/a | needs Phase 4's coverage classification |
 
-The decision number above predates the fitted, points-aware ranking
-(2026-09-21); the offline row is what that ranking does on its own, and
-a live rerun is the open item. The 52% is honest and unflattering: barely above a coin
-flip overall. Half the dilemmas were pairs whose actual outcomes were
+The live decision number is honest and unflattering: barely above a
+coin flip on that week. Two things make it less alarming than it looks,
+and both are measured rather than argued: the agent follows the
+deterministic ranking on every dilemma (so the model layer adds no
+error), and the same ranking scores 60-62% across whole held-out
+seasons -- 2024 week 5 is one hard week. The open eval item is a
+multi-week ground truth so the live number tracks the season-wide one. Half the dilemmas were pairs whose actual outcomes were
 within 5 points of each other, which no week-4-signals model should be
 expected to call, and on those it scored 47%; where the gap was 10+
 points it scored 62% (57/92). Whether a better signal set moves that is
