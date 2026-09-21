@@ -1369,6 +1369,99 @@ the real retrieval number and still labels decision accuracy as pending.
       for the apex and www; the four DNS records (A/AAAA for @ and www,
       proxy OFF) are Rohan's to add; a poller is watching for issuance.
 
+## Phase 6 built, plus the two accuracy strategies: points-per-game in the ranking, weights fitted on history (2026-09-21)
+
+Rohan, after the first hosted use: "can we address this?" (the agent
+correctly refusing a trade proposal because nothing computed player
+value) and "for the strategies to increase the accuracy can you
+implement the first and second one?" (points per game this season and
+last; fit the weights instead of guessing them). They turned out to be
+one build: PROJECT_SPEC.md's Phase 6 signal -- fantasy points scored so
+far this season under the league's own scoring -- is exactly the
+per-game value the ranking was missing.
+
+**1. League-agnostic stat lines, scored per league at query time.**
+`src/signals/player_stats.py`: one row per player per regular-season
+week with the raw counting stats (yards, TDs, receptions, INTs, 2-pt,
+fumbles lost) from nflverse's weekly player stats, written to
+`data/processed/player_stats/player_stats_<season>.parquet` by every
+refresh cycle (this season and last, rewritten each time). No points in
+it -- this layer never sees a league, and `test_league_module_is_not_
+imported_by_signals_or_rag` enforced that the moment a draft put the
+scoring code there. `src/reasoning/points_proxy.py` is the per-league
+half: `fantasy_points()` (the mapping `evals/build_ground_truth.py` has
+used since Phase 1, which now imports it from here) and
+`season_points_proxy()` -- games played, points so far, points per game,
+strictly from weeks before the as-of week. `ranking.SignalTables.load()`
+takes the league's `scoring_settings` and joins `ppg` / `games_played` /
+`season_points_so_far_proxy` / `ppg_prior_season` onto every row; a
+player with points but no usage row gets a proxy-only row (rankable,
+labeled "no usage/matchup signals computed yet"). Stale prior-season
+fallback rows now have their last-week matchup fields (opponent, implied
+total, run-funnel lean) nulled -- they described last season's final
+game, and since the refit those terms count for everyone.
+
+**2. Weights fitted on history (`evals/fit_ranking_weights.py`).** A
+no-intercept pairwise logistic model on feature differences (a linear
+score by construction) over 19,045 same-position pairs from every 2023
+week (both players >= 5 pts that week, features strictly as-of the
+week), tested on 19,283 pairs from 2024, numpy only. Held-out results:
+
+| score | 2024 pairs | weeks 2-5 | gap 10+ pts |
+|---|---|---|---|
+| hand-set weights (pre-fit) | 57.6% | 57.3% | 66% |
+| fitted, points shrunk toward last season (adopted) | **61.8%** | 58.7% | 72% |
+| fitted, unshrunk | 61.4% | 58.5% | 72% |
+| points per game alone | 61.5% | 57.5% | 72% |
+| last season's points per game alone | 58.1% | 55.9% | 65% |
+
+The honest reading: points per game carries nearly all the signal; the
+usage terms mostly earn their place by making the verdict explainable
+(and the EPA trend came out slightly *negative* on held-out data -- a hot
+trailing window does not predict next week). The adopted variant blends
+this season's ppg with last season's as if last season were 4 games
+(`ranking.blended_ppg()`), because the unshrunk fit put a one-game 33.8
+(Jalen Coker) over Malik Nabers on the real Narcos roster. Weights and
+`SCORE_DESCRIPTION` in `ranking.py` are from
+`evals/results/2026-09-20_ranking_fit_blend4.json`; the unshrunk run is
+alongside. Rerun: `python -m evals.fit_ranking_weights --blend 4`.
+The offline number is what the ranking can do; the live decision eval
+(52% on 400 dilemmas, before this) also carries the model's own noise
+-- rerunning it is ~$15 and the natural next check.
+
+**3. Trade proposals, labeled (Phase 6's prompt half).** `get_player_
+signals` and `get_league_rosters` now carry the proxy per player (with a
+`points_proxy_note`), and the system prompt's TRADES section lets the
+agent make rough suggestions from tool output only -- "your Goedert,
+11.2 ppg, for their Herbert, 18.4 ppg, is not close" -- with the label
+in the recommendation itself: a points-per-game comparison, how good a
+player has BEEN, not a projection, not position-scarcity-adjusted, not
+injury/schedule/other-manager-adjusted, not a market value. Draft picks
+still have no value here and stay a data_gaps entry. Phase 3.7's rule
+survives in its Phase 6 form: every number must come from a tool call
+this turn, never reputation.
+
+**Also:** waiver targets are now ranked within position and interleaved
+RB/WR/TE/QB with a `position_rank` -- once points entered the score, a
+raw cross-position sort returned five backup QBs as the top pickups.
+
+**Validated:** suite 383/383 (`tests/test_player_stats.py`,
+`tests/test_points_proxy_join.py` -- as-of cut, per-league scoring, a
+proxy-only player, half- vs full-PPR flipping a start/sit, the tools
+carrying the proxy, the refresh writing next to the signals; ranking
+tests reference the constants; the Phase 5.1 scoring-independence test
+still holds *without* stat lines, and its scoring-dependence
+counterpart holds with them). Real Narcos start/sit under the blend:
+QB Mayfield; RB Gibbs + Henry; TE Ferguson; WR Coker + Nabers; FLEX
+Evans, Washington, Schultz. The first test run reached the network for
+stat lines and wrote real tables into `data/processed/player_stats`
+(then leaked real points into fixtures); `tests/conftest.py` now stubs
+the fetch for every test.
+- [ ] Rerun the live decision eval against the fitted ranking (~$15,
+      400 dilemmas, progress file) and compare with 52%.
+- [ ] Real-model check of the TRADES wording on the exact Dynasty of
+      Chips question ("Goedert for Josh Allen and a 2nd").
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

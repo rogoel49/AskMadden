@@ -343,9 +343,12 @@ process can still lose to a fluke game.
 |---|---|---|
 | Retrieval accuracy | **80 / 84 (95%)** | roster + matchup-score questions, 4 real leagues, as-of-week filtered; `evals/results/2026-09-20_retrieval_run.json` |
 | Decision accuracy | **206 / 399 (52%)** | 400 programmatic 2024 week-5 start/sit dilemmas (same position, both players ≥ 8 pts), signals as-of week 5, Sonnet 4.5; by actual point gap: <5 pts 47%, 5-10 52%, 10-20 61%, 20+ 69%; `evals/results/2026-09-20_decision_run.json` |
+| Ranking score, offline (`evals/fit_ranking_weights.py`) | **61.8%** pairwise on 19,283 held-out 2024 pairs (72% when the gap was 10+ pts) | weights fitted on 2023; the hand-set weights they replaced scored 57.6%, points-per-game alone 61.5%; `evals/results/2026-09-20_ranking_fit_blend4.json` |
 | Matchup-fit accuracy | n/a | needs Phase 4's coverage classification |
 
-The decision number is honest and unflattering: barely above a coin
+The decision number above predates the fitted, points-aware ranking
+(2026-09-21); the offline row is what that ranking does on its own, and
+a live rerun is the open item. The 52% is honest and unflattering: barely above a coin
 flip overall. Half the dilemmas were pairs whose actual outcomes were
 within 5 points of each other, which no week-4-signals model should be
 expected to call, and on those it scored 47%; where the gap was 10+

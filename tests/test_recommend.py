@@ -754,9 +754,11 @@ def test_system_prompt_explicitly_bars_ungrounded_trade_advice():
         {"name": "Test League"}, {"rec": 0.5}, season=2024, as_of_week=8
     )
 
-    assert "must be backed by an actual get_league_rosters" in prompt
-    assert "there is still no tool for trade value, fairness, or 'what should I offer'" in prompt
-    assert "do not improvise one" in prompt
+    assert "must be backed by an actual tool call you made THIS turn" in prompt
+    assert "never claim a trade is 'fair' as if that were measured" in prompt
+    assert "Draft picks have no value here at all" in prompt
+    assert "not a projection, not position-scarcity-adjusted" in prompt
+    assert "never use your own general knowledge of a player's reputation in place of the proxy" in prompt
 
 
 def test_recommend_falls_back_to_plain_text_if_model_never_calls_a_tool(tmp_path, monkeypatch):

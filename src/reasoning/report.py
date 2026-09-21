@@ -492,8 +492,30 @@ def _waiver_pickups_report(
 
     scored = [(c, opportunity_score(c["row"])) for c in candidates]
     scored = [(c, score) for c, score in scored if score is not None]
-    scored.sort(key=lambda pair: pair[1], reverse=True)
-    top = scored[: min(top_n, len(scored))]
+    # Ranked WITHIN position, then interleaved (the best RB, the best WR,
+    # the best TE, the best QB, the second-best RB, ...). The score is not
+    # position-normalized -- its own description says so -- and once
+    # points per game entered it (2026-09-21) a raw cross-position sort
+    # returned five backup QBs as the top five pickups in a league that
+    # starts one. A pickup list is a per-position question anyway.
+    by_position: dict[str, list[tuple[dict, float]]] = {}
+    for c, score in sorted(scored, key=lambda pair: pair[1], reverse=True):
+        by_position.setdefault(c["position"], []).append((c, score))
+    order = [pos for pos in ("RB", "WR", "TE", "QB") if pos in by_position] + sorted(
+        pos for pos in by_position if pos not in ("RB", "WR", "TE", "QB")
+    )
+    top: list[tuple[dict, float, int]] = []
+    depth = 0
+    while len(top) < min(top_n, len(scored)):
+        added = False
+        for pos in order:
+            if depth < len(by_position[pos]) and len(top) < top_n:
+                c, score = by_position[pos][depth]
+                top.append((c, score, depth + 1))
+                added = True
+        if not added:
+            break
+        depth += 1
 
     entries = [
         {
@@ -501,14 +523,17 @@ def _waiver_pickups_report(
             "name": c["player_name"],
             "position": c["position"],
             "team": c["team"],
+            "position_rank": position_rank,
             "opportunity_score": round(score, 3),
             "reasoning": f"{c['player_name']} ({c['position']}, {c['team']}): {fmt_signal_row(c['row'])}.",
             **stale_fields(c["row"]),
         }
-        for c, score in top
+        for c, score, position_rank in top
     ]
 
     notes = [
+        "Ranked within each position (position_rank), then interleaved RB/WR/TE/QB -- the score is not "
+        "comparable across positions.",
         f"Considered {len(candidates)} unrostered player(s) with computed signals out of "
         f"{len(ctx.player_idx)} in the full skill-position player pool "
         f"({len(rostered_ids)} nflverse player_id(s) excluded as rostered somewhere in the league)."
@@ -518,7 +543,7 @@ def _waiver_pickups_report(
             f"{last_season_only} unrostered player(s) with no {ctx.season} plays yet were not ranked as pickups -- "
             f"a role at the end of last season says nothing about a role now."
         )
-    stale = [c for c, _ in top if c["row"].get("stale")]
+    stale = [c for c, _, _ in top if c["row"].get("stale")]
     if stale:
         notes.append(
             f"{len(stale)} of the {len(top)} listed pickup(s) had no current-season signal yet and fell "
@@ -548,6 +573,7 @@ def generate_report(
     waiver_top_n: int = 10,
     drop_bottom_n: int = 3,
     roster_id: str | None = None,
+    player_stats_dir: Path | None = None,
 ) -> dict:
     """Generate one of the three buildable Phase 3.5 report types
     (start_sit, drop, waiver_pickups -- trade suggestions are explicitly
@@ -614,7 +640,9 @@ def generate_report(
         roster_id=str(roster_id) if roster_id is not None else None,
         signals_dir=signals_dir,
     )
-    tables = SignalTables.load(signals_dir, season, as_of_week)
+    tables = SignalTables.load(
+        signals_dir, season, as_of_week, scoring_settings=league.scoring_settings, stats_dir=player_stats_dir
+    )
 
     if report_type == "start_sit":
         return _start_sit_report(ctx, tables)

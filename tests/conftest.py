@@ -63,3 +63,23 @@ def isolate_tests_from_real_dotenv_file(monkeypatch):
     from src.reasoning import recommend
 
     monkeypatch.setattr(recommend, "_DOTENV_LOADED", False)
+
+
+@pytest.fixture(autouse=True)
+def no_network_player_stats(monkeypatch):
+    """Phase 6: the refresh writes weekly stat-line tables via nflverse. No
+    test may reach the network for them (the first run of this suite did,
+    and dropped real 2024 tables into data/processed/player_stats, which
+    then leaked real points into fixture-based rankings). Every test gets
+    an empty, correctly-shaped table unless it patches the fetch itself."""
+    import polars as pl
+
+    from src.signals import player_stats
+
+    empty = pl.DataFrame(
+        {c: pl.Series([], dtype=pl.Float64) for c in player_stats.STAT_COLUMNS}
+        | {"player_id": pl.Series([], dtype=pl.Utf8), "player_display_name": pl.Series([], dtype=pl.Utf8),
+           "position": pl.Series([], dtype=pl.Utf8), "team": pl.Series([], dtype=pl.Utf8),
+           "season": pl.Series([], dtype=pl.Int64), "week": pl.Series([], dtype=pl.Int64)}
+    )
+    monkeypatch.setattr(player_stats, "fetch_weekly_stats", lambda season: empty)

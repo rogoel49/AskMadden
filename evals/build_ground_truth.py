@@ -34,21 +34,12 @@ from src.reasoning.league import load_league, read_league_json
 LEAGUE_JSON = Path(__file__).resolve().parents[1] / "data" / "raw" / "sleeper" / "league.json"
 GROUND_TRUTH_PATH = Path(__file__).resolve().parent / "ground_truth.jsonl"
 
-# Sleeper scoring_settings key each nflverse weekly-stats column feeds.
-STAT_TO_SCORING_KEY = {
-    "passing_yards": "pass_yd",
-    "passing_tds": "pass_td",
-    "passing_interceptions": "pass_int",
-    "passing_2pt_conversions": "pass_2pt",
-    "rushing_yards": "rush_yd",
-    "rushing_tds": "rush_td",
-    "rushing_2pt_conversions": "rush_2pt",
-    "receptions": "rec",
-    "receiving_yards": "rec_yd",
-    "receiving_tds": "rec_td",
-    "receiving_2pt_conversions": "rec_2pt",
-}
-FUMBLE_LOST_COLUMNS = ["rushing_fumbles_lost", "receiving_fumbles_lost", "sack_fumbles_lost"]
+# The stat -> Sleeper scoring mapping now lives in src/reasoning/points_proxy.py
+# (Phase 6: the same mapping scores the per-game points proxy the ranking
+# uses), re-exported here so ground truth and the product can never
+# disagree about what a stat line is worth.
+from src.reasoning.points_proxy import FUMBLE_LOST_COLUMNS, STAT_TO_SCORING_KEY, fantasy_points  # noqa: E402
+
 SKILL_POSITIONS = ["QB", "RB", "WR", "TE"]
 
 
@@ -68,12 +59,7 @@ def load_scoring_settings(league_json: Path = LEAGUE_JSON, league_id: str | None
 
 
 def compute_points(row: dict, scoring: dict) -> float:
-    points = 0.0
-    for stat_col, scoring_key in STAT_TO_SCORING_KEY.items():
-        points += float(row.get(stat_col) or 0) * scoring.get(scoring_key, 0)
-    fumbles_lost = sum(float(row.get(col) or 0) for col in FUMBLE_LOST_COLUMNS)
-    points += fumbles_lost * scoring.get("fum_lost", 0)
-    return round(points, 2)
+    return fantasy_points(row, scoring)
 
 
 def build(season: int, weeks: list[int], scoring: dict | None = None, league_id: str | None = None) -> list[dict]:

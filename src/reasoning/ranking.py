@@ -51,7 +51,7 @@ over.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import polars as pl
@@ -78,28 +78,30 @@ __all__ = [
 # matchup_signals.py's own documented 0.1 reweighting constant: a
 # reasonable first pass, not a fitted model. Revisit once real usage or
 # decision-accuracy evals suggest better weights.
-EPA_TREND_WEIGHT = 2.0
-RED_ZONE_SHARE_WEIGHT = 3.0
-TARGET_SHARE_WEIGHT = 2.0
-# Passer terms (2026-09-20): a QB's row has no target share and usually no
-# red-zone share, so under the three weights above two QBs were "no usable
-# signal" and every QB slot was skipped -- the first real user asked who to
-# start at QB and got nothing. A row with `cpoe` (NGS completion % over
-# expected, in percentage points, roughly -8..+10 over a season) is a
-# passer's; it also gets the team's implied total (points, ~15-30), the
-# game-environment number that matters most for a QB. Scaled so a typical
-# QB lands in the same ~0-2 range as the skill-position terms: +10 cpoe
-# is 0.5, a 25-point implied total is 1.0. Same status as the weights
-# above -- simple, documented, not fitted.
-CPOE_WEIGHT = 0.05
-IMPLIED_TOTAL_WEIGHT = 0.04
-# The EPA trend is a trailing-window average minus a season average. On a
-# handful of plays it is noise with a big absolute value, and at 2.0x it
-# was the whole score: the first real waiver report's #1 pickup was a WR
-# with 5 plays all season (+1.35 EPA/play, 1% target share, 1% red-zone
-# share -> 2.74, above every player with an actual role). The trend term
-# only counts once a player has this many plays on record; below it the
-# number is still shown, labeled as too few to count.
+# Fitted weights (2026-09-21, evals/fit_ranking_weights.py --blend 4): a
+# no-intercept pairwise logistic model on the feature DIFFERENCES of
+# 19,045 same-position pairs from every 2023 regular-season week (both
+# players >= 5 pts that week, features strictly as-of the week), tested on
+# 19,283 pairs from 2024. Held-out accuracy 61.8% (58.7% in weeks 2-5,
+# ~72% where the actual gap was 10+ pts) against 57.6% for the hand-set
+# weights this replaced -- and 61.5% for points-per-game ALONE, which is
+# the honest headline: points carry nearly all of the signal; the usage
+# terms mostly earn their place by making the verdict explainable. The
+# points term is a shrunk estimate, (games x ppg + 4 x last season's ppg)
+# / (games + 4), so one big week in September does not read like a
+# season's average (the unshrunk fit put a 1-game 33.8 over a proven WR).
+# The score is w . features, so a 10-point ppg edge (0.81) outweighs a
+# 10-percentage-point target-share edge (0.03) or red-zone edge (0.06).
+# evals/results/2026-09-20_ranking_fit_blend4.json has the run (and
+# ..._ranking_fit.json the unshrunk one).
+PPG_WEIGHT = 0.0812               # shrunk points per game under THIS league's scoring -- see blended_ppg()
+PPG_BLEND_GAMES = 4.0             # last season counts as this many games' worth of evidence
+TARGET_SHARE_WEIGHT = 0.2942
+RED_ZONE_SHARE_WEIGHT = 0.6056
+EPA_TREND_WEIGHT = -0.0736        # slightly negative on held-out data: a hot trailing window does not predict next week
+IMPLIED_TOTAL_WEIGHT = 0.0146     # everyone, not just passers
+CPOE_WEIGHT = 0.0198              # passers only (the only rows that carry it)
+RUN_FUNNEL_WEIGHT = -0.4007       # opponent defense lean; negative = facing a run-funnel defense predicts fewer points
 MIN_TREND_PLAYS = 20
 
 # Thresholds below which a signal counts as a concrete "why this player is
@@ -119,16 +121,32 @@ TIE_TOLERANCE = 1e-9
 # every ranking so a caller explaining a verdict says what it actually
 # rests on (and nothing it doesn't).
 SCORE_DESCRIPTION = (
-    f"composite opportunity score = {EPA_TREND_WEIGHT:g} x recent EPA/play trend "
-    f"+ {RED_ZONE_SHARE_WEIGHT:g} x red zone role share "
-    f"+ {TARGET_SHARE_WEIGHT:g} x target share (opponent-adjusted when available); "
-    f"for a passer (a row with completion % over expected) also + {CPOE_WEIGHT:g} x CPOE "
-    f"+ {IMPLIED_TOTAL_WEIGHT:g} x team implied total; "
-    f"higher is better. The trend term only counts from {MIN_TREND_PLAYS} plays on record (below that it is noise). "
-    "A signal that isn't computed for a player contributes nothing; a player with none "
-    "of the scored signals can't be ranked at all. The passer terms only apply to passers, so a QB's score "
-    "is not comparable to a skill player's (a superflex call between them is not something this score can make)."
+    "fitted linear score (evals/fit_ranking_weights.py, trained on 2023, tested on 2024: 62% pairwise, 72% when "
+    f"the outcome gap was 10+ pts) = {PPG_WEIGHT:g} x points per game under THIS league's scoring -- this season's "
+    f"games blended with last season's average as if it were {PPG_BLEND_GAMES:g} games, so a single big week is "
+    f"discounted -- + {TARGET_SHARE_WEIGHT:g} x target share (opponent-adjusted when available) "
+    f"+ {RED_ZONE_SHARE_WEIGHT:g} x red zone role share + {IMPLIED_TOTAL_WEIGHT:g} x team implied total "
+    f"+ {EPA_TREND_WEIGHT:g} x recent EPA/play trend (only from {MIN_TREND_PLAYS} plays on record) "
+    f"+ {CPOE_WEIGHT:g} x CPOE (passers) + {RUN_FUNNEL_WEIGHT:g} x opponent run-funnel lean; higher is better. "
+    "Points per game alone tested almost as well as the whole score, so treat the other terms as the explanation, "
+    "not the edge. A signal that isn't computed for a player contributes nothing; a player with none of them "
+    "can't be ranked. Not position-normalized: a QB's score is not comparable to a skill player's."
 )
+
+
+def blended_ppg(row: dict) -> float | None:
+    """This season's points per game shrunk toward last season's:
+    (games x ppg + PPG_BLEND_GAMES x prior ppg) / (games + PPG_BLEND_GAMES).
+    With no prior season the raw ppg; with no games yet, the prior alone;
+    None when there is neither."""
+    ppg, games, prior = row.get("ppg"), row.get("games_played") or 0, row.get("ppg_prior_season")
+    if ppg is None and prior is None:
+        return None
+    if prior is None:
+        return float(ppg)
+    if ppg is None:
+        return float(prior)
+    return (games * float(ppg) + PPG_BLEND_GAMES * float(prior)) / (games + PPG_BLEND_GAMES)
 
 
 def trend_is_trustworthy(row: dict) -> bool:
@@ -204,15 +222,67 @@ class SignalTables:
     signals_by_id: dict[str, dict]
     fallback_season: int | None
     fallback_rows: dict[str, dict]
+    # Phase 6: the per-league join. Points per game this season (weeks
+    # before as_of_week) and over all of last season, computed from the
+    # league-agnostic weekly stat lines under THIS league's scoring --
+    # empty when no scoring settings or no stat tables were given.
+    proxy: dict[str, dict] = field(default_factory=dict)
+    proxy_prior: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, signals_dir: Path, season: int, as_of_week: int) -> "SignalTables":
+    def load(
+        cls,
+        signals_dir: Path,
+        season: int,
+        as_of_week: int,
+        scoring_settings: dict | None = None,
+        stats_dir: Path | None = None,
+    ) -> "SignalTables":
         signals_by_id = load_signals_table(signals_dir, season, as_of_week)
         fallback_season, fallback_rows = load_prior_season_fallback_table(signals_dir, season)
-        return cls(season, as_of_week, signals_by_id, fallback_season, fallback_rows)
+        proxy: dict[str, dict] = {}
+        proxy_prior: dict[str, dict] = {}
+        # Default: next to the signals tables (data/processed/player_stats in
+        # production). Deriving it from signals_dir rather than a module
+        # constant is what keeps a test's temp signals dir from reading the
+        # real stat tables on the developer's disk.
+        stats_dir = stats_dir or (Path(signals_dir).parent / "player_stats")
+        if scoring_settings:
+            from src.reasoning import points_proxy
+            from src.signals import player_stats as ps  # local: keeps ranking importable without nflreadpy loaded eagerly
+
+            proxy = points_proxy.season_points_proxy(ps.load_weekly_stats(season, stats_dir), scoring_settings, as_of_week)
+            proxy_prior = points_proxy.season_points_proxy(ps.load_weekly_stats(season - 1, stats_dir), scoring_settings)
+        return cls(season, as_of_week, signals_by_id, fallback_season, fallback_rows, proxy, proxy_prior)
+
+    def proxy_fields(self, player_id: str) -> dict:
+        """The Phase 6 points proxy for one player, as the fields every
+        row/tool output carries: ppg / games_played /
+        season_points_so_far_proxy (this season, as-of) and
+        ppg_prior_season / prior_games_played (all of last season)."""
+        now = self.proxy.get(player_id) or {}
+        prior = self.proxy_prior.get(player_id) or {}
+        return {
+            "ppg": now.get("ppg"),
+            "games_played": now.get("games_played"),
+            "season_points_so_far_proxy": now.get("season_points_so_far_proxy"),
+            "ppg_prior_season": prior.get("ppg"),
+            "prior_games_played": prior.get("games_played"),
+        }
 
     def row_for(self, player_id: str) -> dict | None:
-        return signal_row(player_id, self.signals_by_id, self.fallback_season, self.fallback_rows)
+        """The player's signal row (current-season, else stale prior-season
+        fallback) with the points proxy joined on. A player with points on
+        record but no usage row at all (e.g. a QB who only threw, before
+        the passing signals exist for the week) gets a proxy-only row --
+        rankable on points, labeled as carrying no usage signals."""
+        row = signal_row(player_id, self.signals_by_id, self.fallback_season, self.fallback_rows)
+        proxy = self.proxy_fields(player_id)
+        if row is None:
+            if proxy["ppg"] is None and proxy["ppg_prior_season"] is None:
+                return None
+            row = {"player_id": player_id, "proxy_only": True, "stale": False}
+        return {**row, **proxy}
 
 
 def signal_row(
@@ -234,6 +304,12 @@ def signal_row(
         return None
     return {
         **fallback_row,
+        # The matchup-specific fields describe LAST season's final week's
+        # game, not this week's -- they must not score or print as if
+        # they did (they count for everyone since the 2026-09-21 refit).
+        "opponent": None,
+        "implied_total": None,
+        "run_funnel_rate_vs_avg": None,
         "stale": True,
         "source_season": fallback_season,
         "source_as_of_week": fallback_row.get("as_of_week"),
@@ -246,31 +322,26 @@ def target_share(row: dict) -> float | None:
 
 
 def opportunity_score(row: dict | None) -> float | None:
-    """Higher = more opportunity (better start_sit/waiver candidate);
-    used inverted (ascending sort) for drop's "weakest" ranking. None
-    when a player has no usable signal at all -- such a player can't be
+    """The fitted linear score (see the weights above). Higher = the better
+    start/pickup; used inverted for the drop report's "weakest". None
+    when a player has no scored signal at all -- such a player can't be
     ranked against anything, and callers must exclude them rather than
-    silently treating missing data as zero opportunity."""
+    silently treating missing data as zero."""
     if row is None:
         return None
-    score = 0.0
-    has_any_signal = False
-    if row.get("epa_trend") is not None and trend_is_trustworthy(row):
-        score += EPA_TREND_WEIGHT * row["epa_trend"]
-        has_any_signal = True
-    if row.get("red_zone_share") is not None:
-        score += RED_ZONE_SHARE_WEIGHT * row["red_zone_share"]
-        has_any_signal = True
-    share = target_share(row)
-    if share is not None:
-        score += TARGET_SHARE_WEIGHT * share
-        has_any_signal = True
-    if row.get("cpoe") is not None:  # a passer -- see CPOE_WEIGHT
-        score += CPOE_WEIGHT * row["cpoe"]
-        has_any_signal = True
-        if row.get("implied_total") is not None:
-            score += IMPLIED_TOTAL_WEIGHT * row["implied_total"]
-    return score if has_any_signal else None
+    terms = [
+        (PPG_WEIGHT, blended_ppg(row)),
+        (TARGET_SHARE_WEIGHT, target_share(row)),
+        (RED_ZONE_SHARE_WEIGHT, row.get("red_zone_share")),
+        (IMPLIED_TOTAL_WEIGHT, row.get("implied_total")),
+        (EPA_TREND_WEIGHT, row.get("epa_trend") if (row.get("epa_trend") is not None and trend_is_trustworthy(row)) else None),
+        (CPOE_WEIGHT, row.get("cpoe")),
+        (RUN_FUNNEL_WEIGHT, row.get("run_funnel_rate_vs_avg")),
+    ]
+    present = [(w, v) for w, v in terms if v is not None]
+    if not present:
+        return None
+    return sum(w * float(v) for w, v in present)
 
 
 def stale_fields(row: dict | None) -> dict:
@@ -317,6 +388,12 @@ def fmt_signal_row(row: dict | None) -> str:
             f"showing {row.get('source_season')} season-end reference instead] "
         )
     parts = []
+    if row.get("ppg") is not None:
+        parts.append(f"{row['ppg']:.1f} pts/game over {row['games_played']} game(s) this season in this league's scoring")
+    if row.get("ppg_prior_season") is not None:
+        parts.append(f"{row['ppg_prior_season']:.1f} pts/game last season")
+    if row.get("proxy_only"):
+        parts.append("no usage/matchup signals computed yet")
     if row.get("epa_trend") is not None and not trend_is_trustworthy(row):
         parts.append(
             f"efficiency trend {row['epa_trend']:+.2f} EPA/play on only {row['season_plays']} plays (too few to count)"

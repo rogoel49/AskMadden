@@ -363,12 +363,19 @@ or monetized, it needs to genuinely work for more than one league.
   from this session; first image build succeeded); askmadden.com bought
   on Cloudflare, certs added, DNS records pending on Rohan's side. See
   TODO.md's "Eval numbers, first real runs" entry.
-- Phase 6 (crude, explicitly-labeled trade-value proxy): not started.
-  Deferred past Phase 5, not dropped — Phase 3.8's real-model validation
-  confirmed a complete, honestly-bounded product (composition + signals +
-  an explicit, correctly-refused valuation gap) is demo-ready now. Trade
-  valuation is a real value-add, not a blocker — this is sequencing, not
-  scope-cutting.
+- Phase 6 (crude, explicitly-labeled trade-value proxy): implemented
+  2026-09-21, together with the two accuracy strategies from the first
+  eval. `src/signals/player_stats.py` (league-agnostic weekly stat
+  lines, refreshed each cycle) + `src/reasoning/points_proxy.py` (scored
+  under each league's own settings at query time, strictly as-of) join
+  `ppg` / `season_points_so_far_proxy` / `ppg_prior_season` onto every
+  ranking row and onto `get_player_signals` / `get_league_rosters`. The
+  ranking weights are now **fitted** (`evals/fit_ranking_weights.py`,
+  2023 → 2024 held-out: 61.8% vs 57.6% hand-set; ppg alone 61.5%), with
+  this season's ppg shrunk toward last season's (`blended_ppg`). The
+  system prompt's TRADES section allows rough, labeled proposals from
+  tool output only; picks remain a data_gaps entry. Waiver targets rank
+  within position. See TODO.md's "Phase 6 built..." entry.
 - Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
   after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
   this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit

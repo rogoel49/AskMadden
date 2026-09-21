@@ -49,7 +49,7 @@ _CHRISTIAN_SIGNAL_ROW = {
 _BARKLEY_SIGNAL_ROW = {
     "player_id": "00-0034844", "player_name": "S.Barkley", "team": "PHI", "season": _SEASON, "as_of_week": _WEEK,
     "season_plays": 90, "epa_trend": 0.006847, "red_zone_share": 0.48, "target_share": 0.121951,
-    "target_share_adjusted": None, "opponent": None, "run_funnel_rate_vs_avg": None, "implied_total": None,
+    "target_share_adjusted": None, "opponent": "NYG", "run_funnel_rate_vs_avg": -0.01, "implied_total": 27.0,
 }
 _COOK_SIGNAL_ROW = {
     "player_id": "00-0037248", "player_name": "J.Cook", "team": "BUF", "season": _SEASON, "as_of_week": _WEEK,
@@ -300,7 +300,7 @@ def test_waiver_pickups_does_not_require_my_roster_id(tmp_path, monkeypatch):
 _BARKLEY_PRIOR_SIGNAL_ROW = {
     "player_id": "00-0034844", "player_name": "S.Barkley", "team": "PHI", "season": _SEASON - 1, "as_of_week": 19,
     "season_plays": 411, "epa_trend": 0.170673, "red_zone_share": 0.358621, "target_share": 0.109442,
-    "target_share_adjusted": None, "opponent": None, "run_funnel_rate_vs_avg": None, "implied_total": None,
+    "target_share_adjusted": None, "opponent": "NYG", "run_funnel_rate_vs_avg": -0.01, "implied_total": 27.0,
 }
 
 
@@ -615,3 +615,29 @@ def test_start_sit_leaves_out_players_who_cannot_play_and_says_so(tmp_path, monk
     assert entry["recommended_starter"]["injury_status"] == "Questionable"
     assert [a["name"] for a in entry["alternatives_considered"]] == ["Charlie Back"]
     assert any(note == "Not available this week, left out of the lineup: Alpha Back (IR)." for note in result["notes"])
+
+
+def test_waiver_pickups_rank_within_position_and_interleave(tmp_path, monkeypatch):
+    """Once points per game entered the score, a raw cross-position sort
+    returned five backup QBs as the top pickups. The score is not
+    position-normalized, so the list is best-per-position, interleaved."""
+    pool = {
+        "00-0000101": ("Alpha QB", "QB", 30.0), "00-0000102": ("Bravo QB", "QB", 28.0),
+        "00-0000201": ("Alpha RB", "RB", 20.0), "00-0000202": ("Bravo RB", "RB", 12.0),
+        "00-0000301": ("Alpha WR", "WR", 15.0),
+    }
+    my_roster = {"sleeper_cmc": {"full_name": "Christian McCaffrey", "position": "RB", "team": "SF"}}
+    players_df = pl.DataFrame([_CHRISTIAN_ROW] + [{**_BARKLEY_ROW, "gsis_id": pid, "display_name": name, "position": pos} for pid, (name, pos, _) in pool.items()])
+    signal_rows = [_CHRISTIAN_SIGNAL_ROW] + [{**_BARKLEY_SIGNAL_ROW, "player_id": pid, "player_name": name, "red_zone_share": None, "target_share": None,
+                                             "target_share_adjusted": None, "epa_trend": None, "implied_total": total, "run_funnel_rate_vs_avg": None}
+                                            for pid, (name, pos, total) in pool.items()]
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, my_roster, signal_rows, players_df)
+
+    result = report.generate_report(
+        "waiver_pickups", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+
+    assert [(e["name"], e["position_rank"]) for e in result["entries"]] == [
+        ("Alpha RB", 1), ("Alpha WR", 1), ("Alpha QB", 1), ("Bravo RB", 2), ("Bravo QB", 2),
+    ]
+    assert any(note.startswith("Ranked within each position") for note in result["notes"])
