@@ -1515,9 +1515,32 @@ gaps) vs 57.6% for the old hand weights and 59.5% for ppg alone;
 60.8% across 2024+2025 combined (38,957 pairs). Consistent with 2024,
 a point lower. Weights unchanged.
 
-**Live decision eval rerun** against the fitted ranking: launched
-(same 400 dilemmas, 4 shards, progress files); result recorded below
-when it lands.
+**Live decision eval rerun against the fitted ranking: 209/400 = 52.2%**
+(was 206/399 = 51.6%), ~$15, `evals/results/2026-09-21_decision_run.json`.
+By gap: <5 pts 48%, 5-10 56%, 10+ 58%. Flat -- and the diagnosis is the
+useful part:
+- The agent picked the deterministic ranking's player on **400 of 400**
+  dilemmas (the verdict guard from the Chat/Feed alignment fix is doing
+  its job). So the live number IS the ranking's accuracy on this set,
+  plus nothing. A paid rerun measures the ranking with extra noise and a
+  bill; the free offline harness (38,957 pairs across two seasons) is
+  the measurement, and the live eval's only remaining job is to check
+  that the agent follows the ranking and handles gaps -- which 400/400
+  now answers.
+- Why flat when the offline gain was ~4 points: the eval is ONE week
+  (2024 week 5, both players >= 8 pts). Scored offline on every such
+  pair that week (1,875): fitted 53.1%, old hand weights 54.1%,
+  points-per-game alone 52.4% -- a hard, noisy week where no scorer
+  does well, and where the hand weights happen to edge the fit by one
+  point (inside the noise). Across all 2024 weeks the same fit is 61.8%
+  and across 2025 59.9%. The 400-dilemma subset (52.2 / 51.6) is simply
+  representative of that week.
+- Next, when it's worth doing: extend `evals/ground_truth.jsonl` to
+  every 2024 week (`build_ground_truth.py` already takes a week list)
+  so `build_decision_questions` samples across the season, and report
+  the live eval on that -- it would then track the offline number, and
+  it never needs to run at volume again because the agent follows the
+  ranking. Not started.
 
 **Also:** the iMessage/Slack preview title is "Ask Madden: Your
 League's Cheat Code" (the em-dash form was showing as just the

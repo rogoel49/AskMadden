@@ -382,7 +382,12 @@ or monetized, it needs to genuinely work for more than one league.
   a `pre_draft` league (Sleeper `status`, now on `LeagueConfig` and
   `/api/sessions`) gets an honest "hasn't drafted yet" instead of the
   whole NFL as waiver targets; the fit also holds on held-out 2025
-  (59.9%). See TODO.md's "Fixed: a pre-draft league..." entry.
+  (59.9%). Live decision eval rerun: 209/400 = 52.2% (flat), and the
+  agent picked the ranking's player on 400/400 -- **the live eval is
+  the ranking's accuracy on one hard week (2024 wk 5; every scorer is
+  52-54% there); the offline harness is the measurement, don't pay to
+  rerun the live one until ground truth spans many weeks.** See
+  TODO.md's "Fixed: a pre-draft league..." entry.
 - Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
   after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
   this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit
