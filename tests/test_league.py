@@ -157,7 +157,8 @@ class _RecordingClient:
         class _Messages:
             def create(self_inner, **kwargs):
                 outer.calls += 1
-                outer.system_prompts.append(kwargs["system"])
+                system = kwargs["system"]  # a str, or (since prompt caching) a list of text blocks
+                outer.system_prompts.append(system if isinstance(system, str) else " ".join(b["text"] for b in system))
                 return responses.pop(0)
 
         self.messages = _Messages()
