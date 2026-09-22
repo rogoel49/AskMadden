@@ -195,6 +195,7 @@ def load_signal_chunks(signals_dir: Path = SIGNALS_DIR) -> list[dict]:
 # same collection at once would interleave their writes; a caller that
 # would rather not wait can ask rebuild_in_progress() and serve what is
 # there -- which embed() below guarantees is never an emptied collection.
+EMBED_BATCH_SIZE = 2000  # well under chromadb's 5,461-record write cap
 _rebuild_locks: dict[str, threading.Lock] = {}
 _rebuild_locks_guard = threading.Lock()
 
@@ -256,15 +257,21 @@ def embed(
         collection = client.get_or_create_collection(COLLECTION_NAME)
 
         existing_ids = set(collection.get(include=[])["ids"])
-        if chunks:
+        # Chroma caps one write at 5,461 records (its sqlite backend's max
+        # batch). A league's index grows by one signals table per week, so
+        # an unbatched upsert would have started failing mid-season
+        # (found 2026-09-22 embedding 8,852 chunks: "Batch size of 8852 is
+        # greater than max batch size of 5461").
+        for start in range(0, len(chunks), EMBED_BATCH_SIZE):
+            batch = chunks[start:start + EMBED_BATCH_SIZE]
             collection.upsert(
-                ids=[c["id"] for c in chunks],
-                documents=[c["text"] for c in chunks],
-                metadatas=[c["metadata"] for c in chunks],
+                ids=[c["id"] for c in batch],
+                documents=[c["text"] for c in batch],
+                metadatas=[c["metadata"] for c in batch],
             )
         stale = sorted(existing_ids - {c["id"] for c in chunks})
-        if stale:
-            collection.delete(ids=stale)
+        for start in range(0, len(stale), EMBED_BATCH_SIZE):
+            collection.delete(ids=stale[start:start + EMBED_BATCH_SIZE])
         return collection
 
 

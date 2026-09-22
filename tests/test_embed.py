@@ -162,3 +162,15 @@ def test_rebuild_in_progress_reflects_the_per_directory_lock(tmp_path):
         assert embed.rebuild_in_progress(persist_dir) is True
         assert embed.rebuild_in_progress(tmp_path / "other") is False
     assert embed.rebuild_in_progress(persist_dir) is False
+
+
+def test_rebuild_batches_writes_under_chromas_record_cap(tmp_path, monkeypatch):
+    """Chroma refuses a single write above 5,461 records; a league's index
+    crosses that mid-season (one signals table per week). Found embedding
+    8,852 chunks on 2026-09-22."""
+    persist_dir = tmp_path / "chroma"
+    monkeypatch.setattr(embed, "EMBED_BATCH_SIZE", 1000)  # keep the test quick; the real cap is 2000 < 5461
+    many = [_chunk(i) for i in range(2500)]
+    assert embed.embed(many, persist_dir=persist_dir).count() == 2500
+    fewer = [_chunk(i) for i in range(300)]
+    assert embed.embed(fewer, persist_dir=persist_dir).count() == 300  # 2,200 stale ids deleted in batches too
