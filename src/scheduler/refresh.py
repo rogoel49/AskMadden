@@ -117,6 +117,7 @@ LOGGER = logging.getLogger("askmadden.refresh")
 # request rebuilding one in parallel is the same work twice, interleaved
 # into the same collection, on the user's clock.
 _cycle_running = threading.Event()
+_cycle_started_at: str | None = None
 
 
 def cycle_in_progress() -> bool:
@@ -395,11 +396,14 @@ def run_cycle(
     computed, so nothing downstream could have changed)."""
     signals_dir = signals_dir or SIGNALS_DIR
     status_path = STATUS_PATH if status_path is _UNSET else status_path
+    global _cycle_started_at
     _cycle_running.set()
+    _cycle_started_at = _now().isoformat()
     try:
         return _run_cycle(season, as_of_week, signals_dir, league_ids, backfill, status_path)
     finally:
         _cycle_running.clear()
+        _cycle_started_at = None
 
 
 def _run_cycle(season, as_of_week, signals_dir, league_ids, backfill, status_path) -> dict:
@@ -503,10 +507,36 @@ def read_status(status_path: Path | None = None) -> dict | None:
 # ---- the loop ----
 
 
+def seconds_until_due(status_path: Path | None = None, now: datetime | None = None) -> float:
+    """How long until the next cycle is due per the status file's
+    `next_run_after` -- 0 when there is no status file, it is unreadable,
+    or the time has passed. A freshly (re)started process uses this so a
+    deploy does not rerun a cycle that finished twenty minutes ago: every
+    deploy was pinning the machine's CPU for minutes, right when someone
+    was most likely to be trying the site (2026-09-22: a login took 16s
+    and a first-time league open several minutes, on top of the boot
+    cycle)."""
+    status = read_status(status_path)
+    if not status or not status.get("next_run_after"):
+        return 0.0
+    try:
+        due = datetime.fromisoformat(status["next_run_after"])
+    except ValueError:
+        return 0.0
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    return max(0.0, (due - (now or _now())).total_seconds())
+
+
+def cycle_started_at() -> str | None:
+    return _cycle_started_at
+
+
 def start_background_refresh(
     signals_dir: Path | None = None,
     interval: int | None = None,
     run_immediately: bool = True,
+    status_path: Path | None = None,
 ) -> tuple[threading.Thread, threading.Event] | None:
     """Run cycles in a daemon thread until the returned Event is set.
     Returns None (having logged why) when ASKMADDEN_REFRESH_ENABLED is
@@ -531,6 +561,13 @@ def start_background_refresh(
         LOGGER.info("background refresh started: every %ds", seconds)
         if not run_immediately:
             stop.wait(seconds)
+        else:
+            # "Immediately" means "as soon as it is due": a restart right
+            # after a finished cycle waits for the next scheduled one.
+            delay = seconds_until_due(status_path)
+            if delay > 0:
+                LOGGER.info("last cycle is recent; next one due in %ds, not rerunning on start", int(delay))
+                stop.wait(delay)
         while not stop.is_set():
             try:
                 run_cycle(signals_dir=signals_dir)

@@ -291,6 +291,10 @@ def health() -> dict:
         "refresh": {
             "enabled": refresh.refresh_enabled(),
             "running_in_process": _refresh_thread is not None and _refresh_thread.is_alive(),
+            # A cycle actually executing right now (CPU-heavy: signals + every league's re-embed) -- the
+            # thing to check when the site feels slow.
+            "cycle_in_progress": refresh.cycle_in_progress(),
+            "cycle_started_at": refresh.cycle_started_at(),
             "last_outcome": last.get("outcome"),
             "last_finished_at": last.get("finished_at"),
             "season": last.get("season"),

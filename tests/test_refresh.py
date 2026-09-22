@@ -580,3 +580,46 @@ def test_a_warmed_process_sees_a_refreshed_index_through_retrieve_query(tmp_path
     assert result["null_documents"] == [], (
         "a phantom hit from the stale vector index is what made search_league_info crash"
     )
+
+
+# ---- a restart does not rerun a cycle that isn't due (2026-09-22) ----
+
+
+def test_seconds_until_due_reads_the_status_file(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    status_path = tmp_path / "refresh_status.json"
+    assert refresh.seconds_until_due(status_path) == 0.0  # no file: due now
+    now = datetime(2026, 9, 22, 7, 0, tzinfo=timezone.utc)
+    refresh.write_status({"outcome": "ok"}, status_path)  # next_run_after = now + interval
+    import json
+    rec = json.loads(status_path.read_text()); rec["next_run_after"] = (now + timedelta(minutes=28)).isoformat(); status_path.write_text(json.dumps(rec))
+    assert 27 * 60 < refresh.seconds_until_due(status_path, now=now) <= 28 * 60
+    rec["next_run_after"] = (now - timedelta(minutes=1)).isoformat(); status_path.write_text(json.dumps(rec))
+    assert refresh.seconds_until_due(status_path, now=now) == 0.0
+
+
+def test_background_thread_waits_for_the_due_time_instead_of_rerunning_on_start(tmp_path, monkeypatch):
+    import json, time
+    from datetime import datetime, timedelta, timezone
+
+    status_path = tmp_path / "refresh_status.json"
+    refresh.write_status({"outcome": "ok"}, status_path)
+    rec = json.loads(status_path.read_text()); rec["next_run_after"] = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(); status_path.write_text(json.dumps(rec))
+    calls = []
+    monkeypatch.setattr(refresh, "run_cycle", lambda **kw: calls.append(1))
+    monkeypatch.delenv("ASKMADDEN_REFRESH_ENABLED", raising=False)
+    started = refresh.start_background_refresh(interval=3600, status_path=status_path)
+    assert started is not None
+    thread, stop = started
+    time.sleep(0.3)
+    assert calls == []  # not due: nothing ran on start
+    stop.set(); thread.join(timeout=2)
+
+    # and with nothing on record it still runs right away
+    calls.clear()
+    started = refresh.start_background_refresh(interval=3600, status_path=tmp_path / "missing.json")
+    thread, stop = started
+    time.sleep(0.3)
+    assert calls == [1]
+    stop.set(); thread.join(timeout=2)
