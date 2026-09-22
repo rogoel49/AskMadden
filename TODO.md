@@ -1695,8 +1695,18 @@ against the real Dynasty of Chips league at 1500px and 390px checked.
 dynasty/redraft drop tests and prompt tests in
 `tests/test_predraft_and_trade_context.py`; headless Chrome renders
 both widths with no console errors.
-- [ ] Real-model check of the FORMAT rule and stated confidence on a
-      live question (one chat, cents).
+- [x] Real-model check on the hosted app (2026-09-21, Dynasty of Chips,
+      the exact "Tutu or Malachi Fields" question): resolved to Fields
+      on the first turn, verdict "Start Malachi Fields over Tutu
+      Atwell", reasoning opens with "52.1% confidence (coin flip
+      label), meaning the ranking barely separates them" and cites the
+      tool's numbers only; `data_gaps: []`. The drop report for the same
+      league now names all six rookies/second-year players as held out.
+      Partial: the reasoning came back as one dense paragraph, not the
+      2-5 bullets the FORMAT rule asks for -- the one-line verdict part
+      held, the bullets part is prompt-only and will need another look
+      (a code-level formatter of the model's text is the deterministic
+      option if it keeps ignoring it).
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
