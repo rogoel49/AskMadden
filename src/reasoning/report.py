@@ -156,6 +156,7 @@ from src.reasoning.ranking import (
     SIGNALS_DIR,
     SignalTables,
     fmt_signal_row,
+    key_stats,
     opportunity_score,
     rank_candidates,
     stale_fields,
@@ -164,6 +165,8 @@ from src.reasoning.ranking import (
 
 REPORT_TYPES = ("start_sit", "drop", "waiver_pickups")
 PRE_DRAFT_STATUS = "pre_draft"
+DYNASTY_LIKE = {"dynasty", "keeper"}
+YOUNG_PLAYER_MAX_YEARS_EXP = 1  # rookies (0) and second-year players (1)
 PRE_DRAFT_NOTE = "This league hasn't drafted yet (Sleeper status: pre_draft), so no team has any players."
 
 
@@ -224,6 +227,7 @@ def _resolve_roster_with_signals(
                 "position": player.get("position") or signal_result.get("position"),
                 "team": player.get("team") or signal_result.get("team"),
                 "injury_status": player.get("injury_status"),
+                "years_exp": player.get("years_exp"),
                 "row": tables.row_for(player_id),
             }
         )
@@ -256,6 +260,7 @@ def _report_header(ctx: recommend.RecommendContext, report_type: str) -> dict:
         "report_type": report_type,
         "league_id": ctx.league.league_id if ctx.league else None,
         "league_name": ctx.league.name if ctx.league else None,
+        "league_type": ctx.league.league_type if ctx.league else None,
         "season": ctx.season,
         "as_of_week": ctx.as_of_week,
         "roster_id": team.get("roster_id"),
@@ -279,6 +284,10 @@ def _player_ref(ranked: dict, injury_status: str | None = None) -> dict:
         "team": ranked["team"],
         "position": ranked.get("position"),
         "injury_status": injury_status,
+        # P(this player outscores the next one in the ranking) and its label -- see ranking.CONFIDENCE_DESCRIPTION.
+        "win_probability_vs_next": ranked.get("win_probability_vs_next"),
+        "confidence_label": ranked.get("confidence_label"),
+        "key_stats": ranked.get("key_stats") or {},
         "signals_summary": ranked["signals_summary"],
         "stale": ranked["stale"],
         "source_season": ranked["source_season"],
@@ -403,6 +412,21 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
 
 def _drop_report(ctx: recommend.RecommendContext, tables: SignalTables, bottom_n: int = 3) -> dict:
     resolved, notes = _resolve_roster_with_signals(ctx, tables)
+    # Dynasty / keeper leagues: a rookie or second-year player is held for
+    # the seasons ahead, and nothing here measures that. Their low usage
+    # today is not a drop reason, so they are held out and named (a
+    # dynasty owner was told to drop the rookie WR he had just drafted,
+    # 2026-09-21). Redraft leagues are unchanged.
+    league_type = ctx.league.league_type if ctx.league else None
+    if league_type in DYNASTY_LIKE:
+        young = [c for c in resolved if c.get("years_exp") is not None and c["years_exp"] <= YOUNG_PLAYER_MAX_YEARS_EXP]
+        if young:
+            notes.append(
+                f"{league_type.capitalize()} league: rookies and second-year players are long-term assets the "
+                f"usage score can't value, so they aren't drop candidates here: "
+                + ", ".join(f"{c['name']} ({'rookie' if c['years_exp'] == 0 else '2nd year'}, {c['position']})" for c in young) + "."
+            )
+            resolved = [c for c in resolved if c not in young]
 
     scored = [(c, opportunity_score(c["row"])) for c in resolved]
     grounded = [(c, score) for c, score in scored if score is not None]
@@ -429,6 +453,9 @@ def _drop_report(ctx: recommend.RecommendContext, tables: SignalTables, bottom_n
             "team": c["team"],
             "weakness_reasons": weakness_reasons(c["row"]),
             "signals_summary": fmt_signal_row(c["row"]),
+            "key_stats": key_stats(c["row"]),
+            "years_exp": c.get("years_exp"),
+            "injury_status": c.get("injury_status"),
             **stale_fields(c["row"]),
         }
         for c, _ in weakest
@@ -527,6 +554,7 @@ def _waiver_pickups_report(
             "team": c["team"],
             "position_rank": position_rank,
             "opportunity_score": round(score, 3),
+            "key_stats": key_stats(c["row"]),
             "reasoning": f"{c['player_name']} ({c['position']}, {c['team']}): {fmt_signal_row(c['row'])}.",
             **stale_fields(c["row"]),
         }

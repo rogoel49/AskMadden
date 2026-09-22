@@ -1594,8 +1594,18 @@ fantasy-relevant that week.
 
 **Plan, in order. Each step is measured on the free offline harness
 before it ships; nothing goes into the product on a hunch.**
-- [ ] **Step 1 -- confidence on every verdict (free, product-visible
-      this week).** The fitted model is a logistic model: P(a beats b)
+- [x] **Step 1 -- confidence on every verdict -- done 2026-09-21.**
+      `ranking.pairwise_confidence()` = sigmoid(0.85 x score
+      difference), capped at 85%; labels coin flip / lean / clear /
+      strong. Calibration checked on 38,957 held-out 2024-25 pairs
+      (`evals/results/2026-09-21_confidence_calibration.json`):
+      predicted 50-70% was right 51-66% of the time on both seasons;
+      above 70% the untempered model ran 4-10 points hot, hence the
+      temperature and the cap. Every `rank_candidates` entry carries
+      `win_probability_vs_next` + `confidence_label`; start/sit refs
+      and the `rank_players` tool carry them; the Feed's START cards
+      show "67% · clear"; the prompt requires the model to state it.
+      Original plan text follows. The fitted model is a logistic model: P(a beats b)
       = sigmoid(score_a - score_b). Expose it: `rank_players` and the
       Feed say "lean Gibbs, 71%" or "coin flip, 52%" instead of a bare
       verdict. Calibration is checkable offline (bucket predicted
@@ -1623,6 +1633,70 @@ before it ships; nothing goes into the product on a hunch.**
 - [ ] **Step 5 -- Phase 4 / 7 signals** (coverage classification,
       scheme fit) through the same gate; matchup-fit stays a landing
       placeholder until one earns a number.
+
+## Fixed: "Tutu or Malachi Fields" compared Malachi Corley; dynasty drops; the Feed redesign; confidence shipped (2026-09-21)
+
+**RCA -- Malachi Fields (Rohan's screenshots).** He asked "should I
+hypothetically start Tutu or Malachi Fields?"; the first answer claimed
+two Malachis, said Fields "plays for Arizona", and ran Tutu vs Malachi
+*Corley* on stale data. Reproduced the resolution layer: "Malachi
+Fields" -> exact (NYG, 00-0041042); only a bare "Malachi" is ambiguous
+(Corley/Fields). So the model passed "Malachi" without the surname the
+user had typed, got an ambiguity, and then picked Corley to run the
+comparison anyway (against the prompt), adding a team from memory
+(Arizona -- the tool had said NYG). Two fixes: deterministic first --
+`RecommendContext.question` carries the user's question and
+`resolve_named_player()` settles an ambiguity to the one candidate whose
+full name appears in it (never picks between two the user didn't name);
+then the prompt: pass names EXACTLY as typed, never run a comparison
+with a self-picked candidate, never state a team from memory.
+`test_an_ambiguous_first_name_resolves_to_the_player_the_user_actually_typed`
+pins the exact case. The "stale" part of that answer was true for
+Tutu Atwell (no 2026 plays through week 1) and false for Fields (14%
+target share in week 1) -- once the right player is resolved the
+second turn was correct.
+
+**RCA -- "drop Omar Cooper Jr." in a dynasty league.** Sleeper's
+`settings.type` is 2 (dynasty) for Dynasty of Chips (1 = keeper for
+Narcos and the Fellowship, 0 = redraft), and Cooper is a 22-year-old
+rookie (`years_exp` 0) on IR. The drop report ranked purely on this
+month's usage. Now `LeagueConfig.league_type` is read from that
+setting (on `/api/sessions` and every report header); in dynasty and
+keeper leagues, rookies and second-year players are held out of the
+drop candidates with a note naming them ("Dynasty league: rookies and
+second-year players are long-term assets the usage score can't value,
+so they aren't drop candidates here: Omar Cooper (rookie, WR)");
+`get_my_roster` returns `years_exp` and `age`; and the system prompt
+carries league-type guidance (dynasty: weigh the seasons ahead, say
+when a call is this-week vs long-term). Redraft leagues are unchanged.
+Not modeled: any actual long-term value -- this is a guard, not a
+dynasty valuation.
+
+**Feed + chat readability (Rohan: "all the rectangles is a bit
+overwhelming", "text in each box is pretty hard to read", "goes from
+multiple squares horizontally to just one per row").** Every ranked
+entry now carries structured `key_stats` (ppg, games, last season's
+ppg, target share, red-zone share, opponent, implied total, run-funnel
+lean, CPOE, trustworthy EPA trend, stale/source season) next to the
+prose. One card component (`playerCard`) renders start/sit, drops and
+waivers alike: the points-per-game number leads, at most four stats,
+one matchup line, chips (slot, confidence, stale, injury, score/rank),
+the prose only as a hover title; the "no efficiency trend yet" filler
+is gone from cards. All three sections sit on the same `card-grid`
+(1 column on phones, 2 at 900px, 3 at 1180px), so the layout no longer
+flips from a horizontal strip to a vertical list. A player who starts
+in one slot (a TE filling FLEX) no longer also shows as SIT under his
+position. Chat: the prompt's FORMAT rule -- one bold verdict line, 2-5
+short bullets with at most two numbers each, no semicolon-chained stat
+dumps, one closing line on what would change the call. Screenshots
+against the real Dynasty of Chips league at 1500px and 390px checked.
+
+**Validated:** suite green; `tests/test_confidence_and_name_rca.py`,
+dynasty/redraft drop tests and prompt tests in
+`tests/test_predraft_and_trade_context.py`; headless Chrome renders
+both widths with no console errors.
+- [ ] Real-model check of the FORMAT rule and stated confidence on a
+      live question (one chat, cents).
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

@@ -299,6 +299,24 @@
   .roster-mid .matchup{ text-transform:uppercase; letter-spacing:.03em; }
   .chip svg{ width:9px; height:9px; margin-right:3px; vertical-align:-1px; }
   .rec-why{ font-size:11.5px; color:var(--text-dim); line-height:1.45; margin-top:10px; }
+  /* Player cards (2026-09-21 redesign): one component for start/sit, drops and
+     waivers, built from structured key_stats instead of the prose summary. */
+  .card-grid{ display:grid; grid-template-columns:1fr; gap:12px; }
+  .card-grid .state-card{ grid-column:1 / -1; }
+  .pcard{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:13px 14px 12px; display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .pcard.start{ border-color:rgba(57,227,154,.28); } .pcard.stale-card{ border-style:dashed; }
+  .pcard-head{ display:flex; align-items:center; gap:10px; }
+  .pcard-head .who{ flex:1; min-width:0; } .pcard-head .pname{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pcard-head .rank{ font-family:'Anton'; font-size:15px; color:var(--green); width:18px; text-align:center; flex:0 0 auto; }
+  .verdict.drop{ color:var(--amber); background:var(--amber-dim); } .verdict.pick{ color:var(--green); background:var(--green-dim); }
+  .pcard-stats{ display:grid; grid-template-columns:1.35fr 1fr 1fr 1fr; gap:6px; align-items:end; }
+  .pcard-stats .stat{ min-width:0; } .pcard-stats .v{ display:block; font-family:'Anton'; font-size:17px; letter-spacing:.01em; line-height:1; color:var(--text); }
+  .pcard-stats .stat.big .v{ font-size:26px; color:var(--green); } .pcard-stats .stat.big.dim .v{ color:var(--amber); }
+  .pcard-stats .l{ display:block; font-size:9.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pcard-line{ font-size:11.5px; color:var(--text-dim); line-height:1.4; }
+  .pcard-line b{ color:var(--text); font-weight:600; }
+  .pcard-reason{ font-size:11.5px; color:var(--text-dim); line-height:1.4; border-left:2px solid var(--border); padding-left:9px; }
+  .pcard .chip-row{ margin-top:0; }
 
   .waiver-row{ display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 13px; margin-bottom:10px; }
   .waiver-row .avatar-ring{ width:34px; height:34px; font-size:10px; }
@@ -347,6 +365,7 @@
   .slot-badge.flex{ color:#5fd4d0; border-color:#3fbdb944; background:#3fbdb914; }
   .slot-badge.k, .slot-badge.def, .slot-badge.other{ color:var(--text-dim); }
   .slot-badge.bn{ color:var(--text-faint); background:transparent; }
+  .chip.conf{ color:var(--green); border-color:var(--green-line); background:var(--green-dim); font-weight:700; }
   .inj{ display:inline-block; margin-left:6px; font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:5px; vertical-align:1px; }
   .inj.q{ color:var(--amber); background:#f5b84a1a; } .inj.o{ color:var(--coral); background:#ff6b5c1a; }
   .roster-row{ display:flex; align-items:center; gap:11px; padding:10px 4px; border-bottom:1px solid var(--border-soft); }
@@ -426,6 +445,7 @@
 
     .hscroll{ flex-wrap:wrap; overflow-x:visible; }
     .rec-card{ width:calc(33.333% - 8px); }
+    .card-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
     .waiver-row{ max-width:640px; }
     .lineup-grid{ display:grid; grid-template-columns:1fr 1fr; gap:0 22px; align-items:start; max-width:1100px; }
     .lineup-grid .lineup-section:nth-child(n+3){ grid-column:2; }
@@ -435,6 +455,7 @@
     .msg.assistant{ max-width:100%; }
     .msg.user{ max-width:70%; }
   }
+  @media (min-width:1180px){ .card-grid{ grid-template-columns:repeat(3, minmax(0, 1fr)); } }
   @media (min-width:900px) and (max-width:1080px){
     .rec-card{ width:calc(50% - 6px); }
   }
@@ -566,11 +587,11 @@
             <section class="panel active" id="panel-feed">
               <div class="section-label"><h2>Start today</h2><a href="#" onclick="loadFeed(true);return false;">Refresh →</a></div>
               <div id="league-banner" hidden></div>
-              <div class="hscroll" id="feed-start-sit"><div class="state-card"><p>Loading start/sit…</p></div></div>
+              <div class="card-grid" id="feed-start-sit"><div class="state-card"><p>Loading start/sit…</p></div></div>
               <div class="section-label"><h2>Drop candidates</h2></div>
-              <div id="feed-drop"><div class="state-card"><p>Loading…</p></div></div>
+              <div class="card-grid" id="feed-drop"><div class="state-card"><p>Loading…</p></div></div>
               <div class="section-label"><h2>Waiver targets</h2><a href="#" onclick="setTab('moves');return false;">See all →</a></div>
-              <div id="feed-waivers"><div class="state-card"><p>Loading…</p></div></div>
+              <div class="card-grid" id="feed-waivers"><div class="state-card"><p>Loading…</p></div></div>
               <div class="section-label"><h2>Trade center</h2></div>
               <div class="state-card"><div class="tag-mini">COMPOSITION · ON REQUEST</div><p>Which teams have surplus at your weakest spot is answered by the chat agent's league-roster tool, not a report — open <a href="#" onclick="setTab('moves');switchMoves('trades');return false;">Moves → Trades</a> to ask. Valuation/fairness grading isn't built (Phase 6); this is composition only.</p></div>
             </section>
@@ -595,7 +616,7 @@
               <div class="segmented" id="moves-seg"><button class="active" data-seg="waivers" onclick="switchMoves('waivers')">Waivers</button><button data-seg="trades" onclick="switchMoves('trades')">Trades</button></div>
               <div id="moves-waivers">
                 <div class="section-label" style="margin-top:4px;"><h2>This week's priority</h2></div>
-                <div id="moves-waiver-list"><div class="state-card"><p>Loading…</p></div></div>
+                <div  class="card-grid"id="moves-waiver-list"><div class="state-card"><p>Loading…</p></div></div>
               </div>
               <div id="moves-trades" style="display:none;">
                 <div class="section-label" style="margin-top:4px;"><h2>Who might trade with you</h2></div>
@@ -824,6 +845,11 @@
     const ss = document.getElementById('feed-start-sit'), dr = document.getElementById('feed-drop'), wv = document.getElementById('feed-waivers');
     fetchReport('start_sit', force).then(rep => {
       const cards = [];
+      // A player who starts in one slot (e.g. a TE filling FLEX) must not also
+      // show as SIT under his own position -- the slot-fill is right, the two
+      // cards read as a contradiction.
+      const startsSomewhere = new Set();
+      rep.entries.forEach(entry => (entry.recommended_starters || [entry.recommended_starter]).forEach(st => startsSomewhere.add(st.player_id)));
       rep.entries.forEach(entry => {
         // One START card per starting slot (a league that starts two RBs gets
         // two RB start cards), each with its own player's signal line rather
@@ -831,7 +857,7 @@
         const slotLabel = entry.slots > 1 ? `${entry.position} ×${entry.slots}` : entry.position;
         const starters = entry.recommended_starters || [entry.recommended_starter];
         starters.forEach(st => cards.push(recCard(st.name, st.position || entry.position, st.team, 'start', st.signals_summary || entry.reasoning, st, slotLabel)));
-        (entry.alternatives_considered || []).forEach(alt => cards.push(recCard(alt.name, alt.position || entry.position, alt.team, 'sit', alt.signals_summary, alt, slotLabel)));
+        (entry.alternatives_considered || []).filter(alt => !startsSomewhere.has(alt.player_id)).forEach(alt => cards.push(recCard(alt.name, alt.position || entry.position, alt.team, 'sit', alt.signals_summary, alt, slotLabel)));
       });
       ss.innerHTML = cards.length ? cards.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
       if (cards.length && rep.notes && rep.notes.length) ss.insertAdjacentHTML('beforeend', notesCard(rep));
@@ -844,21 +870,64 @@
       document.getElementById('moves-waiver-list').innerHTML = renderWaivers(rep, 25);
     }).catch(e => { wv.innerHTML = errorCard(e, 'waiver targets'); document.getElementById('moves-waiver-list').innerHTML = errorCard(e, 'waiver targets'); });
   }
+  // Step 1 of the accuracy plan: every START verdict shows the fitted model's
+  // probability of outscoring the next-ranked player, with its calibration label.
+  function confidenceChip(entry, verdict){
+    if (verdict !== 'start' || !entry || entry.win_probability_vs_next == null) return '';
+    const p = Math.round(entry.win_probability_vs_next * 100);
+    const label = entry.confidence_label || '';
+    const cls = label === 'coin flip' ? 'stale' : label === 'lean' ? 'pos' : 'conf';
+    return `<span class="chip ${cls}" title="Probability of outscoring the next player in this ranking this week (calibrated on 2024-25 backtests; capped at 85%)">${p}% · ${esc(label)}</span>`;
+  }
+  // ---- the player card (used by start/sit, drops and waivers) ----
+  const pct = (x) => x == null ? null : `${Math.round(x * 100)}%`;
+  const num1 = (x) => x == null ? null : (Math.round(x * 10) / 10).toFixed(1);
+  function statCells(ks, stale){
+    const cells = [];
+    if (ks.ppg != null) cells.push({ v: num1(ks.ppg), l: `pts/gm · ${ks.games_played || 0} gm${ks.games_played === 1 ? '' : 's'}`, big: true });
+    else if (ks.ppg_prior_season != null) cells.push({ v: num1(ks.ppg_prior_season), l: `pts/gm ${ks.source_season || 'last yr'}`, big: true, dim: true });
+    if (ks.ppg != null && ks.ppg_prior_season != null) cells.push({ v: num1(ks.ppg_prior_season), l: 'last season' });
+    if (ks.target_share != null) cells.push({ v: pct(ks.target_share), l: 'targets' });
+    if (ks.red_zone_share != null) cells.push({ v: pct(ks.red_zone_share), l: 'red zone' });
+    if (ks.cpoe != null) cells.push({ v: (ks.cpoe >= 0 ? '+' : '') + num1(ks.cpoe), l: 'cpoe' });
+    return cells.slice(0, 4).map(c => `<div class="stat${c.big ? ' big' : ''}${c.dim ? ' dim' : ''}"><span class="v">${esc(c.v)}</span><span class="l">${esc(c.l)}</span></div>`).join('');
+  }
+  function matchupLine(ks){
+    if (!ks || ks.stale || !ks.opponent) return '';
+    const parts = [`vs <b>${esc(ks.opponent)}</b>`];
+    if (ks.implied_total != null) parts.push(`team total <b>${esc(num1(ks.implied_total))}</b>`);
+    if (ks.run_funnel_rate_vs_avg != null) { const r = Math.round(ks.run_funnel_rate_vs_avg * 100); parts.push(`${r >= 0 ? 'run' : 'pass'}-funnel D (${r >= 0 ? '+' : ''}${r})`); }
+    if (ks.epa_trend != null) parts.push(`EPA trend ${ks.epa_trend >= 0 ? '+' : ''}${(Math.round(ks.epa_trend * 100) / 100).toFixed(2)}`);
+    return `<div class="pcard-line">${parts.join(' · ')}</div>`;
+  }
+  function playerCard({ name, pos, team, verdict, verdictLabel, entry, slotLabel, rank, reason, scoreChip }){
+    const ks = (entry && entry.key_stats) || {};
+    const stale = !!(entry && entry.stale);
+    const head = `<div class="pcard-head">${rank ? `<div class="rank">${esc(rank)}</div>` : ''}<div class="avatar-ring ${posClass(pos)}">${esc(initials(name))}</div><div class="who"><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div>${verdict ? `<div class="verdict ${verdict}">${esc(verdictLabel || verdict.toUpperCase())}</div>` : ''}</div>`;
+    const stats = statCells(ks, stale);
+    const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${entry && entry.injury_status ? `<span class="chip ${entry.injury_status === 'Questionable' ? 'stale' : 'scope'}" title="Sleeper injury designation">${esc(entry.injury_status)}</span>` : ''}</div>`;
+    const title = esc((entry && (entry.signals_summary || entry.reasoning)) || '');
+    return `<div class="pcard ${verdict || ''}${stale ? ' stale-card' : ''}" title="${title}">${head}${stats ? `<div class="pcard-stats">${stats}</div>` : `<div class="pcard-line">No usage numbers yet.</div>`}${matchupLine(ks)}${reason ? `<div class="pcard-reason">${esc(reason)}</div>` : ''}${chips}</div>`;
+  }
   function recCard(name, pos, team, verdict, why, entry, slotLabel){
+    return playerCard({ name, pos, team, verdict, entry, slotLabel });
+  }
+  function recCardLegacy(name, pos, team, verdict, why, entry, slotLabel){
     return `<div class="rec-card">
       <div class="rec-top"><div class="player-id"><div class="avatar-ring ${posClass(pos)}">${esc(initials(name))}</div><div><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div></div><div class="verdict ${verdict}">${verdict.toUpperCase()}</div></div>
       <div class="rec-why">${esc(why || '')}</div>
-      <div class="chip-row"><span class="chip pos">${esc(slotLabel || pos)}</span>${staleChip(entry)}${entry && entry.injury_status ? `<span class="chip ${entry.injury_status === 'Questionable' ? 'stale' : 'scope'}" title="Sleeper injury designation">${esc(entry.injury_status)}</span>` : ''}</div>
+      <div class="chip-row"><span class="chip pos">${esc(slotLabel || pos)}</span>${confidenceChip(entry, verdict)}${staleChip(entry)}${entry && entry.injury_status ? `<span class="chip ${entry.injury_status === 'Questionable' ? 'stale' : 'scope'}" title="Sleeper injury designation">${esc(entry.injury_status)}</span>` : ''}</div>
     </div>`;
   }
   function dropRow(entry){
-    return `<div class="waiver-row"><div class="avatar-ring ${posClass(entry.position)}" style="width:34px;height:34px;font-size:10px;">${esc(initials(entry.name))}</div>
-      <div class="waiver-mid"><div class="pname">${esc(entry.name)} <span class="ppos">${esc(entry.position)} · ${esc(entry.team || '—')}</span></div><div class="reason">${(entry.weakness_reasons || []).map(esc).join('; ')}</div><div class="chip-row">${staleChip(entry)}</div></div></div>`;
+    const reasons = (entry.weakness_reasons || []).filter(r => !/^based on \d{4} season-end/.test(r));
+    return playerCard({ name: entry.name, pos: entry.position, team: entry.team, verdict: 'drop', verdictLabel: 'DROP?', entry,
+                        reason: reasons.length ? reasons.join(' · ') : '' });
   }
   function renderWaivers(rep, limit){
     if (!rep.entries.length) return `<div class="state-card"><p>${esc((rep.notes || []).join(' ') || 'No unrostered players with computed signals.')}</p></div>`;
-    return rep.entries.slice(0, limit).map((e, i) => `<div class="waiver-row"><div class="priority">${i+1}</div><div class="avatar-ring ${posClass(e.position)}" style="width:34px;height:34px;font-size:10px;">${esc(initials(e.name))}</div>
-      <div class="waiver-mid"><div class="pname">${esc(e.name)} <span class="ppos">${esc(e.position)} · ${esc(e.team || '—')}</span></div><div class="reason">${esc(e.reasoning)}</div><div class="chip-row"><span class="chip">score ${esc(e.opportunity_score)}</span>${staleChip(e)}</div></div></div>`).join('') + notesCard(rep);
+    return rep.entries.slice(0, limit).map((e, i) => playerCard({ name: e.name, pos: e.position, team: e.team, verdict: 'pick', verdictLabel: `${e.position} #${e.position_rank || (i + 1)}`, entry: e, rank: i + 1,
+                                                                  scoreChip: `<span class="chip" title="fitted ranking score">score ${esc(e.opportunity_score)}</span>` })).join('') + notesCard(rep);
   }
 
   /* ---------------- chat ---------------- */
