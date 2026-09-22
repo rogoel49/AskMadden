@@ -76,6 +76,7 @@ def run(
     persist_dir: Path = CHROMA_DIR,
     client: "anthropic.Anthropic | None" = None,
     progress_path: Path | None = None,
+    signals_dir: Path | None = None,
 ) -> dict:
     """league_id: the Sleeper league whose roster/scoring context every
     dilemma is answered in (Phase 5.1 -- recommend() requires it and
@@ -115,6 +116,7 @@ def run(
             season=season,
             as_of_week=week,
             client=client,
+            **({"signals_dir": signals_dir} if signals_dir is not None else {}),
         )
         correct = score_dilemma(question, outcome, expected_id)
         result = {
