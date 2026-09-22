@@ -342,7 +342,8 @@ process can still lose to a fluke game.
 | Metric | Result | Scope |
 |---|---|---|
 | Retrieval accuracy | **80 / 84 (95%)** | roster + matchup-score questions, 4 real leagues, as-of-week filtered; `evals/results/2026-09-20_retrieval_run.json` |
-| Decision accuracy, live agent | **209 / 400 (52%)** with the fitted ranking (206 / 399 before it) | 400 programmatic 2024 **week-5** start/sit dilemmas (same position, both players ≥ 8 pts), Sonnet 4.5; the agent picked the deterministic ranking's player on 400/400, so this is the ranking's accuracy on one hard week -- on every such week-5 pair (1,875) the fitted score gets 53%, the old weights 54%, points-per-game 52%; `evals/results/2026-09-21_decision_run.json` |
+| Decision accuracy, season-wide | **16,730 / 28,330 (59%)** | every 2024 week-2-to-18 start/sit dilemma from real box scores (same position, both players ≥ 8 pts), signals strictly as-of each week; 69% where the real gap was 10+ pts; the agent follows this ranking on every dilemma (60/60 on a live sample, 34/60 correct), so this is the product's number; `evals/results/2026-09-22_decision_multiweek.json` |
+| Decision accuracy, one week (historical) | 209 / 400 (52%) | the first live runs used 2024 **week 5** only; on every such pair that week no scorer beats 54%; `evals/results/2026-09-21_decision_run.json` |
 | Ranking score, offline (`evals/fit_ranking_weights.py`) | **61.8%** pairwise on 19,283 held-out 2024 pairs (72% when the gap was 10+ pts); **59.9%** on 19,674 held-out 2025 pairs (71% at 10+) | weights fitted on 2023 only; the hand-set weights they replaced scored 57.6% on both seasons, points-per-game alone 61.5% / 59.5%; `evals/results/2026-09-20_ranking_fit_blend4.json` |
 | Matchup-fit accuracy | n/a | needs Phase 4's coverage classification |
 

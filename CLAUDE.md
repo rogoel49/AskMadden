@@ -390,7 +390,25 @@ or monetized, it needs to genuinely work for more than one league.
   the ranking's accuracy on one hard week (2024 wk 5; every scorer is
   52-54% there); the offline harness is the measurement, don't pay to
   rerun the live one until ground truth spans many weeks.** See
-  TODO.md's "Fixed: a pre-draft league..." entry.
+  TODO.md's "Fixed: a pre-draft league..." entry. **Later 09-21:**
+  calibrated confidence on every verdict (accuracy plan Step 1:
+  `ranking.pairwise_confidence`, tempered 0.85, capped 85%; on ranked
+  entries, start/sit refs, `rank_players`, Feed cards, and required in
+  the prompt); `resolve_named_player()` settles an ambiguous name from
+  the user's own question (the "Malachi Fields" -> Corley RCA);
+  `league_type` (redraft/keeper/dynasty from Sleeper `settings.type`)
+  on `LeagueConfig`, with rookies and second-year players held out of
+  dynasty/keeper drop lists; structured `key_stats` on every entry and
+  a one-component card Feed on a consistent grid; FORMAT and league-
+  type guidance in the prompt. **09-22:** accuracy plan Step 2 done --
+  `evals/ground_truth.jsonl` spans 2024 weeks 2-18 and the season-wide
+  decision number is **59%** (28,330 dilemmas; 69% at 10+ pt gaps), so
+  the 52% was one hard week; a restarted server no longer reruns a
+  just-finished refresh cycle (every deploy was pinning the CPU;
+  `/api/health` shows `cycle_in_progress`); `embed.embed()` batches
+  writes under Chroma's 5,461-record cap (a league's index would have
+  crossed it mid-season). See TODO.md's "Fixed: 'Tutu or Malachi
+  Fields'..." entry and the Step 2 item in the accuracy plan.
 - Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
   after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
   this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit

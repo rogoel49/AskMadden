@@ -1,0 +1,54 @@
+{
+  "date": "2026-09-22",
+  "season": 2024,
+  "weeks": [
+    2,
+    18
+  ],
+  "ground_truth_rows": 5525,
+  "pool_dilemmas": 28577,
+  "min_points_both": 8.0,
+  "deterministic_ranking": {
+    "correct": 16730,
+    "scored": 28330,
+    "accuracy": 0.5905,
+    "by_week": {
+      "weeks 11-18": {
+        "correct": 8048,
+        "scored": 13461
+      },
+      "weeks 2-5": {
+        "correct": 4136,
+        "scored": 7195
+      },
+      "weeks 6-10": {
+        "correct": 4546,
+        "scored": 7674
+      }
+    },
+    "by_gap": {
+      "<5": {
+        "correct": 7539,
+        "scored": 13948
+      },
+      "5-10": {
+        "correct": 4852,
+        "scored": 8124
+      },
+      "10+": {
+        "correct": 4339,
+        "scored": 6258
+      }
+    }
+  },
+  "live_sample": {
+    "dilemmas": 60,
+    "correct": 34,
+    "scored": 60,
+    "accuracy": 0.5666666666666667,
+    "agreed_with_ranking": 60,
+    "model": "claude-sonnet-4-5-20250929",
+    "estimated_cost_usd": 2.22
+  },
+  "method": "ground_truth.jsonl regenerated for 2024 weeks 2-18 with the league's real scoring; pool = build_decision_questions.build() over all weeks (same-position, both >= 8 pts); per-week signals tables + 2023 wk19 fallback + 2024/2023 stat lines in an isolated scratch dir, embedded into the scratch index; deterministic accuracy = rank_candidates on every pool dilemma; live sample = 60 seeded dilemmas through recommend() with progress_path."
+}
