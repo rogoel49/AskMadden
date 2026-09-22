@@ -1612,11 +1612,22 @@ before it ships; nothing goes into the product on a hunch.**
       probability vs. actual win rate on 2024/2025). This turns "our
       picks are 60% right" into "when we say 70%, we're right 70% of
       the time" -- which is the sell.
-- [ ] **Step 2 -- multi-week ground truth.** Extend
-      `evals/ground_truth.jsonl` to every 2024 week (`build_ground_truth
-      --weeks 1..18`), so the live eval samples the season and tracks
-      the offline number; keep it small (it only needs to prove the
-      agent follows the ranking, 400/400 already does).
+- [x] **Step 2 -- multi-week ground truth -- done 2026-09-22.**
+      `evals/ground_truth.jsonl` is 2024 weeks 2-18 (5,525 rows, the
+      league's real scoring; week 1 has no as-of signals). The dilemma
+      pool over it is 28,577 (same position, both >= 8 pts). Scored the
+      deterministic ranking on every one of them, free, with per-week
+      signals tables + the 2023 fallback + stat lines in an isolated
+      scratch dir (`run_decision_eval.run(signals_dir=...)`):
+      **16,730/28,330 = 59.1%** -- weeks 2-5 57.5%, 6-10 59.2%, 11-18
+      59.8%; by actual gap <5 pts 54.1%, 5-10 59.7%, 10+ 69.3%. So the
+      one-week 52% was that week, not the ranking; the season-wide
+      number in the eval's own regime is 59%, in line with the offline
+      harness (61.8% with a lower points floor). Live sample of 60 seeded dilemmas through the real agent (~$2.50, progress file): 34/60 = 56.7%, and the agent picked the ranking's player on 60/60 -- the live path still adds nothing but the model's prose, so 59% is the product's number and no further paid volume runs are needed.
+      Saved as `evals/results/2026-09-22_decision_multiweek.json`. Found
+      on the way and fixed in PR #51: `embed.embed()` wrote everything in
+      one Chroma call and the cap is 5,461 records -- a league's index
+      would have crossed it mid-season.
 - [ ] **Step 3 -- features with actual week-ahead signal, one at a
       time, each accepted only if held-out accuracy moves.** Candidates,
       cheapest first: opponent points allowed by position (from the
