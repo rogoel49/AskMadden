@@ -1,0 +1,76 @@
+{
+  "date": "2026-09-21",
+  "model": "fitted ranking (2026-09-20_ranking_fit_blend4.json)",
+  "method": "P(a>b) = sigmoid(score_a - score_b), untempered, on evals/fit_ranking_weights.build_pairs(season, weeks 2-18) -- both players >= 5 pts, same position, features as-of the week; bucketed by predicted probability of the favored side.",
+  "2024": {
+    "pairs": 19283,
+    "buckets": {
+      "50-55": {
+        "n": 4975,
+        "predicted": 0.525,
+        "actual": 0.526
+      },
+      "55-60": {
+        "n": 4636,
+        "predicted": 0.574,
+        "actual": 0.58
+      },
+      "60-70": {
+        "n": 6411,
+        "predicted": 0.645,
+        "actual": 0.657
+      },
+      "70-80": {
+        "n": 2673,
+        "predicted": 0.741,
+        "actual": 0.722
+      },
+      "80-90": {
+        "n": 578,
+        "predicted": 0.83,
+        "actual": 0.792
+      },
+      "90+": {
+        "n": 10,
+        "predicted": 0.913,
+        "actual": 0.6
+      }
+    }
+  },
+  "2025": {
+    "pairs": 19674,
+    "buckets": {
+      "50-55": {
+        "n": 5003,
+        "predicted": 0.525,
+        "actual": 0.512
+      },
+      "55-60": {
+        "n": 4668,
+        "predicted": 0.574,
+        "actual": 0.565
+      },
+      "60-70": {
+        "n": 6633,
+        "predicted": 0.644,
+        "actual": 0.631
+      },
+      "70-80": {
+        "n": 2749,
+        "predicted": 0.742,
+        "actual": 0.709
+      },
+      "80-90": {
+        "n": 610,
+        "predicted": 0.832,
+        "actual": 0.726
+      },
+      "90+": {
+        "n": 11,
+        "predicted": 0.917,
+        "actual": 0.636
+      }
+    }
+  },
+  "decision": "Well calibrated 50-70%; overconfident above. Shipped with logit temperature 0.85 and a display cap of 85% (ranking.CONFIDENCE_TEMPERATURE / CONFIDENCE_CAP)."
+}

@@ -79,3 +79,47 @@ def test_prompt_tells_the_model_to_pitch_with_reasons_and_invite_refinement():
     prompt = recommend._build_system_prompt({"name": "L"}, {"rec": 0.5}, season=2026, as_of_week=3)
     for phrase in ("`needs` and", "`injury_status`", "`bye_week`", "on 1 game", "invite refinement explicitly", "no tight ends"):
         assert phrase in prompt, phrase
+
+
+# ---- dynasty / keeper leagues hold young players out of the drop list ----
+
+
+def _set_league_type(raw_dir: Path, sleeper_type: int) -> None:
+    envelope = json.loads((raw_dir / "league.json").read_text())
+    envelope["data"].setdefault("settings", {})["type"] = sleeper_type
+    (raw_dir / "league.json").write_text(json.dumps(envelope))
+
+
+def _set_years_exp(raw_dir: Path, sleeper_id: str, years: int) -> None:
+    players = json.loads((raw_dir / "players.json").read_text())
+    players["data"][sleeper_id]["years_exp"] = years
+    (raw_dir / "players.json").write_text(json.dumps(players))
+
+
+def test_dynasty_league_holds_rookies_out_of_drop_candidates_and_says_so(tmp_path, monkeypatch):
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch)
+    _set_league_type(raw_dir, 2)  # dynasty
+    _set_years_exp(raw_dir, "s_cook", 0)  # Cook is "a rookie" in this fixture
+    _set_years_exp(raw_dir, "s_barkley", 8)
+    assert load_league(VS30_ID, raw_dir=raw_dir, persist_dir=persist_dir).league_type == "dynasty"
+
+    rep = report.generate_report("drop", VS30_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir)
+    assert [e["name"] for e in rep["entries"]] == ["Saquon Barkley"]
+    assert rep["league_type"] == "dynasty"
+    assert any(note.startswith("Dynasty league: rookies and second-year players") and "James Cook (rookie, RB)" in note for note in rep["notes"])
+
+
+def test_redraft_league_drop_candidates_are_unchanged(tmp_path, monkeypatch):
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch)
+    _set_league_type(raw_dir, 0)
+    _set_years_exp(raw_dir, "s_cook", 0)
+    rep = report.generate_report("drop", VS30_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir)
+    assert {e["name"] for e in rep["entries"]} == {"Saquon Barkley", "James Cook"}
+    assert rep["entries"][0]["key_stats"]["red_zone_share"] is not None  # structured numbers for the UI
+
+
+def test_prompt_carries_league_type_and_format_guidance():
+    dyn = recommend._build_system_prompt({"name": "L"}, {"rec": 0.5}, season=2026, as_of_week=3, league_type="dynasty")
+    assert "This is a DYNASTY league" in dyn and "FORMAT (the answer is read on a phone)" in dyn
+    plain = recommend._build_system_prompt({"name": "L"}, {"rec": 0.5}, season=2026, as_of_week=3)
+    assert "DYNASTY" not in plain and "FORMAT (" in plain

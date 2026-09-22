@@ -374,6 +374,12 @@ class RecommendContext:
     # the default data/processed/player_stats); scored under this league's
     # settings at load time -- see ranking.SignalTables.load.
     player_stats_dir: Path | None = None
+    # The user's question this turn, verbatim. Tools use it to settle a
+    # name the model passed ambiguously: the user typed "Malachi Fields",
+    # the model passed "Malachi", and the comparison ran against Malachi
+    # Corley (2026-09-21). If exactly one candidate's full name is in the
+    # question, that's the player.
+    question: str | None = None
     _signal_tables: ranking.SignalTables | None = field(default=None, repr=False)
 
     _bye_weeks: dict | None = field(default=None, repr=False)
@@ -469,11 +475,37 @@ def _infer_season_and_week(raw_dir: Path) -> tuple[int, int]:
     return season, sleeper.current_week(state)
 
 
-def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_of_week: int) -> str:
+LEAGUE_TYPE_GUIDANCE = {
+    "dynasty": (
+        "This is a DYNASTY league: rosters carry over every year. Weigh the seasons ahead, not just this "
+        "week -- a rookie or second-year player's low usage now is not a reason to drop him, and a 30-year-old "
+        "RB's big week is not a reason to hold him. Say when a call is a this-week call vs. a long-term one; "
+        "the tools here measure this season only (get_my_roster gives years_exp and age)."
+    ),
+    "keeper": (
+        "This is a KEEPER league: some players carry over next year. Weigh that for young players when "
+        "discussing drops or trades (get_my_roster gives years_exp and age); the tools here measure this "
+        "season only."
+    ),
+    "redraft": "This is a redraft league: this season is all that matters.",
+}
+FORMAT_GUIDANCE = (
+    "FORMAT (the answer is read on a phone): open with the verdict in one bold line. Then 2-5 short bullets, "
+    "one idea each, at most two numbers per bullet, written as a sentence ('Gibbs: 31 pts in his one game, "
+    "50% of Detroit's red-zone touches'), never a semicolon-chained list of every signal. Leave out a signal "
+    "that doesn't change the call. Close with one line on what would change your mind, if anything."
+)
+
+
+def _build_system_prompt(
+    league: dict, scoring_settings: dict, season: int, as_of_week: int, league_type: str | None = None
+) -> str:
     scoring_summary = ", ".join(f"{k}={v}" for k, v in sorted(scoring_settings.items()) if v) or "not available"
     return (
         f'You are Ask Madden, a fantasy football assistant for the Sleeper league "{league.get("name")}" '
         f"({season} season, week {as_of_week}). This league's scoring settings: {scoring_summary}.\n\n"
+        + (LEAGUE_TYPE_GUIDANCE[league_type] + "\n\n" if league_type in LEAGUE_TYPE_GUIDANCE else "")
+        + FORMAT_GUIDANCE + "\n\n"
         "Give recommendations grounded in the specific facts and computed matchup signals you retrieve "
         "via tools -- never a bare opinion, and never a guess about which real player a name refers to. "
         "For any question naming a specific player, call get_player_signals to resolve their identity and "
@@ -542,7 +574,15 @@ def _build_system_prompt(league: dict, scoring_settings: dict, season: int, as_o
         "data, with a data_gaps entry, reason no_signal_data, for each player it listed as unranked with no "
         "signals) -- do not pick the one who happened to have data, and do not pick from general knowledge. "
         "If a name came back unranked as ambiguous, ask which player was meant, exactly as for "
-        "get_player_signals.\n\n"
+        "get_player_signals. Pass every name to rank_players EXACTLY as the user wrote it, surname included: "
+        "a user who typed 'Malachi Fields' once got compared against Malachi Corley because only 'Malachi' was "
+        "passed. If a name still comes back ambiguous, ask -- never run the comparison with a candidate you "
+        "picked yourself, and never state a candidate's team from memory (the tool lists each one's team).\n\n"
+        "State the confidence with every start/sit verdict, using rank_players' `confidence` and "
+        "`confidence_label`: 'Start X -- lean, 61% to outscore Y this week', 'coin flip, 52%: the ranking "
+        "barely separates them, X by a hair'. A coin flip is still the verdict (the Feed shows the same one); "
+        "the label tells the user how much to trust it. Never round 52% up to 'clear' or invent a percentage "
+        "the tool didn't return.\n\n"
         "Always end by calling submit_recommendation exactly once with a concrete recommendation and the "
         "reasoning that led to it, citing the specific signals you retrieved -- this league's scoring "
         "settings above should inform which stats matter (e.g. reception volume matters more here if "
@@ -573,6 +613,8 @@ def _tool_get_my_roster(tool_input: dict, ctx: RecommendContext) -> dict:
                 # Sleeper's own designation (Questionable / Doubtful / Out /
                 # IR / PUP / ...), or None when healthy.
                 "injury_status": p.get("injury_status"),
+                "years_exp": p.get("years_exp"),
+                "age": p.get("age"),
             }
             for p in players
         ]
@@ -659,8 +701,22 @@ def _tool_get_league_rosters(tool_input: dict, ctx: RecommendContext) -> dict:
     }
 
 
+def resolve_named_player(name: str, ctx: RecommendContext):
+    """player_index.resolve_player(), plus one deterministic tie-break:
+    an ambiguous name whose candidates include exactly one player whose
+    full name appears in the user's own question resolves to that
+    player. Never picks between candidates the user didn't name."""
+    result = player_index.resolve_player(name, ctx.player_idx)
+    if result.match_type == "ambiguous" and ctx.question:
+        question = ctx.question.lower()
+        named = [c for c in result.candidates if c.player_name and c.player_name.lower() in question]
+        if len(named) == 1:
+            return player_index.ResolveResult(match_type="exact", candidates=named)
+    return result
+
+
 def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
-    result = player_index.resolve_player(tool_input["player_name"], ctx.player_idx)
+    result = resolve_named_player(tool_input["player_name"], ctx)
 
     if result.match_type == "none":
         return {"resolved": False, "note": f"No current NFL player matches {tool_input['player_name']!r}."}
@@ -742,7 +798,7 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
     candidates: list[dict] = []
     unresolved: list[dict] = []
     for name in names:
-        result = player_index.resolve_player(name, ctx.player_idx)
+        result = resolve_named_player(name, ctx)
         if result.match_type == "none":
             unresolved.append({"name": name, "reason": "unresolved", "note": f"No current NFL player matches {name!r}."})
             continue
@@ -782,6 +838,9 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
         "as_of_week": ctx.as_of_week,
         "verdict": ranked["verdict"],
         "recommended": ranked["recommended"],
+        "confidence": ranked["confidence"],
+        "confidence_label": ranked["confidence_label"],
+        "confidence_description": ranked["confidence_description"],
         "ranked": ranked["ranked"],
         "tied_at_top": ranked["tied_at_top"],
         "unranked": unranked + unresolved,
@@ -1021,10 +1080,13 @@ def recommend(
         roster_id=str(roster_id) if roster_id is not None else None,
         signals_dir=signals_dir,
         player_stats_dir=player_stats_dir,
+        question=question,
     )
 
     client = client or anthropic.Anthropic()
-    system_prompt = _build_system_prompt({"name": league.name}, scoring_settings, season, as_of_week)
+    system_prompt = _build_system_prompt(
+        {"name": league.name}, scoring_settings, season, as_of_week, league_type=league.league_type
+    )
     messages = list(messages) if messages else []
     messages.append({"role": "user", "content": question})
     tool_calls: list[dict] = []

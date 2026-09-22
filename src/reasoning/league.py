@@ -81,8 +81,15 @@ class LeagueConfig:
     # "complete". A pre_draft league has empty rosters everywhere, which
     # the reports must say rather than rank the whole NFL as "unrostered".
     status: str | None = None
+    # "redraft" | "keeper" | "dynasty" from Sleeper's settings.type (0/1/2);
+    # None when unknown. A dynasty league's drop logic cannot be "lowest
+    # usage this month" -- a rookie's value is the seasons ahead.
+    league_type: str | None = None
     raw_dir: Path = RAW_DIR
     persist_dir: Path = CHROMA_DIR
+
+
+LEAGUE_TYPES = {0: "redraft", 1: "keeper", 2: "dynasty"}
 
 
 def read_league_json(path: Path) -> dict:
@@ -138,6 +145,7 @@ def load_league(
         scoring_settings=dict(league.get("scoring_settings") or {}),
         roster_positions=list(league.get("roster_positions") or []),
         status=league.get("status"),
+        league_type=LEAGUE_TYPES.get((league.get("settings") or {}).get("type")),
         raw_dir=raw_dir,
         persist_dir=persist_dir,
     )

@@ -104,6 +104,43 @@ CPOE_WEIGHT = 0.0198              # passers only (the only rows that carry it)
 RUN_FUNNEL_WEIGHT = -0.4007       # opponent defense lean; negative = facing a run-funnel defense predicts fewer points
 MIN_TREND_PLAYS = 20
 
+# Confidence (2026-09-21). The fitted score is a pairwise logistic model,
+# so P(a outscores b) = sigmoid(score_a - score_b) comes for free. Checked
+# on 38,957 held-out 2024+2025 pairs (evals/results/2026-09-21_confidence_
+# calibration.json): within 1-2 points of the actual win rate from 50% to
+# 70%, and overconfident above that (predicted 83%, actual 73-79%). Hence
+# a mild temperature on the logit and a display cap -- we never claim more
+# than 85% on a one-week fantasy call, because the data never supports it.
+CONFIDENCE_TEMPERATURE = 0.85
+CONFIDENCE_CAP = 0.85
+CONFIDENCE_DESCRIPTION = (
+    "win_probability_vs_next = the fitted model's probability that this player outscores the next one in "
+    "the ranking this week (sigmoid of the score difference, tempered by 0.85, capped at 85%). Calibrated on "
+    "38,957 held-out 2024-2025 pairs: 50-70% predictions were right 51-66% of the time; above 70% the model runs "
+    "a few points hot, hence the cap. Labels: coin flip < 55%, lean < 65%, clear < 75%, strong otherwise."
+)
+
+
+def pairwise_confidence(score_a: float, score_b: float) -> float:
+    """P(a outscores b) for two ranked players' scores, tempered and
+    capped -- see CONFIDENCE_TEMPERATURE / CONFIDENCE_CAP."""
+    import math
+
+    logit = CONFIDENCE_TEMPERATURE * (score_a - score_b)
+    return round(min(CONFIDENCE_CAP, 1.0 / (1.0 + math.exp(-logit))), 3)
+
+
+def confidence_label(probability: float | None) -> str | None:
+    if probability is None:
+        return None
+    if probability < 0.55:
+        return "coin flip"
+    if probability < 0.65:
+        return "lean"
+    if probability < 0.75:
+        return "clear"
+    return "strong"
+
 # Thresholds below which a signal counts as a concrete "why this player is
 # weak" reason in the drop report. Same status as the weights above --
 # simple, documented, not fitted.
@@ -344,6 +381,24 @@ def opportunity_score(row: dict | None) -> float | None:
     return sum(w * float(v) for w, v in present)
 
 
+KEY_STAT_FIELDS = ("ppg", "games_played", "ppg_prior_season", "red_zone_share", "opponent", "implied_total",
+                   "run_funnel_rate_vs_avg", "cpoe", "stale", "source_season")
+
+
+def key_stats(row: dict | None) -> dict:
+    """The numbers behind a verdict as structured fields, for a UI that
+    lays them out instead of printing the prose (2026-09-21: the Feed's
+    cards were unreadable walls of semicolons). Same values
+    fmt_signal_row() prints; None where a signal isn't computed. The EPA
+    trend only when it is trustworthy (see MIN_TREND_PLAYS)."""
+    if row is None:
+        return {}
+    out = {k: row.get(k) for k in KEY_STAT_FIELDS}
+    out["target_share"] = target_share(row)
+    out["epa_trend"] = row.get("epa_trend") if (row.get("epa_trend") is not None and trend_is_trustworthy(row)) else None
+    return out
+
+
 def stale_fields(row: dict | None) -> dict:
     """The explicit staleness marker every output entry carries alongside
     its prose -- never rely on a reader noticing a season number buried
@@ -497,6 +552,7 @@ def rank_candidates(candidates: list[dict]) -> dict:
                 **entry,
                 "opportunity_score": round(score, 4),
                 "signals_summary": fmt_signal_row(row),
+                "key_stats": key_stats(row),
                 **stale_fields(row),
                 "_score": score,
             }
@@ -514,13 +570,21 @@ def rank_candidates(candidates: list[dict]) -> dict:
         verdict = "clear"
         tied_at_top = []
 
+    for i, entry in enumerate(scored):
+        nxt = scored[i + 1]["_score"] if i + 1 < len(scored) else None
+        entry["win_probability_vs_next"] = pairwise_confidence(entry["_score"], nxt) if nxt is not None else None
+        entry["confidence_label"] = confidence_label(entry["win_probability_vs_next"])
     ranked = [{k: v for k, v in entry.items() if k != "_score"} for entry in scored]
     tied_at_top = [{k: v for k, v in entry.items() if k != "_score"} for entry in tied_at_top]
+    top_conf = ranked[0]["win_probability_vs_next"] if len(ranked) >= 2 else None
     return {
         "verdict": verdict,
         "recommended": ranked[0] if verdict == "clear" else None,
+        "confidence": top_conf,
+        "confidence_label": confidence_label(top_conf),
         "ranked": ranked,
         "tied_at_top": tied_at_top,
         "unranked": unranked,
         "score_description": SCORE_DESCRIPTION,
+        "confidence_description": CONFIDENCE_DESCRIPTION,
     }
