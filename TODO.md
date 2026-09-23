@@ -1856,7 +1856,14 @@ still returned).
 
 **Validated:** `tests/test_waiver_tool.py` -- trending mapping, holes
 vs. non-holes across three fixture teams with different budgets, the
-hot-backup case, the fail-soft path, and the suggested-bid levels.
+hot-backup case, the fail-soft path, and the suggested-bid levels. Live
+on the hosted app (Fellowship, 2026-09-23): "Bid $12 on Dontayvion Wicks
+(WR, PHI); pass or bid minimum ($0-2) on everyone else" -- the only
+target who upgrades a current starter (+1.2 over Addison), value range
+$4-8 but #18 most-added on Sleeper (398k adds) so $12; Emanuel Wilson
+is the #1 add nationally but would downgrade Henderson; one league
+team (gluttu, $100 left) needs a QB. Yesterday's $16-30 on Juwan Johnson
+is now "-1.1 marginal, pass".
 - [x] Per-position weight vectors (`fit_ranking_weights --per-position`):
       **no gain** -- 60.92% vs 60.83% shared on 38,957 held-out pairs
       (QB 60.2 vs 59.6, RB 62.2 vs 62.2, TE 59.8 vs 60.3, WR 61.2 vs
