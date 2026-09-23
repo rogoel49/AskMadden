@@ -174,3 +174,12 @@ def test_landing_view_makes_no_api_calls(client):
     assert "api(" not in landing and "fetch(" not in landing
     handlers = set(re.findall(r'onclick="([^"]+)"', landing))
     assert handlers and all(h.startswith("goView('login')") for h in handlers), handlers
+
+
+def test_remember_me_only_stores_the_username_and_league(client):
+    """The page may keep exactly one thing in localStorage: {username,
+    league_id}. No session id, no tokens, nothing else."""
+    html = client.get("/ui/").text
+    assert "localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username, league_id: leagueId }))" in html
+    assert html.count("localStorage.setItem(") == 1
+    assert "restoreSession()" in html and "function logout()" in html

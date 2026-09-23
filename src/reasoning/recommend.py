@@ -597,9 +597,12 @@ def _build_system_prompt(
         "picked yourself, and never state a candidate's team from memory (the tool lists each one's team).\n\n"
         "WAIVERS. For 'who should I pick up / bid on', call get_waiver_targets (it carries the ranked unrostered "
         "players, your needs, and the league's waiver rules and FAAB standing). Lead with the targets at the "
-        "positions you need. For bids in a FAAB league, give each target's `bid_guide` amount range and say it is a "
-        "rule of thumb on your remaining budget, not a read of what others will bid; in a non-FAAB league say bids "
-        "don't apply and talk priority instead. Never invent a bid amount the tool didn't return.\n\n"
+        "positions you need. For bids in a FAAB league, give each target's `bid_guide` amount range with its "
+        "`marginal_ppg` and who he'd replace (`replaces`), and say it is a rule of thumb on your remaining budget, "
+        "not a read of what others will bid; if `marginal_ppg` is under 1, say so and recommend passing or a "
+        "minimum bid rather than spending. Early in the season remind the user the budget has to last. In a "
+        "non-FAAB league say bids don't apply and talk priority instead. Never invent a bid amount the tool didn't "
+        "return.\n\n"
         "State the confidence with every start/sit verdict, using rank_players' `confidence` and "
         "`confidence_label`: 'Start X -- lean, 61% to outscore Y this week', 'coin flip, 52%: the ranking "
         "barely separates them, X by a hair'. A coin flip is still the verdict (the Feed shows the same one); "
@@ -916,34 +919,83 @@ def _tool_get_current_matchup(tool_input: dict, ctx: RecommendContext) -> dict:
     return matchup
 
 
-def bid_guide(target: dict, waivers: dict, needs: list[str]) -> dict | None:
-    """A labeled rule of thumb for a FAAB bid, as a share of the
-    remaining budget -- deterministic, so the model never invents a
-    number. Tiers on the pickup's rank within its position and points per
-    game, doubled (capped) when the position is one the roster needs.
-    Not a market model: it doesn't know what other managers will bid."""
+EARLY_SEASON_WEEKS = 4  # through this week, bids are capped: 14+ weeks of waivers are still to come
+
+
+def bid_guide(target: dict, waivers: dict, replacement: dict | None, as_of_week: int) -> dict | None:
+    """A labeled rule of thumb for a FAAB bid, as a share of the remaining
+    budget -- deterministic, so the model never invents a number, and
+    built on the only thing that justifies spending: the weekly points
+    the pickup would ADD over the starter he displaces (`replacement`:
+    {name, ppg} for the roster's weakest current starter at that
+    position, or None when there is nobody there). Tiers on that
+    marginal gain; capped early in the season, when the budget has to
+    last. Not a market model: it doesn't know what other managers will
+    bid. (The first version tiered on the pickup's own rank and doubled
+    for a need, and told a week-3 user to spend $16-30 of $100 on a 10.8
+    ppg tight end -- 2026-09-22.)"""
     if waivers.get("waiver_type") != "faab" or waivers.get("faab_remaining") is None:
         return None
     ks = target.get("key_stats") or {}
-    ppg = ks.get("ppg") or 0
-    rank = target.get("position_rank") or 9
-    if rank == 1 and ppg >= 12:
-        low, high = 0.15, 0.25
-    elif rank == 1:
-        low, high = 0.08, 0.15
-    elif rank <= 3:
-        low, high = 0.03, 0.08
+    own = ranking.blended_ppg({"ppg": ks.get("ppg"), "games_played": ks.get("games_played"), "ppg_prior_season": ks.get("ppg_prior_season")})
+    if own is None:
+        return None
+    baseline = (replacement or {}).get("ppg") or 0.0
+    marginal = round(own - baseline, 1)
+    if marginal >= 6:
+        low, high, label = 0.20, 0.30, "league-winner: adds 6+ pts a week to your lineup"
+    elif marginal >= 3:
+        low, high, label = 0.10, 0.18, "clear upgrade: adds 3-6 pts a week"
+    elif marginal >= 1:
+        low, high, label = 0.04, 0.08, "marginal upgrade: adds 1-3 pts a week"
     else:
-        low, high = 0.01, 0.03
-    if target.get("position") in needs:
-        low, high = min(low * 2, 0.4), min(high * 2, 0.5)
+        low, high, label = 0.00, 0.02, "not an upgrade over what you start: bid the minimum or pass"
+    if as_of_week <= EARLY_SEASON_WEEKS:
+        low, high = min(low, 0.10), min(high, 0.15)
+        label += f"; capped through week {EARLY_SEASON_WEEKS} because the budget has to last the season"
     remaining = waivers["faab_remaining"]
     return {
+        "marginal_ppg": marginal,
+        "replaces": replacement,
         "share_of_remaining": [low, high],
         "amount": [int(round(remaining * low)), int(round(remaining * high))],
-        "basis": "rule of thumb from position rank and points per game (doubled when the position is one you need); "
-                 "not a market model -- it does not know what other managers will bid",
+        "tier": label,
+        "basis": "rule of thumb on the points the pickup adds over your weakest current starter at the position, "
+                 "as a share of your remaining FAAB; not a market model -- it does not know what other managers will bid",
     }
+
+
+def _replacement_starters(ctx: RecommendContext) -> dict[str, dict]:
+    """Per position, the weakest player who would currently start there on
+    THIS roster (the slots-th best by blended ppg; FLEX-type slots not
+    counted): what a pickup at that position has to beat."""
+    my = _tool_get_my_roster({}, ctx)
+    if "players" not in my or ctx.player_idx is None:
+        return {}
+    tables = ctx.signal_tables()
+    by_pos: dict[str, list[dict]] = {}
+    for p in my["players"]:
+        if not p.get("name") or p.get("injury_status") in UNAVAILABLE_INJURY_STATUSES:
+            continue
+        result = player_index.resolve_player(p["name"], ctx.player_idx)
+        if result.match_type != "exact":
+            continue
+        row = tables.row_for(result.candidates[0].player_id)
+        ppg = ranking.blended_ppg(row) if row else None
+        if ppg is None:
+            continue
+        by_pos.setdefault(p["position"], []).append({"name": p["name"], "ppg": round(ppg, 1)})
+    slots: dict[str, int] = {}
+    for slot in lookup.starter_slots(list(ctx.league.roster_positions) if ctx.league else []):
+        if slot not in lookup.FLEX_ELIGIBILITY:
+            slots[slot] = slots.get(slot, 0) + 1
+    out = {}
+    for pos, players in by_pos.items():
+        players.sort(key=lambda x: x["ppg"], reverse=True)
+        n = slots.get(pos, 1)
+        if len(players) >= n:
+            out[pos] = players[n - 1]
+    return out
 
 
 def _tool_get_waiver_targets(tool_input: dict, ctx: RecommendContext) -> dict:
@@ -962,9 +1014,10 @@ def _tool_get_waiver_targets(tool_input: dict, ctx: RecommendContext) -> dict:
     needs: list[str] = []
     if "players" in my and ctx.league:
         needs = _team_needs_and_surplus(my["players"], list(ctx.league.roster_positions))["needs"]
+    replacements = _replacement_starters(ctx)
     targets = [
         {k: e.get(k) for k in ("name", "position", "team", "position_rank", "opportunity_score", "key_stats", "stale", "source_season")}
-        | {"bid_guide": bid_guide(e, waivers, needs)}
+        | {"bid_guide": bid_guide(e, waivers, replacements.get(e["position"]), ctx.as_of_week)}
         for e in entries
     ]
     return {
@@ -972,6 +1025,7 @@ def _tool_get_waiver_targets(tool_input: dict, ctx: RecommendContext) -> dict:
         "as_of_week": ctx.as_of_week,
         "targets": targets,
         "your_needs": needs,
+        "your_weakest_starters": replacements,
         "waivers": waivers,
         "notes": rep["notes"],
         "note": (

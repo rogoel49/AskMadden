@@ -60,7 +60,10 @@ BASE_FEATURES = ["ppg", "ppg_prior", "target_share", "red_zone_share", "epa_tren
 #   opp_pos_allowed_rel  this week's opponent's fantasy points allowed per game to the player's position, as-of,
 #                        relative to the league average for that position (allowed/avg - 1); 0 when unknown
 #   ppg_last3            points per game over the previous 3 weeks (recency), as-of
-CANDIDATE_FEATURES = ["opp_pos_allowed_rel", "ppg_last3"]
+#   opp_epa_allowed_rel  this week's opponent defense's EPA allowed per play on the plays that matter for the
+#                        position (rush plays for RBs, pass plays for QB/WR/TE), as-of, minus the league mean --
+#                        the in-season-available cousin of a coverage/scheme signal (positive = softer defense)
+CANDIDATE_FEATURES = ["opp_pos_allowed_rel", "ppg_last3", "opp_epa_allowed_rel"]
 FEATURES = list(BASE_FEATURES)
 # --blend K replaces ppg/ppg_prior with one shrunk estimate: (games*ppg + K*ppg_prior)/(games+K) -- K prior-season
 # "pseudo-games", so one big week early in the season doesn't read like a season's average. With no prior season the
@@ -102,8 +105,25 @@ def features_for(row: dict | None, proxy: dict | None, prior: dict | None, extra
         "run_funnel_rate_vs_avg": row.get("run_funnel_rate_vs_avg"),
         "opp_pos_allowed_rel": extra.get("opp_pos_allowed_rel"),
         "ppg_last3": extra.get("ppg_last3"),
+        "opp_epa_allowed_rel": extra.get("opp_epa_allowed_rel"),
     }
     return [float(vals[f]) if vals[f] is not None else 0.0 for f in FEATURES]
+
+
+def defense_epa_allowed(pbp: pl.DataFrame, season: int, as_of_week: int) -> dict[tuple[str, str], float]:
+    """Per (defense, "rush"|"pass"): mean EPA allowed per play on regular-
+    season plays before as_of_week, plus the league mean keyed ("*", kind)."""
+    plays = pbp.filter((pl.col("season") == season) & (pl.col("week") < as_of_week) & (pl.col("season_type") == "REG")
+                       & pl.col("epa").is_not_null() & pl.col("defteam").is_not_null())
+    out: dict[tuple[str, str], float] = {}
+    for kind, col in (("rush", "rush_attempt"), ("pass", "pass_attempt")):
+        sub = plays.filter(pl.col(col) == 1)
+        if sub.is_empty():
+            continue
+        for row in sub.group_by("defteam").agg(pl.col("epa").mean().alias("epa")).to_dicts():
+            out[(row["defteam"], kind)] = float(row["epa"])
+        out[("*", kind)] = float(sub["epa"].mean())
+    return out
 
 
 def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
@@ -124,6 +144,7 @@ def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
         proxy = pp.season_points_proxy(stats, FIT_SCORING, as_of_week=week)
         allowed = pp.points_allowed_by_position(stats, FIT_SCORING, as_of_week=week)
         last3 = pp.trailing_ppg(stats, FIT_SCORING, as_of_week=week)
+        epa_allowed = defense_epa_allowed(pbp, season, week)
 
         def extra_for(pid: str) -> dict:
             row = rows.get(pid) or {}
@@ -132,7 +153,13 @@ def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
             rel = None
             if opp and pos and (opp, pos) in allowed and ("*", pos) in allowed and allowed[("*", pos)]["allowed_pg"]:
                 rel = allowed[(opp, pos)]["allowed_pg"] / allowed[("*", pos)]["allowed_pg"] - 1.0
-            return {"opp_pos_allowed_rel": rel, "ppg_last3": (last3.get(pid) or {}).get("ppg_last")}
+            epa_rel = None
+            if opp and pos:
+                kind = "rush" if pos == "RB" else "pass"
+                d = epa_allowed.get((opp, kind)); m = epa_allowed.get(("*", kind))
+                if d is not None and m is not None:
+                    epa_rel = d - m
+            return {"opp_pos_allowed_rel": rel, "ppg_last3": (last3.get(pid) or {}).get("ppg_last"), "opp_epa_allowed_rel": epa_rel}
         actual = {r["player_id"]: r["points"] for r in weekly.filter(pl.col("week") == week).to_dicts()}
         by_pos: dict[str, list[str]] = {}
         for pid, pts in actual.items():
