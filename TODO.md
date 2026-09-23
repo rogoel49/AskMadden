@@ -1768,6 +1768,64 @@ with a bid of $16-30; ... All bid ranges are rules of thumb on your
 remaining budget, not market predictions." -- targets at the need
 position first, amounts from the tool's guide, label carried through.
 
+## Bid guide reworked around marginal points; remember-me; defense-scheme signals, what exists and what's blocked (2026-09-22)
+
+**"Betting $30 on FAAB when you only have $100 for the season and
+we're in week 3... is that the smartest use?"** No. The first bid guide
+tiered on the pickup's own rank and doubled for a needed position, which
+is how a 10.8-ppg tight end became a $16-30 ask. It now tiers on the
+only thing that justifies spending -- the weekly points the pickup adds
+over the starter he would displace (`_replacement_starters()`: the
+slots-th best current starter at the position by blended ppg, FLEX not
+counted) -- 6+ ppg gained: 20-30% of remaining; 3-6: 10-18%; 1-3: 4-8%;
+under 1: 0-2% "bid the minimum or pass" -- and through week 4 it is
+capped at 10-15% because the budget has to last. The same TE over a
+5.3-ppg Kraft in week 3 is now $10-15 with "adds 5.5 pts a week, capped
+through week 4". Each guide carries `marginal_ppg`, `replaces`, `tier`
+and the not-a-market-model basis; the prompt has the model say who is
+displaced and to pass when the gain is under 1. Still a rule of thumb;
+it knows nothing about what other managers will bid.
+
+**Remember me.** localStorage now holds exactly one thing: {username,
+league_id}. On load, `restoreSession()` re-creates the session
+server-side (the league is already ingested, so it's fast) and goes
+straight to the Feed; the league sheet shows who is signed in with a
+Log out that clears it. Pinned by a static test (one `localStorage.
+setItem` in the file, storing only those two fields) and checked in
+headless Chrome: reload keeps the league, log out returns to the landing
+page with the store empty.
+
+**"Do we have signals on offensive players against defensive coverages
+and specific defensive players?"** Partly, and the specific version is
+blocked by data, not by design:
+- *What's in today:* the opponent's run-funnel lean (run vs pass yards
+  allowed vs. league average) is a ranked feature, and its fitted weight
+  is real (-0.40). "The Colts have a bad defense generally" is
+  therefore in, coarsely. The opponent's points allowed per game to the
+  position was tested this morning and added nothing (+0.08).
+- *What's testable now (running):* the defense's EPA allowed per play
+  split by play type -- rush plays for a RB, pass plays for a WR/TE/QB,
+  as-of, relative to the league mean (`--with opp_epa_allowed_rel`).
+  This is the closest in-season-available cousin of "the Niners' run
+  defense is bad this year, so the RB against them gets an edge".
+- *What's blocked:* the version Rohan describes -- a player's profile
+  against a defense's coverage scheme (man vs zone, coverage shell) --
+  is PROJECT_SPEC.md's Phase 4. The data exists in nflverse's
+  participation set (`defense_man_zone_type`, `defense_coverage_type`)
+  for 2016-2025, so it can be BUILT and BACKTESTED on the harness, but
+  it is not published for the current season (`load_participation(2026)`
+  refuses). A shipped version would have to use last season's coverage
+  tendencies as a prior, labeled as such. Specific defensive players
+  (shadow corners, injured linebackers) aren't in any free source. Order
+  of business stays: only if the backtest moves held-out accuracy.
+- [x] Result of the EPA-split test: **no gain** -- 60.81% vs 60.83%
+      without it on 38,957 held-out 2024+2025 pairs (weight 0.036; the
+      run-funnel lean already carries what this measures). Not adopted.
+      Three defense-matchup features tried today, none moved the
+      number: the opponent's general quality is already priced in via
+      run-funnel lean, and the finer-grained scheme version needs the
+      coverage data that isn't published in-season (Phase 4).
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

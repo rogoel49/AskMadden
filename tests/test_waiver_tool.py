@@ -24,14 +24,21 @@ def test_waiver_status_reads_the_leagues_rules_and_this_teams_faab(tmp_path, mon
     assert (w["waiver_type"], w["faab_budget"], w["faab_used"], w["faab_remaining"], w["waiver_position"]) == ("faab", 200, 45, 155, 5)
 
 
-def test_bid_guide_is_a_labeled_rule_of_thumb_on_the_remaining_budget():
+def test_bid_guide_tiers_on_the_points_added_over_the_displaced_starter_and_caps_early():
     waivers = {"waiver_type": "faab", "faab_remaining": 100}
-    top = {"position": "TE", "position_rank": 1, "key_stats": {"ppg": 14.0}}
-    g = recommend.bid_guide(top, waivers, needs=["TE"])
-    assert g["amount"] == [30, 50] and "not a market model" in g["basis"]  # 15-25%, doubled for a need
-    assert recommend.bid_guide(top, waivers, needs=[])["amount"] == [15, 25]
-    assert recommend.bid_guide({"position": "RB", "position_rank": 4, "key_stats": {}}, waivers, [])["amount"] == [1, 3]
-    assert recommend.bid_guide(top, {"waiver_type": "rolling"}, ["TE"]) is None
+    te = {"position": "TE", "position_rank": 1, "key_stats": {"ppg": 10.8, "games_played": 2, "ppg_prior_season": None}}
+    # the 2026-09-22 case: a 10.8 ppg TE over a 5.3 ppg starter in week 3 -> +5.5, a clear upgrade, but capped early
+    g = recommend.bid_guide(te, waivers, {"name": "Tucker Kraft", "ppg": 5.3}, as_of_week=3)
+    assert g["marginal_ppg"] == 5.5 and g["amount"] == [10, 15] and "capped through week 4" in g["tier"]
+    # same pickup in week 8: the clear-upgrade tier uncapped
+    assert recommend.bid_guide(te, waivers, {"name": "Tucker Kraft", "ppg": 5.3}, as_of_week=8)["amount"] == [10, 18]
+    # not an upgrade over what you start -> minimum or pass
+    g = recommend.bid_guide(te, waivers, {"name": "Trey McBride", "ppg": 14.0}, as_of_week=8)
+    assert g["amount"] == [0, 2] and g["tier"].startswith("not an upgrade")
+    # nobody at the position: the whole ppg is the gain
+    assert recommend.bid_guide(te, waivers, None, as_of_week=8)["marginal_ppg"] == 10.8
+    assert recommend.bid_guide(te, {"waiver_type": "rolling"}, None, 8) is None
+    assert "not a market model" in recommend.bid_guide(te, waivers, None, 8)["basis"]
 
 
 def test_get_waiver_targets_tool_returns_targets_needs_rules_and_bids(tmp_path, monkeypatch):
@@ -51,7 +58,8 @@ def test_get_waiver_targets_tool_returns_targets_needs_rules_and_bids(tmp_path, 
     names = [t["name"] for t in out["targets"]]
     assert "Ja'Marr Chase" in names
     chase = next(t for t in out["targets"] if t["name"] == "Ja'Marr Chase")
-    assert chase["bid_guide"]["amount"][1] > chase["bid_guide"]["amount"][0] > 0
+    assert chase["bid_guide"] is None  # the fixture has no stat lines, so no points on record -> no bid guide, never a guess
+    assert out["your_weakest_starters"] == {}  # no points on record in this fixture -> nothing to displace
     assert chase["key_stats"]["red_zone_share"] is not None
     assert recommend.dispatch_tool("get_waiver_targets", {"position": "TE"}, ctx)["targets"] == []
 

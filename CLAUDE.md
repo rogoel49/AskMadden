@@ -433,8 +433,10 @@ The landing page's eval-numbers band shows labeled placeholders until
 real eval numbers exist (see TODO.md's 5.5 entry for what gates each).
 As of Phase 5.3 the file is wired to the real API and is served on the
 API's own origin (no CORS needed) — since 5.6 by `src/api/main.py`
-itself, mounted at `/ui` with `/` redirecting there; it keeps all
-state in JS for the life of the tab — no localStorage. As of Phase 5.4
+itself, mounted at `/ui` with `/` redirecting there; it keeps state
+in JS for the life of the tab, plus one remember-me token
+({username, league_id}) in localStorage so a return visit skips the
+sign-in flow (2026-09-22). As of Phase 5.4
 it is installable: `design/manifest.json`, `design/sw.js` (scope is
 the file's directory, so `/api/` is never intercepted — which is why
 the page lives under `/ui/` and not at `/`; the HTML is network-first
