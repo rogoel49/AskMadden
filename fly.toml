@@ -14,6 +14,9 @@ primary_region = "iad"
   dockerfile = "Dockerfile"
 
 [env]
+  # Every other hostname (www., the fly.dev one) redirects here so the
+  # browser's remember-me storage is one origin.
+  ASKMADDEN_CANONICAL_HOST = "askmadden.com"
   # The in-process refresh is the right shape here: exactly one machine,
   # never stopped (see http_service below). If this ever runs more than one
   # machine, set this to "0" and schedule `python -m src.scheduler.refresh

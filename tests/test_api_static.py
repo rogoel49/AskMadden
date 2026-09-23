@@ -183,3 +183,16 @@ def test_remember_me_only_stores_the_username_and_league(client):
     assert "localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username, league_id: leagueId }))" in html
     assert html.count("localStorage.setItem(") == 1
     assert "restoreSession()" in html and "function logout()" in html
+
+
+def test_non_canonical_hosts_redirect_to_the_canonical_one(monkeypatch):
+    monkeypatch.setattr(main, "CANONICAL_HOST", "askmadden.com")
+    c = TestClient(main.app)
+    r = c.get("/ui/", headers={"host": "www.askmadden.com"}, follow_redirects=False)
+    assert r.status_code == 301 and r.headers["location"] == "https://askmadden.com/ui/"
+    r = c.get("/api/roster?session_id=x", headers={"host": "askmadden.fly.dev"}, follow_redirects=False)
+    assert r.status_code == 301 and r.headers["location"] == "https://askmadden.com/api/roster?session_id=x"
+    assert c.get("/ui/", headers={"host": "askmadden.com"}).status_code == 200
+    assert c.get("/api/health", headers={"host": "www.askmadden.com"}).status_code == 200  # probes never redirected
+    monkeypatch.setattr(main, "CANONICAL_HOST", "")
+    assert c.get("/ui/", headers={"host": "www.askmadden.com"}).status_code == 200  # unset: no redirect (local dev)

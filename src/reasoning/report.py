@@ -228,6 +228,7 @@ def _resolve_roster_with_signals(
                 "team": player.get("team") or signal_result.get("team"),
                 "injury_status": player.get("injury_status"),
                 "years_exp": player.get("years_exp"),
+                "sleeper_id": player.get("player_id"),  # Sleeper's own id -> its headshot CDN in the UI
                 "row": tables.row_for(player_id),
             }
         )
@@ -277,9 +278,10 @@ def _slot_counts(roster_positions: list[str]) -> dict[str, int]:
     return counts
 
 
-def _player_ref(ranked: dict, injury_status: str | None = None) -> dict:
+def _player_ref(ranked: dict, injury_status: str | None = None, sleeper_id: str | None = None) -> dict:
     return {
         "player_id": ranked["player_id"],
+        "sleeper_id": sleeper_id,
         "name": ranked["name"],
         "team": ranked["team"],
         "position": ranked.get("position"),
@@ -298,8 +300,10 @@ def _player_ref(ranked: dict, injury_status: str | None = None) -> dict:
 def _start_sit_entry(
     slot: str, n_slots: int, starters: list[dict], alternatives: list[dict], eligible: tuple[str, ...] | None,
     injuries: dict[str, str | None] | None = None,
+    sleeper_ids: dict[str, str | None] | None = None,
 ) -> dict:
     injuries = injuries or {}
+    sleeper_ids = sleeper_ids or {}
     where = slot if n_slots == 1 else f"{slot} ({n_slots} slots)"
     if len(starters) == 1:
         reasoning = f"Start {starters[0]['name']} at {where}: {starters[0]['signals_summary']}."
@@ -313,9 +317,9 @@ def _start_sit_entry(
         "slots": n_slots,
         # The top pick, kept under its long-standing name -- it is the
         # verdict Chat's rank_players is held to (see ranking.py).
-        "recommended_starter": _player_ref(starters[0], injuries.get(starters[0]["player_id"])),
-        "recommended_starters": [_player_ref(s, injuries.get(s["player_id"])) for s in starters],
-        "alternatives_considered": [_player_ref(a, injuries.get(a["player_id"])) for a in alternatives],
+        "recommended_starter": _player_ref(starters[0], injuries.get(starters[0]["player_id"]), sleeper_ids.get(starters[0]["player_id"])),
+        "recommended_starters": [_player_ref(s, injuries.get(s["player_id"]), sleeper_ids.get(s["player_id"])) for s in starters],
+        "alternatives_considered": [_player_ref(a, injuries.get(a["player_id"]), sleeper_ids.get(a["player_id"])) for a in alternatives],
         "reasoning": reasoning,
     }
     if eligible is not None:
@@ -335,6 +339,7 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
         )
         resolved = [c for c in resolved if c.get("injury_status") not in UNAVAILABLE_STATUSES]
     injuries = {c["player_id"]: c.get("injury_status") for c in resolved}
+    sleeper_ids = {c["player_id"]: c.get("sleeper_id") for c in resolved}
 
     by_position: dict[str, list[dict]] = {}
     for candidate in resolved:
@@ -389,7 +394,7 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
         starters, alternatives = ranking["ranked"][:n_slots], ranking["ranked"][n_slots:]
         if position in flex_eligible_positions:
             flex_pool.extend(by_id[alt["player_id"]] for alt in alternatives)
-        entries.append(_start_sit_entry(position, n_slots, starters, alternatives, None, injuries))
+        entries.append(_start_sit_entry(position, n_slots, starters, alternatives, None, injuries, sleeper_ids))
 
     for slot, n_slots in flex_slots:
         eligible = lookup.FLEX_ELIGIBILITY[slot]
@@ -402,7 +407,7 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
         starters, alternatives = ranking["ranked"][:n_slots], ranking["ranked"][n_slots:]
         chosen = {s["player_id"] for s in starters}
         flex_pool = [c for c in flex_pool if c["player_id"] not in chosen]
-        entries.append(_start_sit_entry(slot, n_slots, starters, alternatives, eligible, injuries))
+        entries.append(_start_sit_entry(slot, n_slots, starters, alternatives, eligible, injuries, sleeper_ids))
 
     header = _report_header(ctx, "start_sit")
     header["entries"] = entries
@@ -456,6 +461,7 @@ def _drop_report(ctx: recommend.RecommendContext, tables: SignalTables, bottom_n
             "key_stats": key_stats(c["row"]),
             "years_exp": c.get("years_exp"),
             "injury_status": c.get("injury_status"),
+            "sleeper_id": c.get("sleeper_id"),
             **stale_fields(c["row"]),
         }
         for c, _ in weakest
@@ -546,9 +552,11 @@ def _waiver_pickups_report(
             break
         depth += 1
 
+    sleeper_by_name = lookup.sleeper_ids_by_name(raw_dir)
     entries = [
         {
             "player_id": c["player_id"],
+            "sleeper_id": sleeper_by_name.get((c["player_name"], c["position"])),
             "name": c["player_name"],
             "position": c["position"],
             "team": c["team"],

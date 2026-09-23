@@ -163,6 +163,25 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="Ask Madden API", version="0.5.6", lifespan=_lifespan)
 
+# One canonical host. The page's remember-me token lives in the browser's
+# storage, which is per origin: a login on www.askmadden.com is invisible
+# on askmadden.com (2026-09-23: "I logged in, closed the tab, typed
+# askmadden.com and had to log in again"). Set ASKMADDEN_CANONICAL_HOST
+# (fly.toml does) and every other host that serves this app redirects to
+# it, path and query intact. Health checks (Fly probes the machine by IP)
+# and an unset variable are left alone.
+CANONICAL_HOST = (os.environ.get("ASKMADDEN_CANONICAL_HOST") or "").strip().lower()
+
+
+@app.middleware("http")
+async def _canonical_host(request, call_next):
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if CANONICAL_HOST and host and host != CANONICAL_HOST and not request.url.path.startswith("/api/health") and "." in host:
+        from fastapi.responses import RedirectResponse as _R
+
+        return _R(str(request.url.replace(netloc=CANONICAL_HOST, scheme="https")), status_code=301)
+    return await call_next(request)
+
 
 # ---- dependencies (overridable in tests) ----
 

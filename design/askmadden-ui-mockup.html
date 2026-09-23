@@ -273,7 +273,8 @@
   .rec-card{ flex:0 0 auto; width:222px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px; }
   .rec-top{ display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px; }
   .player-id{ display:flex; gap:9px; align-items:center; }
-  .avatar-ring{ width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; background:var(--elevated); border:2px solid var(--surface-2); flex:0 0 auto; }
+  .avatar-ring{ width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; background:var(--elevated); border:2px solid var(--surface-2); flex:0 0 auto; position:relative; overflow:hidden; }
+  .avatar-ring img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:top; background:var(--elevated); }
   .avatar-ring.rb{ border-color:#3a7bff44; } .avatar-ring.wr{ border-color:var(--green-line); } .avatar-ring.qb{ border-color:var(--amber); }
   .pname{ font-size:13.5px; font-weight:600; line-height:1.2; } .ppos{ font-size:11px; color:var(--text-faint); }
   .verdict{ font-family:'Anton'; font-size:11px; letter-spacing:.04em; padding:5px 9px; border-radius:7px; line-height:1; }
@@ -828,9 +829,9 @@
   }
   function renderRoster(){
     const r = state.roster;
-    const avatar = document.getElementById('hdr-team-initials');
-    avatar.textContent = initials(r.team_name || state.username);
-    avatar.title = `Your team: ${r.team_name || state.username}`;
+    const teamAvatar = document.getElementById('hdr-team-initials');
+    teamAvatar.textContent = initials(r.team_name || state.username);
+    teamAvatar.title = `Your team: ${r.team_name || state.username}`;
     document.getElementById('roster-meta').textContent = `${r.team_name || 'Your team'} · ${r.players.length} players · ${Object.entries(r.counts_by_position || {}).map(([p,n]) => `${n} ${p}`).join(', ')}`;
     // Laid out the way Sleeper's roster screen does it: starting slots in
     // the league's order (from /api/roster's `lineup`), then bench, then
@@ -839,7 +840,7 @@
     if (r.lineup && r.lineup.length) {
       const slotRow = (slot, p) => `<div class="lineup-row${p ? '' : ' empty'}">
           <div class="slot-badge ${slotClass(slot)}">${esc(slot.replace('SUPER_FLEX','SFLX').replace('REC_FLEX','RFLX').replace('WRRB_FLEX','W/R'))}</div>
-          ${p ? `<div class="avatar-ring ${posClass(p.position)}">${esc(initials(p.name))}</div>
+          ${p ? avatar(p.name, p.position, p.player_id, p.team) + `
           <div class="roster-mid"><div class="pname">${esc(p.name || p.player_id)}${injuryTag(p)}</div><div class="matchup">${esc(p.position || '—')} · ${esc(p.team || '—')}${p.number != null ? ` · #${esc(p.number)}` : ''}</div></div>`
              : `<div class="roster-mid"><div class="pname empty">Empty</div></div>`}
         </div>`;
@@ -913,6 +914,16 @@
     const cls = label === 'coin flip' ? 'stale' : label === 'lean' ? 'pos' : 'conf';
     return `<span class="chip ${cls}" title="Probability of outscoring the next player in this ranking this week (calibrated on 2024-25 backtests; capped at 85%)">${p}% · ${esc(label)}</span>`;
   }
+  // ---- headshots (2026-09-23): Sleeper's own thumbnail CDN, keyed by the Sleeper id every
+  // roster/report entry carries; a team defense uses the team logo. Missing image -> initials.
+  function avatar(name, pos, sleeperId, team){
+    const cls = `avatar-ring ${posClass(pos)}`;
+    const id = sleeperId != null ? String(sleeperId) : '';
+    const src = !id ? '' : /^[0-9]+$/.test(id) ? `https://sleepercdn.com/content/nfl/players/thumb/${id}.jpg`
+              : `https://sleepercdn.com/images/team_logos/nfl/${id.toLowerCase()}.png`;
+    const img = src ? `<img src="${src}" alt="" loading="lazy" onerror="this.remove()">` : '';
+    return `<div class="${cls}">${img}<span>${esc(initials(name))}</span></div>`;
+  }
   // ---- the player card (used by start/sit, drops and waivers) ----
   const pct = (x) => x == null ? null : `${Math.round(x * 100)}%`;
   const num1 = (x) => x == null ? null : (Math.round(x * 10) / 10).toFixed(1);
@@ -937,7 +948,7 @@
   function playerCard({ name, pos, team, verdict, verdictLabel, entry, slotLabel, rank, reason, scoreChip }){
     const ks = (entry && entry.key_stats) || {};
     const stale = !!(entry && entry.stale);
-    const head = `<div class="pcard-head">${rank ? `<div class="rank">${esc(rank)}</div>` : ''}<div class="avatar-ring ${posClass(pos)}">${esc(initials(name))}</div><div class="who"><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div>${verdict ? `<div class="verdict ${verdict}">${esc(verdictLabel || verdict.toUpperCase())}</div>` : ''}</div>`;
+    const head = `<div class="pcard-head">${rank ? `<div class="rank">${esc(rank)}</div>` : ''}${avatar(name, pos, entry && (entry.sleeper_id || entry.player_id_sleeper), team)}<div class="who"><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div>${verdict ? `<div class="verdict ${verdict}">${esc(verdictLabel || verdict.toUpperCase())}</div>` : ''}</div>`;
     const stats = statCells(ks, stale);
     const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${entry && entry.injury_status ? `<span class="chip ${entry.injury_status === 'Questionable' ? 'stale' : 'scope'}" title="Sleeper injury designation">${esc(entry.injury_status)}</span>` : ''}</div>`;
     const title = esc((entry && (entry.signals_summary || entry.reasoning)) || '');

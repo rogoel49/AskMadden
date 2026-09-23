@@ -350,6 +350,18 @@ def waiver_status(roster_id: Any, raw_dir: Path = RAW_DIR) -> dict:
     }
 
 
+def sleeper_ids_by_name(raw_dir: Path = RAW_DIR) -> dict[tuple[str, str], str]:
+    """{(full name, position): Sleeper player id} over the league's
+    players.json -- for entries that come from nflverse ids (the waiver
+    pool) and need Sleeper's id for its headshot CDN."""
+    _, players = _load_teams_and_players(raw_dir)
+    out: dict[tuple[str, str], str] = {}
+    for pid, p in players.items():
+        if p.get("full_name") and p.get("position"):
+            out.setdefault((p["full_name"], p["position"]), pid)
+    return out
+
+
 def all_teams_faab(raw_dir: Path = RAW_DIR) -> list[dict]:
     """Every team's remaining FAAB (None in a non-FAAB league):
     [{roster_id, owner_display_name, faab_remaining, waiver_position}]."""
