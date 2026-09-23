@@ -512,7 +512,7 @@ def test_chat_attaches_the_points_proxy_note_only_when_the_turn_compared_rosters
     _script_grounded_answer(api["claude"])
     api["claude"].responses.insert(0, _resp(_tool("get_league_rosters", {}, "t0")))  # a roster comparison this turn
     resp = api["client"].post("/api/chat", json=body).json()
-    assert resp["points_proxy_note"].startswith("Trade comparisons above are points-per-game")
+    assert resp["points_proxy_note"].startswith("Player comparisons above are points-per-game")
     _script_grounded_answer(api["claude"])
     assert api["client"].post("/api/chat", json=body).json()["points_proxy_note"] is None
 

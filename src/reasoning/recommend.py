@@ -261,6 +261,23 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "get_waiver_targets",
+        "description": (
+            "Waiver / free-agent pickups for THIS league: unrostered players ranked within position by the "
+            "same fitted score the Feed uses, with this roster's positional needs, how waivers work here "
+            "(rolling priority, reverse standings, or FAAB), the FAAB budget total/used/remaining, and a labeled "
+            "bid rule of thumb per target. Use for any 'who should I pick up / add / claim / bid on' question. "
+            "Optional position filter."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "position": {"type": "string", "description": "Optional: QB, RB, WR or TE to restrict the list."},
+                "top_n": {"type": "integer", "description": "How many targets to return (default 8)."},
+            },
+        },
+    },
+    {
         "name": "search_league_info",
         "description": (
             "Semantic search over this league's general information -- settings, matchup "
@@ -578,6 +595,11 @@ def _build_system_prompt(
         "a user who typed 'Malachi Fields' once got compared against Malachi Corley because only 'Malachi' was "
         "passed. If a name still comes back ambiguous, ask -- never run the comparison with a candidate you "
         "picked yourself, and never state a candidate's team from memory (the tool lists each one's team).\n\n"
+        "WAIVERS. For 'who should I pick up / bid on', call get_waiver_targets (it carries the ranked unrostered "
+        "players, your needs, and the league's waiver rules and FAAB standing). Lead with the targets at the "
+        "positions you need. For bids in a FAAB league, give each target's `bid_guide` amount range and say it is a "
+        "rule of thumb on your remaining budget, not a read of what others will bid; in a non-FAAB league say bids "
+        "don't apply and talk priority instead. Never invent a bid amount the tool didn't return.\n\n"
         "State the confidence with every start/sit verdict, using rank_players' `confidence` and "
         "`confidence_label`: 'Start X -- lean, 61% to outscore Y this week', 'coin flip, 52%: the ranking "
         "barely separates them, X by a hair'. A coin flip is still the verdict (the Feed shows the same one); "
@@ -894,6 +916,72 @@ def _tool_get_current_matchup(tool_input: dict, ctx: RecommendContext) -> dict:
     return matchup
 
 
+def bid_guide(target: dict, waivers: dict, needs: list[str]) -> dict | None:
+    """A labeled rule of thumb for a FAAB bid, as a share of the
+    remaining budget -- deterministic, so the model never invents a
+    number. Tiers on the pickup's rank within its position and points per
+    game, doubled (capped) when the position is one the roster needs.
+    Not a market model: it doesn't know what other managers will bid."""
+    if waivers.get("waiver_type") != "faab" or waivers.get("faab_remaining") is None:
+        return None
+    ks = target.get("key_stats") or {}
+    ppg = ks.get("ppg") or 0
+    rank = target.get("position_rank") or 9
+    if rank == 1 and ppg >= 12:
+        low, high = 0.15, 0.25
+    elif rank == 1:
+        low, high = 0.08, 0.15
+    elif rank <= 3:
+        low, high = 0.03, 0.08
+    else:
+        low, high = 0.01, 0.03
+    if target.get("position") in needs:
+        low, high = min(low * 2, 0.4), min(high * 2, 0.5)
+    remaining = waivers["faab_remaining"]
+    return {
+        "share_of_remaining": [low, high],
+        "amount": [int(round(remaining * low)), int(round(remaining * high))],
+        "basis": "rule of thumb from position rank and points per game (doubled when the position is one you need); "
+                 "not a market model -- it does not know what other managers will bid",
+    }
+
+
+def _tool_get_waiver_targets(tool_input: dict, ctx: RecommendContext) -> dict:
+    """The Feed's waiver report, for chat: unrostered players ranked
+    within position on the same fitted score, with this roster's needs,
+    how waivers work in this league, the FAAB standing, and a labeled bid
+    rule of thumb per target."""
+    from src.reasoning import report  # lazy: report imports this module
+
+    position = (tool_input.get("position") or "").upper() or None
+    top_n = int(tool_input.get("top_n") or 8)
+    rep = report._waiver_pickups_report(ctx.raw_dir, ctx, ctx.signal_tables(), top_n=40)
+    entries = [e for e in rep["entries"] if not position or e["position"] == position][:top_n]
+    waivers = lookup.waiver_status(ctx.roster_id, ctx.raw_dir) if ctx.roster_id is not None else {}
+    my = _tool_get_my_roster({}, ctx)
+    needs: list[str] = []
+    if "players" in my and ctx.league:
+        needs = _team_needs_and_surplus(my["players"], list(ctx.league.roster_positions))["needs"]
+    targets = [
+        {k: e.get(k) for k in ("name", "position", "team", "position_rank", "opportunity_score", "key_stats", "stale", "source_season")}
+        | {"bid_guide": bid_guide(e, waivers, needs)}
+        for e in entries
+    ]
+    return {
+        "season": ctx.season,
+        "as_of_week": ctx.as_of_week,
+        "targets": targets,
+        "your_needs": needs,
+        "waivers": waivers,
+        "notes": rep["notes"],
+        "note": (
+            "Targets are the same deterministic ranking the Feed's Waiver targets shows (within position). bid_guide is a "
+            "labeled rule of thumb on the remaining FAAB, not a market model; in a non-FAAB league there is no bid, only "
+            "waiver priority."
+        ),
+    }
+
+
 def _tool_search_league_info(tool_input: dict, ctx: RecommendContext) -> dict:
     # League info only -- see retrieve.LEAGUE_INFO_ONLY. This tool's own
     # description already tells the model it is not for player signals.
@@ -912,6 +1000,7 @@ _DISPATCH = {
     "get_team_record": _tool_get_team_record,
     "get_current_matchup": _tool_get_current_matchup,
     "search_league_info": _tool_search_league_info,
+    "get_waiver_targets": _tool_get_waiver_targets,
 }
 
 

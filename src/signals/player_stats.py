@@ -44,7 +44,7 @@ STAT_COLUMNS = [
     "receptions", "receiving_yards", "receiving_tds", "receiving_2pt_conversions",
     "rushing_fumbles_lost", "receiving_fumbles_lost", "sack_fumbles_lost",
 ]
-ID_COLUMNS = ["player_id", "player_display_name", "position", "team", "season", "week"]
+ID_COLUMNS = ["player_id", "player_display_name", "position", "team", "opponent_team", "season", "week"]
 
 
 def fetch_weekly_stats(season: int) -> pl.DataFrame:

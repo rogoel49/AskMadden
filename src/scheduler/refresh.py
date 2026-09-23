@@ -559,6 +559,14 @@ def start_background_refresh(
 
     def _loop() -> None:
         LOGGER.info("background refresh started: every %ds", seconds)
+        try:
+            # Linux schedules threads individually, so the refresh can run at
+            # low priority and request threads win the CPU while a cycle is
+            # re-embedding (the site felt slow during every cycle before).
+            # Not supported everywhere; a failure just means normal priority.
+            os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 10)
+        except (OSError, AttributeError):
+            pass
         if not run_immediately:
             stop.wait(seconds)
         else:

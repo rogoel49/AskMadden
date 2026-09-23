@@ -55,7 +55,13 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # own scoring at query time.
 FIT_SCORING = {"rec": 0.5, "pass_td": 4, "pass_yd": 0.04, "pass_int": -1, "pass_2pt": 2, "rush_yd": 0.1, "rush_td": 6,
                "rush_2pt": 2, "rec_yd": 0.1, "rec_td": 6, "rec_2pt": 2, "fum_lost": -2}
-FEATURES = ["ppg", "ppg_prior", "target_share", "red_zone_share", "epa_trend", "implied_total", "cpoe", "run_funnel_rate_vs_avg"]
+BASE_FEATURES = ["ppg", "ppg_prior", "target_share", "red_zone_share", "epa_trend", "implied_total", "cpoe", "run_funnel_rate_vs_avg"]
+# Step 3 candidates (2026-09-22), each accepted only if held-out accuracy moves on BOTH test seasons:
+#   opp_pos_allowed_rel  this week's opponent's fantasy points allowed per game to the player's position, as-of,
+#                        relative to the league average for that position (allowed/avg - 1); 0 when unknown
+#   ppg_last3            points per game over the previous 3 weeks (recency), as-of
+CANDIDATE_FEATURES = ["opp_pos_allowed_rel", "ppg_last3"]
+FEATURES = list(BASE_FEATURES)
 # --blend K replaces ppg/ppg_prior with one shrunk estimate: (games*ppg + K*ppg_prior)/(games+K) -- K prior-season
 # "pseudo-games", so one big week early in the season doesn't read like a season's average. With no prior season the
 # raw ppg is used; with no games yet, the prior alone.
@@ -76,8 +82,9 @@ def blended_ppg(proxy: dict | None, prior: dict | None, k: float) -> float | Non
     return (games * ppg + k * prior_ppg) / (games + k)
 
 
-def features_for(row: dict | None, proxy: dict | None, prior: dict | None) -> list[float]:
+def features_for(row: dict | None, proxy: dict | None, prior: dict | None, extra: dict | None = None) -> list[float]:
     row = row or {}
+    extra = extra or {}
     if BLEND_K is not None:
         proxy = {"ppg": blended_ppg(proxy, prior, BLEND_K)}
         prior = {"ppg": None}
@@ -93,6 +100,8 @@ def features_for(row: dict | None, proxy: dict | None, prior: dict | None) -> li
         "implied_total": row.get("implied_total"),
         "cpoe": row.get("cpoe"),
         "run_funnel_rate_vs_avg": row.get("run_funnel_rate_vs_avg"),
+        "opp_pos_allowed_rel": extra.get("opp_pos_allowed_rel"),
+        "ppg_last3": extra.get("ppg_last3"),
     }
     return [float(vals[f]) if vals[f] is not None else 0.0 for f in FEATURES]
 
@@ -113,6 +122,17 @@ def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
         rows = {r["player_id"]: r for r in matchup_signals.build_signals_table(
             season, week, pbp, schedules, ngs_receiving=rec, ngs_rushing=ru, ngs_passing=pa)}
         proxy = pp.season_points_proxy(stats, FIT_SCORING, as_of_week=week)
+        allowed = pp.points_allowed_by_position(stats, FIT_SCORING, as_of_week=week)
+        last3 = pp.trailing_ppg(stats, FIT_SCORING, as_of_week=week)
+
+        def extra_for(pid: str) -> dict:
+            row = rows.get(pid) or {}
+            pos = positions.get(pid)
+            opp = row.get("opponent")
+            rel = None
+            if opp and pos and (opp, pos) in allowed and ("*", pos) in allowed and allowed[("*", pos)]["allowed_pg"]:
+                rel = allowed[(opp, pos)]["allowed_pg"] / allowed[("*", pos)]["allowed_pg"] - 1.0
+            return {"opp_pos_allowed_rel": rel, "ppg_last3": (last3.get(pid) or {}).get("ppg_last")}
         actual = {r["player_id"]: r["points"] for r in weekly.filter(pl.col("week") == week).to_dicts()}
         by_pos: dict[str, list[str]] = {}
         for pid, pts in actual.items():
@@ -124,7 +144,8 @@ def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
             all_pairs = [(a, b) for i, a in enumerate(pids) for b in pids[i + 1:] if actual[a] != actual[b]]
             rng.shuffle(all_pairs)
             for a, b in all_pairs[:PAIRS_PER_GROUP]:
-                fa, fb = features_for(rows.get(a), proxy.get(a), prior.get(a)), features_for(rows.get(b), proxy.get(b), prior.get(b))
+                fa = features_for(rows.get(a), proxy.get(a), prior.get(a), extra_for(a))
+                fb = features_for(rows.get(b), proxy.get(b), prior.get(b), extra_for(b))
                 pairs.append({"season": season, "week": week, "position": pos, "x": [p - q for p, q in zip(fa, fb)],
                               "y": 1 if actual[a] > actual[b] else 0, "gap": abs(actual[a] - actual[b]),
                               "fa": fa, "fb": fb})
@@ -187,9 +208,11 @@ def main() -> None:
     parser.add_argument("--test", type=int, nargs="+", default=[2024])
     parser.add_argument("--weeks", type=int, nargs=2, default=[2, 18], help="as-of weeks to use (inclusive)")
     parser.add_argument("--blend", type=float, default=None, help="shrink ppg toward last season with this many pseudo-games (see BLEND_K)")
+    parser.add_argument("--with", dest="extra", nargs="*", default=[], choices=CANDIDATE_FEATURES, help="candidate features to add (Step 3)")
     args = parser.parse_args()
-    global BLEND_K
+    global BLEND_K, FEATURES
     BLEND_K = args.blend
+    FEATURES = list(BASE_FEATURES) + list(args.extra)
     weeks = range(args.weeks[0], args.weeks[1] + 1)
 
     train = [p for s in args.train for p in build_pairs(s, weeks)]
@@ -213,7 +236,8 @@ def main() -> None:
         "train_fit": {"fitted": accuracy(train, fitted)},
     }
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = RESULTS_DIR / f"{report['date']}_ranking_fit{'' if BLEND_K is None else f'_blend{BLEND_K:g}'}.json"
+    tag = ('' if BLEND_K is None else f'_blend{BLEND_K:g}') + (('_with_' + '_'.join(args.extra)) if args.extra else '')
+    out = RESULTS_DIR / f"{report['date']}_ranking_fit{tag}.json"
     out.write_text(json.dumps(report, indent=2))
     print(json.dumps({k: v for k, v in report.items() if k != "features"}, indent=2))
     print(f"wrote {out}")

@@ -63,3 +63,15 @@ def test_write_and_load_roundtrip(tmp_path, stats, monkeypatch):
     assert path == tmp_path / "player_stats_2024.parquet"
     assert ps.load_weekly_stats(2024, stats_dir=tmp_path).shape == stats.shape
     assert ps.load_weekly_stats(2023, stats_dir=tmp_path) is None
+
+
+def test_points_allowed_by_position_and_trailing_ppg_are_as_of(stats):
+    rows = stats.with_columns(pl.Series("opponent_team", ["DAL", "NYG", "DAL", "PHI"]))
+    allowed = pp.points_allowed_by_position(rows, HALF_PPR, as_of_week=3)  # weeks 1-2 only
+    assert allowed[("DAL", "RB")] == {"allowed_pg": 19.0, "games": 1}   # a's week-1 line vs DAL (19.0); week 3 excluded
+    assert allowed[("NYG", "RB")] == {"allowed_pg": 3.0, "games": 1}
+    assert allowed[("PHI", "RB")] == {"allowed_pg": 19.0, "games": 1}   # b's week 1
+    assert allowed[("*", "RB")]["allowed_pg"] == pytest.approx((19.0 + 3.0 + 19.0) / 3, abs=0.01)  # rounded to 2 dp
+    assert pp.points_allowed_by_position(stats, HALF_PPR, 3) == {}     # no opponent column -> nothing, never a guess
+    last = pp.trailing_ppg(rows, HALF_PPR, as_of_week=3, n_weeks=1)
+    assert last["a"] == {"ppg_last": 3.0, "games_last": 1} and "b" not in last  # only week 2 counts
