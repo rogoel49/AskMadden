@@ -1762,7 +1762,11 @@ the first-ever open of a league (~a minute, said on the picker).
 **Validated:** `tests/test_waiver_tool.py` (waiver status from the
 league and roster settings; the bid guide's tiers, need doubling and
 non-FAAB None; the tool's targets/needs/rules/bids with a position
-filter; the prompt routing). Suite green.
+filter; the prompt routing). Suite green. Live on the hosted app
+(Fellowship, FAAB $100 remaining): "Prioritize Juwan Johnson (TE, NO)
+with a bid of $16-30; ... All bid ranges are rules of thumb on your
+remaining budget, not market predictions." -- targets at the need
+position first, amounts from the tool's guide, label carried through.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
