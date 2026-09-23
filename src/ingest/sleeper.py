@@ -30,6 +30,14 @@ def _get(path: str) -> Any:
     return resp.json()
 
 
+def fetch_trending_adds(lookback_hours: int = 24, limit: int = 100) -> list[dict]:
+    """Sleeper's public most-added players across ALL its leagues in the
+    last `lookback_hours`: [{player_id, count}], most added first. The
+    closest thing there is to a live read of who every other manager is
+    about to bid on."""
+    return _get(f"players/nfl/trending/add?lookback_hours={lookback_hours}&limit={limit}")
+
+
 def fetch_nfl_state() -> dict:
     return _get("state/nfl")
 

@@ -73,7 +73,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from src.ingest import sleeper
-from src.ingest import nflverse
+from src.ingest import nflverse, sleeper
 from src.rag import lookup, player_index, retrieve
 from src.rag.embed import CHROMA_DIR, RAW_DIR
 from src.reasoning import ranking
@@ -599,7 +599,9 @@ def _build_system_prompt(
         "players, your needs, and the league's waiver rules and FAAB standing). Lead with the targets at the "
         "positions you need. For bids in a FAAB league, give each target's `bid_guide` amount range with its "
         "`marginal_ppg` and who he'd replace (`replaces`), and say it is a rule of thumb on your remaining budget, "
-        "not a read of what others will bid; if `marginal_ppg` is under 1, say so and recommend passing or a "
+        "then its `suggested_bid` with the `competition` behind it (how many teams here need the position and what "
+        "they can spend, and whether he is trending across Sleeper -- a top-25 most-added player will draw claims from "
+        "everyone, so the range is a floor, not a ceiling); if `marginal_ppg` is under 1, say so and recommend passing or a "
         "minimum bid rather than spending. Early in the season remind the user the budget has to last. In a "
         "non-FAAB league say bids don't apply and talk priority instead. Never invent a bid amount the tool didn't "
         "return.\n\n"
@@ -965,6 +967,72 @@ def bid_guide(target: dict, waivers: dict, replacement: dict | None, as_of_week:
     }
 
 
+def _trending_adds_by_name(ctx: RecommendContext) -> dict[str, dict]:
+    """{full name: {adds_24h, rank}} for Sleeper's most-added players
+    today, names resolved through this league's players.json. Empty on
+    any failure (network) -- a bid guide without the demand signal beats
+    no bid guide."""
+    try:
+        trending = sleeper.fetch_trending_adds()
+        players = lookup._load(ctx.raw_dir, "players.json")
+    except Exception:
+        return {}
+    out: dict[str, dict] = {}
+    for rank, item in enumerate(trending, start=1):
+        name = (players.get(item.get("player_id")) or {}).get("full_name")
+        if name and name not in out:
+            out[name] = {"adds_24h": item.get("count"), "rank": rank}
+    return out
+
+
+def competition_for(position: str, target_name: str, ctx: RecommendContext, trending: dict[str, dict]) -> dict:
+    """Who else in THIS league is likely to bid, and how hot the player is
+    across Sleeper: teams (other than yours) whose starting slots at the
+    position aren't covered by healthy players, the most FAAB any of them
+    has left, and the player's rank/count in Sleeper's 24h most-added
+    list. level: high = top-25 trending or 3+ needing teams; medium =
+    top-100 or any needing team; else low."""
+    positions = list(ctx.league.roster_positions) if ctx.league else []
+    needing = []
+    faab = {t["roster_id"]: t for t in lookup.all_teams_faab(ctx.raw_dir)}
+    for roster in lookup.all_team_rosters(ctx.raw_dir):
+        if ctx.roster_id is not None and str(roster.get("roster_id")) == str(ctx.roster_id):
+            continue
+        ns = _team_needs_and_surplus(roster.get("players", []), positions)
+        # a HOLE (fewer healthy players than dedicated slots), stricter than the trade helper's "nothing to spare"
+        if ns["healthy_by_position"].get(position, 0) < ns["starting_slots"].get(position, 0):
+            f = faab.get(roster.get("roster_id"), {})
+            needing.append({"owner": roster.get("owner_display_name"), "faab_remaining": f.get("faab_remaining")})
+    budgets = [n["faab_remaining"] for n in needing if n["faab_remaining"] is not None]
+    hot = trending.get(target_name) or {}
+    rank = hot.get("rank")
+    level = "high" if (rank is not None and rank <= 25) or len(needing) >= 3 else "medium" if rank is not None or needing else "low"
+    return {
+        "level": level,
+        "teams_needing_position": len(needing),
+        "needing_teams": needing[:6],
+        "max_competitor_faab": max(budgets) if budgets else None,
+        "trending_adds_24h": hot.get("adds_24h"),
+        "trending_rank": rank,
+    }
+
+
+def suggested_bid(guide: dict, competition: dict) -> dict:
+    """One number inside (or, when contested, above) the guide's range,
+    from the competition level -- still a rule of thumb, still labeled."""
+    low, high = guide["amount"]
+    if competition["level"] == "high":
+        amount, why = max(high, int(round(high * 1.5))), (
+            "contested: expect competing claims -- bid at or above the top of the range if you want him; the guide's "
+            "range is what he is worth to you, not what it will take"
+        )
+    elif competition["level"] == "medium":
+        amount, why = int(round((low + high) / 2)), "some competition likely: aim for the middle of the range"
+    else:
+        amount, why = low, "little visible competition: the bottom of the range should do"
+    return {"amount": amount, "why": why}
+
+
 def _replacement_starters(ctx: RecommendContext) -> dict[str, dict]:
     """Per position, the weakest player who would currently start there on
     THIS roster (the slots-th best by blended ppg; FLEX-type slots not
@@ -1015,11 +1083,17 @@ def _tool_get_waiver_targets(tool_input: dict, ctx: RecommendContext) -> dict:
     if "players" in my and ctx.league:
         needs = _team_needs_and_surplus(my["players"], list(ctx.league.roster_positions))["needs"]
     replacements = _replacement_starters(ctx)
-    targets = [
-        {k: e.get(k) for k in ("name", "position", "team", "position_rank", "opportunity_score", "key_stats", "stale", "source_season")}
-        | {"bid_guide": bid_guide(e, waivers, replacements.get(e["position"]), ctx.as_of_week)}
-        for e in entries
-    ]
+    trending = _trending_adds_by_name(ctx) if waivers.get("waiver_type") == "faab" else {}
+    targets = []
+    for e in entries:
+        guide = bid_guide(e, waivers, replacements.get(e["position"]), ctx.as_of_week)
+        if guide is not None:
+            competition = competition_for(e["position"], e["name"], ctx, trending)
+            guide = {**guide, "competition": competition, "suggested_bid": suggested_bid(guide, competition)}
+        targets.append(
+            {k: e.get(k) for k in ("name", "position", "team", "position_rank", "opportunity_score", "key_stats", "stale", "source_season")}
+            | {"bid_guide": guide}
+        )
     return {
         "season": ctx.season,
         "as_of_week": ctx.as_of_week,
@@ -1030,8 +1104,10 @@ def _tool_get_waiver_targets(tool_input: dict, ctx: RecommendContext) -> dict:
         "notes": rep["notes"],
         "note": (
             "Targets are the same deterministic ranking the Feed's Waiver targets shows (within position). bid_guide is a "
-            "labeled rule of thumb on the remaining FAAB, not a market model; in a non-FAAB league there is no bid, only "
-            "waiver priority."
+            "labeled rule of thumb on the remaining FAAB (what the player is worth to you); bid_guide.competition is who "
+            "else is likely bidding (other teams in this league that need the position, their remaining FAAB, and the "
+            "player's rank in Sleeper's 24h most-added list across all leagues); suggested_bid folds the two together. "
+            "Neither is a market model. In a non-FAAB league there is no bid, only waiver priority."
         ),
     }
 

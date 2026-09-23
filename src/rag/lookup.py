@@ -350,6 +350,26 @@ def waiver_status(roster_id: Any, raw_dir: Path = RAW_DIR) -> dict:
     }
 
 
+def all_teams_faab(raw_dir: Path = RAW_DIR) -> list[dict]:
+    """Every team's remaining FAAB (None in a non-FAAB league):
+    [{roster_id, owner_display_name, faab_remaining, waiver_position}]."""
+    league = _load(raw_dir, "league.json")
+    settings = league.get("settings") or {}
+    faab = WAIVER_TYPES.get(settings.get("waiver_type")) == "faab"
+    budget = settings.get("waiver_budget")
+    teams, _ = _load_teams_and_players(raw_dir)
+    out = []
+    for team in teams:
+        ts = team.get("settings") or {}
+        out.append({
+            "roster_id": team.get("roster_id"),
+            "owner_display_name": team.get("display_name"),
+            "faab_remaining": (budget - (ts.get("waiver_budget_used") or 0)) if (faab and budget is not None) else None,
+            "waiver_position": ts.get("waiver_position"),
+        })
+    return out
+
+
 def team_roster_for_roster_id(roster_id: Any, raw_dir: Path = RAW_DIR) -> dict | None:
     """all_team_rosters()'s entry (players grouped with a per-position
     count) for one roster_id, or None if no team has it. The API's

@@ -1826,6 +1826,49 @@ blocked by data, not by design:
       run-funnel lean, and the finer-grained scheme version needs the
       coverage data that isn't published in-season (Phase 4).
 
+## Competition-aware bids: who else wants the player (2026-09-22)
+
+Rohan: "does the marginal method take into account competing bids from
+other teams? say CMC gets a season-ending injury -- everyone will want
+to hop on the backup." It didn't. Three free signals now feed a
+`competition` block on every bid guide, and a `suggested_bid` folds it
+in with the marginal-value range:
+- **Sleeper's trending adds** (`sleeper.fetch_trending_adds()`, the
+  public `players/nfl/trending/add` feed: most-added players across
+  ALL Sleeper leagues in the last 24h, with counts -- 3.3M adds for
+  Emanuel Wilson the day this was built). Names resolve through the
+  league's own players.json; a top-25 player is `level: high`.
+- **Teams in this league with a hole at the position** (healthy
+  players < dedicated starting slots, stricter than the trade helper's
+  "nothing to spare"), excluding your own, with each one's remaining
+  FAAB (`lookup.all_teams_faab()`), so "3 teams need a RB and one has
+  $180 left" is a fact the pitch can state.
+- `suggested_bid`: low competition -> bottom of the range; medium
+  (any needing team, or trending top-100) -> middle; high (trending
+  top-25 or 3+ needing teams) -> 1.5x the top of the range with
+  "contested: the range is what he is worth to you, not what it will
+  take". The prompt says a top-25 player draws claims from everyone
+  and the range is a floor.
+Still not a market model -- it can't see other managers' actual bids;
+it names the reasons the price will be higher than value alone. The
+trending fetch is fail-soft (no network -> no demand signal, guide
+still returned).
+
+**Validated:** `tests/test_waiver_tool.py` -- trending mapping, holes
+vs. non-holes across three fixture teams with different budgets, the
+hot-backup case, the fail-soft path, and the suggested-bid levels.
+- [x] Per-position weight vectors (`fit_ranking_weights --per-position`):
+      **no gain** -- 60.92% vs 60.83% shared on 38,957 held-out pairs
+      (QB 60.2 vs 59.6, RB 62.2 vs 62.2, TE 59.8 vs 60.3, WR 61.2 vs
+      61.1). Not adopted. That is four cheap candidates today (points
+      allowed, 3-week form, EPA-allowed split, per-position weights),
+      none above the noise floor: the linear score has extracted what
+      these public per-week numbers hold. What is left in the plan
+      needs new inputs -- snap share / routes run (volume that leads
+      target share), Vegas spread, teammate injuries -- and Phase 4's
+      coverage-scheme fit, which can be backtested on 2016-2025 data
+      but not computed live for the current season.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

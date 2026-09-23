@@ -236,6 +236,7 @@ def main() -> None:
     parser.add_argument("--weeks", type=int, nargs=2, default=[2, 18], help="as-of weeks to use (inclusive)")
     parser.add_argument("--blend", type=float, default=None, help="shrink ppg toward last season with this many pseudo-games (see BLEND_K)")
     parser.add_argument("--with", dest="extra", nargs="*", default=[], choices=CANDIDATE_FEATURES, help="candidate features to add (Step 3)")
+    parser.add_argument("--per-position", action="store_true", help="fit one weight vector per position instead of one shared")
     args = parser.parse_args()
     global BLEND_K, FEATURES
     BLEND_K = args.blend
@@ -249,6 +250,38 @@ def main() -> None:
     X = np.vstack([X, -X]); y = np.concatenate([y, 1 - y])
     w = fit_logistic(X, y)
     weights = {f: round(float(v), 4) for f, v in zip(FEATURES, w)}
+
+    if args.per_position:
+        # one vector per position; a pair is always same-position, so score() can key off it
+        by_pos: dict[str, np.ndarray] = {}
+        for pos in sorted({p["position"] for p in train}):
+            sub = [p for p in train if p["position"] == pos]
+            Xp = np.array([p["x"] for p in sub]); yp = np.array([p["y"] for p in sub], dtype=float)
+            by_pos[pos] = fit_logistic(np.vstack([Xp, -Xp]), np.concatenate([yp, 1 - yp]))
+        weights = {pos: {f: round(float(v), 4) for f, v in zip(FEATURES, vec)} for pos, vec in by_pos.items()}
+        for p in train + test:
+            p["_w"] = by_pos.get(p["position"], w)
+        # accuracy() scores fa/fb through one function; stash the pair's vector on the features via a closure per pair
+        def acc_per_pos(pairs):
+            total = correct = 0; by_gap = {}; by_week = {}; by_p = {}
+            for p in pairs:
+                sa, sb = float(np.dot(p["_w"], p["fa"])), float(np.dot(p["_w"], p["fb"]))
+                if sa == sb: continue
+                ok = int((sa > sb) == (p["y"] == 1)); total += 1; correct += ok
+                by_p.setdefault(p["position"], [0, 0]); by_p[p["position"]][0] += ok; by_p[p["position"]][1] += 1
+                g = "<5" if p["gap"] < 5 else "5-10" if p["gap"] < 10 else "10+"; by_gap.setdefault(g, [0, 0]); by_gap[g][0] += ok; by_gap[g][1] += 1
+                wb = "weeks 2-5" if p["week"] <= 5 else "weeks 6-10" if p["week"] <= 10 else "weeks 11-18"; by_week.setdefault(wb, [0, 0]); by_week[wb][0] += ok; by_week[wb][1] += 1
+            fmt = lambda d: {k: {"correct": v[0], "scored": v[1], "accuracy": round(v[0] / v[1], 3)} for k, v in d.items()}  # noqa: E731
+            return {"accuracy": round(correct / total, 4) if total else None, "scored": total, "undecided": len(pairs) - total,
+                    "by_position": fmt(by_p), "by_gap": fmt(by_gap), "by_week": fmt(by_week)}
+        report = {"date": date.today().isoformat(), "train_seasons": args.train, "test_seasons": args.test, "per_position": True,
+                  "weeks": [args.weeks[0], args.weeks[1]], "features": FEATURES, "blend_k": BLEND_K, "train_pairs": len(train), "test_pairs": len(test),
+                  "weights": weights, "test": {"fitted_per_position": acc_per_pos(test), "fitted_shared": accuracy(test, lambda f: float(np.dot(w, f)))},
+                  "train_fit": {"fitted_per_position": acc_per_pos(train)}}
+        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        out = RESULTS_DIR / f"{report['date']}_ranking_fit_per_position.json"
+        out.write_text(json.dumps(report, indent=2)); print(json.dumps({k: v for k, v in report.items() if k != "features"}, indent=2)); print(f"wrote {out}")
+        return
 
     fitted = lambda f: float(np.dot(w, f))  # noqa: E731
     ppg_only = lambda f: f[FEATURES.index("ppg")]  # noqa: E731

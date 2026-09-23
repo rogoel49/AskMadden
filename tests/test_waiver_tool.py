@@ -67,3 +67,45 @@ def test_get_waiver_targets_tool_returns_targets_needs_rules_and_bids(tmp_path, 
 def test_prompt_routes_pickup_questions_to_the_tool():
     prompt = recommend._build_system_prompt({"name": "L"}, {"rec": 0.5}, season=2026, as_of_week=3)
     assert "call get_waiver_targets" in prompt and "Never invent a bid amount" in prompt
+
+
+# ---- competition-aware bids (2026-09-22): "everyone will want to hop on the backup" ----
+
+
+def test_competition_counts_needing_teams_their_faab_and_sleeper_trending(tmp_path, monkeypatch):
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch)
+    _faab(raw_dir, 200, 45)
+    # a second team with no TE and lots of budget, and a third with a TE already
+    teams = json.loads((raw_dir / "teams.json").read_text())
+    teams["data"] += [
+        {"roster_id": 2, "owner_id": "u2", "display_name": "rival", "team_name": "Rival", "players": ["s_barkley"], "starters": [], "settings": {"waiver_budget_used": 20}},
+        {"roster_id": 3, "owner_id": "u3", "display_name": "set", "team_name": "Set", "players": ["s_te"], "starters": [], "settings": {"waiver_budget_used": 150}},
+    ]
+    (raw_dir / "teams.json").write_text(json.dumps(teams))
+    players = json.loads((raw_dir / "players.json").read_text())
+    players["data"]["s_te"] = {"full_name": "Some Tight End", "position": "TE", "team": "X"}
+    players["data"]["s_hot"] = {"full_name": "Kaelon Black", "position": "RB", "team": "SF"}
+    (raw_dir / "players.json").write_text(json.dumps(players))
+    monkeypatch.setattr(recommend.sleeper, "fetch_trending_adds", lambda **kw: [{"player_id": "s_hot", "count": 3000000}, {"player_id": "zzz", "count": 10}])
+    ctx = recommend.RecommendContext(raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, player_idx=None,
+                                     league=load_league(VS30_ID, raw_dir=raw_dir, persist_dir=persist_dir), roster_id="1", signals_dir=signals_dir)
+    trending = recommend._trending_adds_by_name(ctx)
+    assert trending == {"Kaelon Black": {"adds_24h": 3000000, "rank": 1}}
+
+    # TE: the rival (no TE, $180 left) needs one; 'set' does not; my own team is excluded
+    c = recommend.competition_for("TE", "Some Tight End", ctx, trending)
+    assert c["teams_needing_position"] == 1 and c["max_competitor_faab"] == 180 and c["level"] == "medium"
+    # the hot backup: top of Sleeper's most-added list -> high, whatever the league's needs
+    c = recommend.competition_for("RB", "Kaelon Black", ctx, trending)
+    assert c["level"] == "high" and c["trending_rank"] == 1 and c["trending_adds_24h"] == 3000000
+    # a fetch failure degrades to no demand signal, never an error
+    monkeypatch.setattr(recommend.sleeper, "fetch_trending_adds", lambda **kw: (_ for _ in ()).throw(RuntimeError("down")))
+    assert recommend._trending_adds_by_name(ctx) == {}
+
+
+def test_suggested_bid_moves_with_competition():
+    guide = {"amount": [10, 15]}
+    assert recommend.suggested_bid(guide, {"level": "low"})["amount"] == 10
+    assert recommend.suggested_bid(guide, {"level": "medium"})["amount"] == 12
+    hot = recommend.suggested_bid(guide, {"level": "high"})
+    assert hot["amount"] == 22 and hot["why"].startswith("contested")  # 1.5x the top of the range
