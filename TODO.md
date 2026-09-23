@@ -1628,15 +1628,25 @@ before it ships; nothing goes into the product on a hunch.**
       on the way and fixed in PR #51: `embed.embed()` wrote everything in
       one Chroma call and the cap is 5,461 records -- a league's index
       would have crossed it mid-season.
-- [ ] **Step 3 -- features with actual week-ahead signal, one at a
-      time, each accepted only if held-out accuracy moves.** Candidates,
-      cheapest first: opponent points allowed by position (from the
-      weekly stat lines + schedules, no new source); snap share and
-      routes (nflverse `load_snap_counts`, FTN charting) as a volume
-      measure that leads target share; Vegas spread alongside the
-      implied total (game script); teammate injuries (target vacuum);
-      per-position models instead of one shared weight vector. Report
-      the table above with a new row per feature.
+- [~] **Step 3 -- features with actual week-ahead signal, one at a
+      time, each accepted only if held-out accuracy moves.** First two
+      candidates tested 2026-09-22 (`fit_ranking_weights.py --with ...`,
+      train 2023, test 2024+2025 = 38,957 pairs, base 60.83%):
+
+      | added feature | held-out | delta |
+      |---|---|---|
+      | opponent's points allowed per game to the position, relative to league average (as-of) | 60.91% | +0.08 |
+      | points per game over the previous 3 weeks | 60.88% | +0.05 |
+      | both | 60.84% | +0.01 |
+
+      The standard error on 39k pairs is ~0.25 points, so none of these
+      is a real gain; **not adopted** (the helpers `points_allowed_by_
+      position()` and `trailing_ppg()` stay in `points_proxy.py`, tested,
+      for the harness). The stat lines now carry `opponent_team` for
+      this. Remaining candidates, still cheapest first: per-position
+      weight vectors (one fit per QB/RB/WR/TE -- costs nothing to try);
+      snap share and routes run (`load_snap_counts`, FTN charting);
+      Vegas spread; teammate injuries (target vacuum).
 - [ ] **Step 4 -- a nonlinear model, only if Step 3 stalls.** Gradient
       boosting on the same features, same harness; keep it only if it
       beats the linear score by more than noise (~1 pt on 19k pairs),
@@ -1718,6 +1728,41 @@ both widths with no console errors.
       held, the bullets part is prompt-only and will need another look
       (a code-level formatter of the model's text is the deterministic
       option if it keeps ignoring it).
+
+## Chat can answer waivers and bids; the refresh runs at low priority (2026-09-22)
+
+**"Who should I pick up on waivers this week, and how much should I bid
+on each?"** (Rohan's screenshot) -- the agent declined: no tool exposed
+the unrostered pool or the FAAB budget to chat, even though the Feed
+has had a waiver report since Phase 3.5. New `get_waiver_targets` tool:
+the same within-position ranking the Feed shows (top N, optional
+position filter, `key_stats` per target), this roster's `needs` (from
+the trade-context helper), and `lookup.waiver_status()` -- Sleeper's
+`waiver_type` (0 rolling priority, 1 reverse standings, 2 FAAB), the
+FAAB budget total / used / remaining from `league.settings.waiver_budget`
+and the roster's `settings.waiver_budget_used`, waiver position, minimum
+bid, waiver day. Each target carries a `bid_guide`: a deterministic,
+labeled rule of thumb -- a share of the remaining budget by position
+rank and points per game (rank 1 and 12+ ppg: 15-25%; rank 1: 8-15%;
+ranks 2-3: 3-8%; else 1-3%; doubled, capped, for a position the roster
+needs), returned as an amount range, with `basis` saying it is not a
+market model and does not know what others will bid. The prompt routes
+pickup/bid questions to it and forbids inventing a bid amount. The API's
+points-proxy caveat now also fires on this tool and reads "Player
+comparisons" rather than "Trade comparisons" (it had shown the trade
+wording under a waiver answer).
+
+**Refresh at low priority.** The 6-hourly cycle still pins the two
+shared cores for a few minutes; Linux schedules threads individually,
+so the refresh thread now sets `os.setpriority(..., 10)` on itself and
+request threads win the CPU during a cycle (no-op where unsupported).
+Together with the restart fix, the remaining cost a user can feel is
+the first-ever open of a league (~a minute, said on the picker).
+
+**Validated:** `tests/test_waiver_tool.py` (waiver status from the
+league and roster settings; the bid guide's tiers, need doubling and
+non-FAAB None; the tool's targets/needs/rules/bids with a position
+filter; the prompt routing). Suite green.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

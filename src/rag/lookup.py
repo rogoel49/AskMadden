@@ -322,6 +322,34 @@ def lineup_for_roster_id(roster_id: Any, roster_positions: list[str], raw_dir: P
     return None
 
 
+WAIVER_TYPES = {0: "rolling", 1: "reverse_standings", 2: "faab"}
+
+
+def waiver_status(roster_id: Any, raw_dir: Path = RAW_DIR) -> dict:
+    """How waivers work in this league and where this roster stands:
+    Sleeper's waiver_type (0 rolling priority, 1 reverse standings,
+    2 FAAB), the FAAB budget and this team's used/remaining, waiver
+    position, minimum bid, and the day waivers run (0 = Sunday)."""
+    league = _load(raw_dir, "league.json")
+    settings = league.get("settings") or {}
+    teams, _ = _load_teams_and_players(raw_dir)
+    team = _team_by_roster_id(roster_id, teams) or {}
+    ts = team.get("settings") or {}
+    waiver_type = WAIVER_TYPES.get(settings.get("waiver_type"))
+    budget = settings.get("waiver_budget") if waiver_type == "faab" else None
+    used = ts.get("waiver_budget_used") if waiver_type == "faab" else None
+    return {
+        "waiver_type": waiver_type,
+        "faab_budget": budget,
+        "faab_used": used,
+        "faab_remaining": (budget - (used or 0)) if budget is not None else None,
+        "bid_min": settings.get("waiver_bid_min"),
+        "waiver_position": ts.get("waiver_position"),
+        "waiver_day_of_week": settings.get("waiver_day_of_week"),
+        "waiver_clear_days": settings.get("waiver_clear_days"),
+    }
+
+
 def team_roster_for_roster_id(roster_id: Any, raw_dir: Path = RAW_DIR) -> dict | None:
     """all_team_rosters()'s entry (players grouped with a per-position
     count) for one roster_id, or None if no team has it. The API's

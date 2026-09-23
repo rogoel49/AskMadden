@@ -1,0 +1,311 @@
+{
+  "date": "2026-09-22",
+  "train_seasons": [
+    2023
+  ],
+  "test_seasons": [
+    2024,
+    2025
+  ],
+  "weeks": [
+    2,
+    18
+  ],
+  "features": [
+    "ppg",
+    "ppg_prior",
+    "target_share",
+    "red_zone_share",
+    "epa_trend",
+    "implied_total",
+    "cpoe",
+    "run_funnel_rate_vs_avg",
+    "ppg_last3"
+  ],
+  "fit_scoring": {
+    "rec": 0.5,
+    "pass_td": 4,
+    "pass_yd": 0.04,
+    "pass_int": -1,
+    "pass_2pt": 2,
+    "rush_yd": 0.1,
+    "rush_td": 6,
+    "rush_2pt": 2,
+    "rec_yd": 0.1,
+    "rec_td": 6,
+    "rec_2pt": 2,
+    "fum_lost": -2
+  },
+  "min_points_both": 5.0,
+  "pairs_per_group": 300,
+  "blend_k": 4.0,
+  "train_pairs": 19045,
+  "test_pairs": 38957,
+  "weights": {
+    "ppg": 0.0694,
+    "ppg_prior": 0.0,
+    "target_share": 0.1909,
+    "red_zone_share": 0.5033,
+    "epa_trend": -0.1536,
+    "implied_total": 0.0125,
+    "cpoe": 0.0171,
+    "run_funnel_rate_vs_avg": -0.4303,
+    "ppg_last3": 0.0148
+  },
+  "test": {
+    "fitted": {
+      "accuracy": 0.6088,
+      "scored": 38957,
+      "undecided": 0,
+      "by_position": {
+        "QB": {
+          "correct": 6113,
+          "scored": 10200,
+          "accuracy": 0.599
+        },
+        "RB": {
+          "correct": 6365,
+          "scored": 10200,
+          "accuracy": 0.624
+        },
+        "TE": {
+          "correct": 5028,
+          "scored": 8357,
+          "accuracy": 0.602
+        },
+        "WR": {
+          "correct": 6212,
+          "scored": 10200,
+          "accuracy": 0.609
+        }
+      },
+      "by_gap": {
+        "10+": {
+          "correct": 6928,
+          "scored": 9593,
+          "accuracy": 0.722
+        },
+        "<5": {
+          "correct": 10003,
+          "scored": 18577,
+          "accuracy": 0.538
+        },
+        "5-10": {
+          "correct": 6787,
+          "scored": 10787,
+          "accuracy": 0.629
+        }
+      },
+      "by_week": {
+        "weeks 11-18": {
+          "correct": 11271,
+          "scored": 18306,
+          "accuracy": 0.616
+        },
+        "weeks 2-5": {
+          "correct": 5271,
+          "scored": 9022,
+          "accuracy": 0.584
+        },
+        "weeks 6-10": {
+          "correct": 7176,
+          "scored": 11629,
+          "accuracy": 0.617
+        }
+      }
+    },
+    "hand_weights_pre_fit": {
+      "accuracy": 0.5761,
+      "scored": 38905,
+      "undecided": 52,
+      "by_position": {
+        "QB": {
+          "correct": 5902,
+          "scored": 10167,
+          "accuracy": 0.581
+        },
+        "RB": {
+          "correct": 6213,
+          "scored": 10192,
+          "accuracy": 0.61
+        },
+        "TE": {
+          "correct": 4579,
+          "scored": 8352,
+          "accuracy": 0.548
+        },
+        "WR": {
+          "correct": 5719,
+          "scored": 10194,
+          "accuracy": 0.561
+        }
+      },
+      "by_gap": {
+        "10+": {
+          "correct": 6305,
+          "scored": 9579,
+          "accuracy": 0.658
+        },
+        "<5": {
+          "correct": 9837,
+          "scored": 18549,
+          "accuracy": 0.53
+        },
+        "5-10": {
+          "correct": 6271,
+          "scored": 10777,
+          "accuracy": 0.582
+        }
+      },
+      "by_week": {
+        "weeks 11-18": {
+          "correct": 10441,
+          "scored": 18279,
+          "accuracy": 0.571
+        },
+        "weeks 2-5": {
+          "correct": 5180,
+          "scored": 9004,
+          "accuracy": 0.575
+        },
+        "weeks 6-10": {
+          "correct": 6792,
+          "scored": 11622,
+          "accuracy": 0.584
+        }
+      }
+    },
+    "ppg_only": {
+      "accuracy": 0.6046,
+      "scored": 38952,
+      "undecided": 5,
+      "by_position": {
+        "QB": {
+          "correct": 6015,
+          "scored": 10200,
+          "accuracy": 0.59
+        },
+        "RB": {
+          "correct": 6302,
+          "scored": 10200,
+          "accuracy": 0.618
+        },
+        "TE": {
+          "correct": 5006,
+          "scored": 8355,
+          "accuracy": 0.599
+        },
+        "WR": {
+          "correct": 6226,
+          "scored": 10197,
+          "accuracy": 0.611
+        }
+      },
+      "by_gap": {
+        "10+": {
+          "correct": 6808,
+          "scored": 9591,
+          "accuracy": 0.71
+        },
+        "<5": {
+          "correct": 10007,
+          "scored": 18575,
+          "accuracy": 0.539
+        },
+        "5-10": {
+          "correct": 6734,
+          "scored": 10786,
+          "accuracy": 0.624
+        }
+      },
+      "by_week": {
+        "weeks 11-18": {
+          "correct": 11143,
+          "scored": 18304,
+          "accuracy": 0.609
+        },
+        "weeks 2-5": {
+          "correct": 5232,
+          "scored": 9021,
+          "accuracy": 0.58
+        },
+        "weeks 6-10": {
+          "correct": 7174,
+          "scored": 11627,
+          "accuracy": 0.617
+        }
+      }
+    },
+    "prior_season_ppg_only": {
+      "accuracy": null,
+      "scored": 0,
+      "undecided": 38957,
+      "by_position": {},
+      "by_gap": {},
+      "by_week": {}
+    }
+  },
+  "train_fit": {
+    "fitted": {
+      "accuracy": 0.6251,
+      "scored": 19045,
+      "undecided": 0,
+      "by_position": {
+        "QB": {
+          "correct": 3276,
+          "scored": 5100,
+          "accuracy": 0.642
+        },
+        "RB": {
+          "correct": 3160,
+          "scored": 5100,
+          "accuracy": 0.62
+        },
+        "TE": {
+          "correct": 2230,
+          "scored": 3745,
+          "accuracy": 0.595
+        },
+        "WR": {
+          "correct": 3239,
+          "scored": 5100,
+          "accuracy": 0.635
+        }
+      },
+      "by_gap": {
+        "10+": {
+          "correct": 3494,
+          "scored": 4639,
+          "accuracy": 0.753
+        },
+        "<5": {
+          "correct": 5101,
+          "scored": 9265,
+          "accuracy": 0.551
+        },
+        "5-10": {
+          "correct": 3310,
+          "scored": 5141,
+          "accuracy": 0.644
+        }
+      },
+      "by_week": {
+        "weeks 11-18": {
+          "correct": 5736,
+          "scored": 9112,
+          "accuracy": 0.629
+        },
+        "weeks 2-5": {
+          "correct": 2789,
+          "scored": 4553,
+          "accuracy": 0.613
+        },
+        "weeks 6-10": {
+          "correct": 3380,
+          "scored": 5380,
+          "accuracy": 0.628
+        }
+      }
+    }
+  }
+}

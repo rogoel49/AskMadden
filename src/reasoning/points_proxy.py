@@ -95,3 +95,39 @@ def season_points_proxy(stats: pl.DataFrame | None, scoring: dict, as_of_week: i
             "ppg": round(total / games, 2) if games else None,
         }
     return out
+
+
+def points_allowed_by_position(stats: pl.DataFrame | None, scoring: dict, as_of_week: int | None = None) -> dict[tuple[str, str], dict]:
+    """Per (defense, position): fantasy points allowed per game, under
+    `scoring`, from weeks strictly before as_of_week -- the sum of every
+    opposing player's points at that position in each game, averaged over
+    the defense's games. Also a league-wide average per position, keyed
+    ("*", position), so a defense can be read relative to it. Empty when
+    there is no table or the stat lines don't carry opponent_team."""
+    if stats is None or stats.is_empty() or "opponent_team" not in stats.columns:
+        return {}
+    scored = stats.select("opponent_team", "position", "week", _points_expr(scoring))
+    if as_of_week is not None:
+        scored = scored.filter(pl.col("week") < as_of_week)
+    scored = scored.filter(pl.col("opponent_team").is_not_null())
+    if scored.is_empty():
+        return {}
+    per_game = scored.group_by(["opponent_team", "position", "week"]).agg(pl.col("points").sum().alias("pts"))
+    out: dict[tuple[str, str], dict] = {}
+    for row in per_game.group_by(["opponent_team", "position"]).agg(pl.col("pts").mean().alias("allowed_pg"), pl.len().alias("games")).to_dicts():
+        out[(row["opponent_team"], row["position"])] = {"allowed_pg": round(float(row["allowed_pg"]), 2), "games": int(row["games"])}
+    for row in per_game.group_by("position").agg(pl.col("pts").mean().alias("allowed_pg")).to_dicts():
+        out[("*", row["position"])] = {"allowed_pg": round(float(row["allowed_pg"]), 2), "games": None}
+    return out
+
+
+def trailing_ppg(stats: pl.DataFrame | None, scoring: dict, as_of_week: int, n_weeks: int = 3) -> dict[str, dict]:
+    """Per player: points per game over the last n_weeks weeks before
+    as_of_week (games with a stat line only)."""
+    if stats is None or stats.is_empty():
+        return {}
+    scored = points_by_week(stats, scoring).filter((pl.col("week") < as_of_week) & (pl.col("week") >= as_of_week - n_weeks))
+    return {
+        r["player_id"]: {"ppg_last": round(float(r["ppg"]), 2), "games_last": int(r["games"])}
+        for r in scored.group_by("player_id").agg(pl.col("points").mean().alias("ppg"), pl.len().alias("games")).to_dicts()
+    }

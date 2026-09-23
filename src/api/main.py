@@ -122,7 +122,7 @@ DEFAULT_DAILY_QUERY_CAP = 25
 # most ~$10 on the worst day; friend-group usage is a fraction of that.
 DEFAULT_GLOBAL_DAILY_QUERY_CAP = 100
 POINTS_PROXY_NOTE = (
-    "Trade comparisons above are points-per-game under this league's scoring: how each player has been scoring, "
+    "Player comparisons above are points-per-game under this league's scoring: how each player has been scoring, "
     "not a projection, not adjusted for position scarcity, injuries, schedule, or the other manager's needs, and "
     "not a market value. Draft picks are not valued. The other side may see it completely differently."
 )
@@ -461,7 +461,7 @@ def chat(
     # (any get_league_rosters call), the caveat is attached here,
     # deterministically -- the first live trade answer used the numbers
     # correctly but left the "crude proxy" label out of its text.
-    used_proxy = any(call.get("name") == "get_league_rosters" for call in result["tool_calls"])
+    used_proxy = any(call.get("name") in ("get_league_rosters", "get_waiver_targets") for call in result["tool_calls"])
     return {
         "recommendation": result["recommendation"],
         "reasoning": result["reasoning"],
