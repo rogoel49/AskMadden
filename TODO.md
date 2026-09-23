@@ -1876,6 +1876,66 @@ is now "-1.1 marginal, pass".
       coverage-scheme fit, which can be backtested on 2016-2025 data
       but not computed live for the current season.
 
+## One canonical host (remember-me was per-origin); headshots; coverage-scheme cadence confirmed; snap share tested (2026-09-23)
+
+**"I don't know if remember me is working."** Reproduced against the
+live site in a fresh Chrome profile: log in on askmadden.com, open a
+new tab, type askmadden.com -> straight to the Feed. Then
+www.askmadden.com in the same profile -> landing page, empty storage.
+Browser storage is per origin, and this app answered on three
+(askmadden.com, www.askmadden.com, askmadden.fly.dev), so a login on
+one was invisible on the others -- the address bar autocompleting to
+www, or the iMessage link opening in a different host/browser, looks
+exactly like "it forgot me". Fix: `ASKMADDEN_CANONICAL_HOST`
+(fly.toml: askmadden.com); the API 301s every other host to it, path
+and query intact, except `/api/health` (Fly probes by IP) and when the
+variable is unset (local dev). Pinned by
+`test_non_canonical_hosts_redirect_to_the_canonical_one`. If it still
+forgets after this deploy, the remaining suspects are a private window
+or a browser setting that clears site data on close.
+
+**Headshots.** Sleeper serves a thumbnail per player id
+(`sleepercdn.com/content/nfl/players/thumb/<id>.jpg`) and a logo per
+team; the roster tab already had Sleeper ids, and report entries now
+carry `sleeper_id` (rostered players from `get_my_roster`; the waiver
+pool by (name, position) through the league's players.json --
+`lookup.sleeper_ids_by_name`). The `avatar()` helper renders the image
+inside the existing ring with the initials underneath as the fallback
+(`onerror` removes the image). Checked in headless Chrome against the
+real league: 25/25 Feed images and 23/23 Roster images loaded. Two
+bugs found on the way, both mine: the roster template literal was cut
+by the first edit (every page function became undefined), and
+`renderRoster` had a local `avatar` variable shadowing the helper.
+nflverse also has NFL-CDN headshot URLs on its players table if
+Sleeper's CDN ever stops serving.
+
+**Coverage-scheme fit as an in-season signal: confirmed not possible
+with a free source at a usable cadence.** The only free coverage labels
+(nflverse participation: `defense_man_zone_type`,
+`defense_coverage_type`, NGS-derived) are published for complete
+seasons, 2016-2025; `load_participation(2026)` refuses. So it can be
+built and backtested on the harness, and a shipped version would have
+to lean on last season's tendencies as a prior, labeled as such. A
+live version needs a paid provider (PFF / Fantasy Points charting).
+
+**Snap share (Step 3, next candidate).** nflverse snap counts ARE
+published in-season (2026 weeks 1-2 present), keyed by PFR id and
+mapped to GSIS through the players table. Two candidates in the
+harness: mean offensive snap share before the as-of week, and the most
+recent game's share (a role change shows there first).
+- [x] Result: **no gain** -- mean snap share 60.85%, last game's share
+      60.77%, both 60.81%, vs 60.83% without (38,957 held-out 2024+2025
+      pairs; SE ~0.25). Not adopted. The fitted weight on mean snap
+      share is small (0.02) because target share and points per game
+      already carry the volume it measures. That is five candidates
+      tested through the harness on 09-22/23 (points allowed, 3-week
+      form, EPA-allowed split, per-position weights, snap share), none
+      above noise. Remaining in the plan: routes run (needs per-play
+      participation, not in-season), Vegas spread, teammate injuries as
+      a target vacuum; and the honest read is that week-ahead accuracy
+      from public per-week numbers has a ceiling near where the ranking
+      already sits.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

@@ -63,7 +63,10 @@ BASE_FEATURES = ["ppg", "ppg_prior", "target_share", "red_zone_share", "epa_tren
 #   opp_epa_allowed_rel  this week's opponent defense's EPA allowed per play on the plays that matter for the
 #                        position (rush plays for RBs, pass plays for QB/WR/TE), as-of, minus the league mean --
 #                        the in-season-available cousin of a coverage/scheme signal (positive = softer defense)
-CANDIDATE_FEATURES = ["opp_pos_allowed_rel", "ppg_last3", "opp_epa_allowed_rel"]
+#   snap_pct             the player's offensive snap share, mean over his games before the as-of week (nflverse
+#                        snap counts, PFR ids mapped to GSIS through the players table) -- volume that leads targets
+#   snap_pct_last        his snap share in his most recent game before the as-of week (a role change shows here first)
+CANDIDATE_FEATURES = ["opp_pos_allowed_rel", "ppg_last3", "opp_epa_allowed_rel", "snap_pct", "snap_pct_last"]
 FEATURES = list(BASE_FEATURES)
 # --blend K replaces ppg/ppg_prior with one shrunk estimate: (games*ppg + K*ppg_prior)/(games+K) -- K prior-season
 # "pseudo-games", so one big week early in the season doesn't read like a season's average. With no prior season the
@@ -106,6 +109,8 @@ def features_for(row: dict | None, proxy: dict | None, prior: dict | None, extra
         "opp_pos_allowed_rel": extra.get("opp_pos_allowed_rel"),
         "ppg_last3": extra.get("ppg_last3"),
         "opp_epa_allowed_rel": extra.get("opp_epa_allowed_rel"),
+        "snap_pct": extra.get("snap_pct"),
+        "snap_pct_last": extra.get("snap_pct_last"),
     }
     return [float(vals[f]) if vals[f] is not None else 0.0 for f in FEATURES]
 
@@ -126,9 +131,30 @@ def defense_epa_allowed(pbp: pl.DataFrame, season: int, as_of_week: int) -> dict
     return out
 
 
+def snap_shares(season: int) -> pl.DataFrame:
+    """player_id (GSIS), week, offense_pct for regular-season games, from
+    nflverse snap counts joined to the players table on PFR id."""
+    import nflreadpy as nfl
+
+    snaps = nfl.load_snap_counts([season]).filter(pl.col("game_type") == "REG").select("pfr_player_id", "week", "offense_pct")
+    ids = nfl.load_players().select(pl.col("pfr_id").alias("pfr_player_id"), pl.col("gsis_id").alias("player_id")).drop_nulls()
+    return snaps.join(ids, on="pfr_player_id", how="inner").select("player_id", "week", "offense_pct")
+
+
+def snap_features(snaps: pl.DataFrame, as_of_week: int) -> dict[str, dict]:
+    before = snaps.filter(pl.col("week") < as_of_week)
+    if before.is_empty():
+        return {}
+    mean = before.group_by("player_id").agg(pl.col("offense_pct").mean().alias("snap_pct"))
+    last = before.sort("week").group_by("player_id").agg(pl.col("offense_pct").last().alias("snap_pct_last"))
+    return {r["player_id"]: {"snap_pct": r["snap_pct"], "snap_pct_last": r["snap_pct_last"]}
+            for r in mean.join(last, on="player_id").to_dicts()}
+
+
 def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
     """All the as-of features + outcomes for one season, as pairs."""
     pbp = nflverse.fetch_pbp(season)
+    snaps = snap_shares(season) if any(f.startswith("snap") for f in FEATURES) else None
     schedules = nflverse.fetch_schedules(season)
     rec, ru, pa = (ngs.fetch_ngs(season, k) for k in ("receiving", "rushing", "passing"))
     stats = ps.fetch_weekly_stats(season)
@@ -145,6 +171,7 @@ def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
         allowed = pp.points_allowed_by_position(stats, FIT_SCORING, as_of_week=week)
         last3 = pp.trailing_ppg(stats, FIT_SCORING, as_of_week=week)
         epa_allowed = defense_epa_allowed(pbp, season, week)
+        snap = snap_features(snaps, week) if snaps is not None else {}
 
         def extra_for(pid: str) -> dict:
             row = rows.get(pid) or {}
@@ -159,7 +186,8 @@ def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
                 d = epa_allowed.get((opp, kind)); m = epa_allowed.get(("*", kind))
                 if d is not None and m is not None:
                     epa_rel = d - m
-            return {"opp_pos_allowed_rel": rel, "ppg_last3": (last3.get(pid) or {}).get("ppg_last"), "opp_epa_allowed_rel": epa_rel}
+            return {"opp_pos_allowed_rel": rel, "ppg_last3": (last3.get(pid) or {}).get("ppg_last"), "opp_epa_allowed_rel": epa_rel,
+                    **(snap.get(pid) or {})}
         actual = {r["player_id"]: r["points"] for r in weekly.filter(pl.col("week") == week).to_dicts()}
         by_pos: dict[str, list[str]] = {}
         for pid, pts in actual.items():
