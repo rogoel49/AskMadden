@@ -409,6 +409,13 @@ or monetized, it needs to genuinely work for more than one league.
   writes under Chroma's 5,461-record cap (a league's index would have
   crossed it mid-season). See TODO.md's "Fixed: 'Tutu or Malachi
   Fields'..." entry and the Step 2 item in the accuracy plan.
+- Usage analytics (2026-09-24): `src/api/storage.py` has an `events`
+  table (league opens, roster/report loads, every chat question with
+  its text and the tools called, and UI events the page posts to
+  `POST /api/events`). `GET /stats?key=...` is a private HTML summary,
+  gated by the `ASKMADDEN_STATS_KEY` Fly secret (404 when unset). The
+  key lives only in Fly secrets, never in the repo. See TODO.md's
+  "Usage events and a private stats page" entry.
 - Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
   after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
   this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit
