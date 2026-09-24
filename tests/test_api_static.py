@@ -189,10 +189,19 @@ def test_non_canonical_hosts_redirect_to_the_canonical_one(monkeypatch):
     monkeypatch.setattr(main, "CANONICAL_HOST", "askmadden.com")
     c = TestClient(main.app)
     r = c.get("/ui/", headers={"host": "www.askmadden.com"}, follow_redirects=False)
-    assert r.status_code == 301 and r.headers["location"] == "https://askmadden.com/ui/"
+    assert r.status_code == 308 and r.headers["location"] == "https://askmadden.com/ui/"
     r = c.get("/api/roster?session_id=x", headers={"host": "askmadden.fly.dev"}, follow_redirects=False)
-    assert r.status_code == 301 and r.headers["location"] == "https://askmadden.com/api/roster?session_id=x"
+    assert r.status_code == 308 and r.headers["location"] == "https://askmadden.com/api/roster?session_id=x"
     assert c.get("/ui/", headers={"host": "askmadden.com"}).status_code == 200
     assert c.get("/api/health", headers={"host": "www.askmadden.com"}).status_code == 200  # probes never redirected
     monkeypatch.setattr(main, "CANONICAL_HOST", "")
     assert c.get("/ui/", headers={"host": "www.askmadden.com"}).status_code == 200  # unset: no redirect (local dev)
+
+
+def test_redirect_keeps_the_method_for_api_posts(monkeypatch):
+    """A 301 would turn a POST into a GET (RFC 7231 / every browser and
+    `requests`), which is how POST /api/sessions on the fly.dev host
+    became a 405 right after the canonical-host deploy (2026-09-23)."""
+    monkeypatch.setattr(main, "CANONICAL_HOST", "askmadden.com")
+    r = TestClient(main.app).post("/api/sessions", json={"username": "x", "league_id": "1"}, headers={"host": "askmadden.fly.dev"}, follow_redirects=False)
+    assert r.status_code == 308 and r.headers["location"] == "https://askmadden.com/api/sessions"
