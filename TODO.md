@@ -2022,6 +2022,35 @@ age/depth/stage on league rosters; the prompt rules). Suite green.
       -- POST /api/sessions on the fly.dev host became a 405; now 308
       (PR after #59).
 
+## Usage events and a private stats page (2026-09-24)
+Rohan asked what we know about how people use the site. Until now:
+only the `users`/`sessions`/`query_counts` tables (who logged in, how
+many chats per day). Nothing said which tabs get used, which reports
+load, or what people actually ask. He opted in to storing usage data
+so we can learn from it.
+- [x] `events` table in `src/api/storage.py` (`ts, username,
+      league_id, kind, detail` JSON) with `record_event()` and
+      `usage_stats()` (users, sessions by user/day, chats by day,
+      events by kind/day, most recent questions and events).
+- [x] Server-side events, no frontend involvement: `league_open`
+      (POST /api/sessions), `roster`, `report` (with type), and `chat`
+      -- the question text, the turn number, which tools the agent
+      called, how many data gaps, the answer length, and any error.
+- [x] `POST /api/events` for UI events, tied to a real session (an
+      unknown session is dropped, `{"ok": false}`); the page's
+      `track()` sends `tab`, `pos_filter`, `suggest_chip` and
+      `show_more`, stored as `ui:<kind>`. Fire-and-forget with
+      `keepalive`, never blocks anything.
+- [x] `GET /stats?key=...` renders one HTML page of all of the above.
+      Gated by `ASKMADDEN_STATS_KEY`; when unset, or on a wrong key,
+      the route 404s (the page does not exist). The key is a Fly
+      secret, never in git.
+- [x] Tests: `tests/test_usage_events.py` (storage, the four server
+      events, the session check on UI events, the 404 gating).
+Not done: a chart or per-league view (the page is tables), and a
+retention policy (events grow unbounded; at current traffic that is
+kilobytes per week, revisit at thousands of users).
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper
