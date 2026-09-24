@@ -562,6 +562,14 @@ def _build_system_prompt(
         "grounded and record it as a data_gaps entry (reason: out_of_scope_capability). Never invent a number "
         "the tools didn't return, never claim a trade is 'fair' as if that were measured, and never use your "
         "own general knowledge of a player's reputation in place of the proxy.\n\n"
+        "Hard rules for any trade you write down: (1) never add two players' points per game together -- a 2-for-1 "
+        "is judged by the best player in it, and the side receiving two must cut someone to fit them; (2) a "
+        "proposal must name, from the other team's own `needs`/`surplus`, why THAT manager says yes -- if you "
+        "can't, don't propose it; (3) in a dynasty or keeper league use each player's `asset_stage` (young / "
+        "prime / aging / declining, from age and experience) and never offer an aging or declining player for a "
+        "young or prime one as if points made them equal -- a 32-year-old WR and a 33-year-old backup QB do not "
+        "buy a 26-year-old RB1 in a dynasty league, whatever their ppg says; say the stage of every player in a "
+        "pitch; (4) `depth_chart_order` 2+ means a backup -- say so.\n\n"
         "Make each proposal a real pitch, with its reasons from the same tool output: the other team's `needs` and "
         "`surplus` (why they would listen -- 'they start 2 RBs and have 5 healthy ones; they're down to 1 healthy "
         "TE'), `injury_status` (never propose acquiring a player who is Out/IR without saying so; a Questionable "
@@ -587,7 +595,11 @@ def _build_system_prompt(
         "verdict on last season's numbers is still the verdict (the Feed shows the same one); say plainly "
         "which season it rests on, but do not override it with your own read of the players. If rank_players "
         "returns verdict 'tied', say the ranking can't separate them and name the tied players -- do not pick "
-        "one. If it returns 'insufficient_data', say the comparison can't be grounded (name who lacked "
+        "one. rank_players lists anyone Sleeper marks Out / IR / NA / suspended under `unavailable` and leaves him out "
+        "of the ranking -- never put such a player in a lineup; say why he is out. A player whose only numbers "
+        "are last season's while others have this season's is ranked behind them on purpose (no snaps this "
+        "year is itself the signal) -- do not promote him on reputation. "
+        "If it returns 'insufficient_data', say the comparison can't be grounded (name who lacked "
         "data, with a data_gaps entry, reason no_signal_data, for each player it listed as unranked with no "
         "signals) -- do not pick the one who happened to have data, and do not pick from general knowledge. "
         "If a name came back unranked as ambiguous, ask which player was meant, exactly as for "
@@ -662,6 +674,30 @@ def _tool_find_owner(tool_input: dict, ctx: RecommendContext) -> dict:
 UNAVAILABLE_INJURY_STATUSES = {"Out", "IR", "PUP", "Sus", "COV", "DNR", "NA"}
 
 
+def _injury_status_by_name(ctx: RecommendContext) -> dict[str, str | None]:
+    try:
+        players = lookup._load(ctx.raw_dir, "players.json")
+    except Exception:
+        return {}
+    return {p.get("full_name"): p.get("injury_status") for p in players.values() if p.get("full_name")}
+
+
+# Where a player sits in his career for a league that keeps rosters year
+# to year -- the thing a points-per-game comparison cannot see. Age bands
+# by position (RBs age fastest); a rookie/second-year player is "young"
+# regardless. Descriptive, not a valuation.
+ASSET_STAGE_BANDS = {"RB": (27, 29), "WR": (29, 31), "TE": (30, 32), "QB": (33, 36)}
+
+
+def asset_stage(position: str | None, age: int | None, years_exp: int | None) -> str | None:
+    if years_exp is not None and years_exp <= 1:
+        return "young"
+    if age is None or position not in ASSET_STAGE_BANDS:
+        return None
+    aging, declining = ASSET_STAGE_BANDS[position]
+    return "declining" if age >= declining else "aging" if age >= aging else "prime"
+
+
 def _team_needs_and_surplus(players: list[dict], roster_positions: list[str]) -> dict:
     """Per position: dedicated starting slots vs. healthy players -- the
     other manager's side of a trade, from the same league data. `needs`
@@ -701,7 +737,9 @@ def _with_points_proxy(roster: dict, ctx: RecommendContext) -> dict:
             if result.match_type == "exact":
                 proxy = {k: v for k, v in tables.proxy_fields(result.candidates[0].player_id).items() if k != "prior_games_played"}
         bye = byes.get(p.get("team") or "")
-        players.append({**p, **proxy, "bye_week": bye, "on_bye_this_week": bye == ctx.as_of_week if bye else False})
+        stage = asset_stage(p.get("position"), p.get("age"), p.get("years_exp")) if (ctx.league and ctx.league.league_type in ("dynasty", "keeper")) else None
+        players.append({**p, **proxy, "bye_week": bye, "on_bye_this_week": bye == ctx.as_of_week if bye else False,
+                        **({"asset_stage": stage} if stage else {})})
     roster_positions = list(ctx.league.roster_positions) if ctx.league else []
     return {**roster, "players": players, **_team_needs_and_surplus(players, roster_positions)}
 
@@ -824,6 +862,11 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
     tables = ctx.signal_tables()
     candidates: list[dict] = []
     unresolved: list[dict] = []
+    unavailable: list[dict] = []
+    # Availability from the league's own Sleeper player data (the Feed's
+    # start/sit has applied this since 09-20; chat did not, and started a
+    # player on Sleeper's 'NA' -- not active -- list). Matched by name.
+    status_by_name = _injury_status_by_name(ctx)
     for name in names:
         result = resolve_named_player(name, ctx)
         if result.match_type == "none":
@@ -843,6 +886,11 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
             )
             continue
         match = result.candidates[0]
+        status = status_by_name.get(match.player_name)
+        if status in UNAVAILABLE_INJURY_STATUSES:
+            unavailable.append({"name": match.player_name, "reason": "unavailable", "injury_status": status,
+                                "note": f"{match.player_name} is listed {status} by Sleeper -- not available to start this week."})
+            continue
         candidates.append(
             {
                 "player_id": match.player_id,
@@ -870,7 +918,8 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
         "confidence_description": ranked["confidence_description"],
         "ranked": ranked["ranked"],
         "tied_at_top": ranked["tied_at_top"],
-        "unranked": unranked + unresolved,
+        "unranked": unranked + unresolved + unavailable,
+        "unavailable": unavailable,
         "same_position": len(positions) <= 1,
         "score_description": ranked["score_description"],
         "note": (

@@ -318,6 +318,11 @@
   .pcard-line b{ color:var(--text); font-weight:600; }
   .pcard-reason{ font-size:11.5px; color:var(--text-dim); line-height:1.4; border-left:2px solid var(--border); padding-left:9px; }
   .pcard .chip-row{ margin-top:0; }
+  [hidden]{ display:none !important; }  /* the hidden attribute must beat any class's display */
+  .slot-section{ margin-bottom:18px; } .slot-section .pos-label{ margin-bottom:8px; }
+  .more-link{ display:inline-block; margin-top:8px; font-size:11.5px; color:var(--text-dim); text-decoration:underline; }
+  .pos-filter{ display:flex; gap:6px; flex-wrap:wrap; margin:0 0 12px; }
+  .pos-chip{ cursor:pointer; } .pos-chip.active{ color:var(--green); border-color:var(--green-line); background:var(--green-dim); }
 
   .waiver-row{ display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 13px; margin-bottom:10px; }
   .waiver-row .avatar-ring{ width:34px; height:34px; font-size:10px; }
@@ -588,7 +593,8 @@
             <section class="panel active" id="panel-feed">
               <div class="section-label"><h2>Start today</h2><a href="#" onclick="loadFeed(true);return false;">Refresh →</a></div>
               <div id="league-banner" hidden></div>
-              <div class="card-grid" id="feed-start-sit"><div class="state-card"><p>Loading start/sit…</p></div></div>
+              <div class="pos-filter" id="pos-filter"></div>
+              <div id="feed-start-sit"><div class="state-card"><p>Loading start/sit…</p></div></div>
               <div class="section-label"><h2>Drop candidates</h2></div>
               <div class="card-grid" id="feed-drop"><div class="state-card"><p>Loading…</p></div></div>
               <div class="section-label"><h2>Waiver targets</h2><a href="#" onclick="setTab('moves');return false;">See all →</a></div>
@@ -894,8 +900,20 @@
         starters.forEach(st => cards.push(recCard(st.name, st.position || entry.position, st.team, 'start', st.signals_summary || entry.reasoning, st, slotLabel)));
         (entry.alternatives_considered || []).filter(alt => !startsSomewhere.has(alt.player_id)).forEach(alt => cards.push(recCard(alt.name, alt.position || entry.position, alt.team, 'sit', alt.signals_summary, alt, slotLabel)));
       });
-      ss.innerHTML = cards.length ? cards.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
-      if (cards.length && rep.notes && rep.notes.length) ss.insertAdjacentHTML('beforeend', notesCard(rep));
+      // Indexed by slot (2026-09-23: "the start today screen is a bit cluttered ... indexed by
+      // position would be nice"): one section per slot, starters first, the first two SIT
+      // cards shown and the rest behind a toggle; chips above filter to one slot.
+      const sections = rep.entries.map(entry => {
+        const slotLabel = entry.slots > 1 ? `${entry.position} ×${entry.slots}` : entry.position;
+        const starters = (entry.recommended_starters || [entry.recommended_starter]).map(st => recCard(st.name, st.position || entry.position, st.team, 'start', st.signals_summary || entry.reasoning, st, slotLabel));
+        const sits = (entry.alternatives_considered || []).filter(alt => !startsSomewhere.has(alt.player_id)).map(alt => recCard(alt.name, alt.position || entry.position, alt.team, 'sit', alt.signals_summary, alt, slotLabel));
+        const shown = sits.slice(0, 2), hidden = sits.slice(2);
+        const more = hidden.length ? `<div class="card-grid more" hidden>${hidden.join('')}</div><a href="#" class="more-link" onclick="const m=this.previousElementSibling; m.hidden=!m.hidden; this.textContent = m.hidden ? 'Show ${hidden.length} more' : 'Show fewer'; return false;">Show ${hidden.length} more</a>` : '';
+        return `<section class="slot-section" data-slot="${esc(entry.position)}"><div class="pos-label">${esc(slotLabel)}${entry.eligible_positions ? ` <span class="ppos">(${esc(entry.eligible_positions.join('/'))})</span>` : ''}</div><div class="card-grid">${starters.join('')}${shown.join('')}</div>${more}</section>`;
+      });
+      ss.innerHTML = sections.length ? sections.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
+      if (sections.length && rep.notes && rep.notes.length) ss.insertAdjacentHTML('beforeend', notesCard(rep));
+      renderPosFilter(rep.entries.map(e => e.position));
     }).catch(e => ss.innerHTML = errorCard(e, 'start/sit'));
     fetchReport('drop', force).then(rep => {
       dr.innerHTML = (rep.entries.length ? rep.entries.map(dropRow).join('') : `<div class="state-card"><p>No drop candidates could be ranked.</p></div>`) + notesCard(rep);
@@ -913,6 +931,16 @@
     const label = entry.confidence_label || '';
     const cls = label === 'coin flip' ? 'stale' : label === 'lean' ? 'pos' : 'conf';
     return `<span class="chip ${cls}" title="Probability of outscoring the next player in this ranking this week (calibrated on 2024-25 backtests; capped at 85%)">${p}% · ${esc(label)}</span>`;
+  }
+  function renderPosFilter(slots){
+    const el = document.getElementById('pos-filter');
+    const uniq = slots.filter((s, i) => slots.indexOf(s) === i);
+    if (uniq.length < 2) { el.innerHTML = ''; return; }
+    el.innerHTML = ['All', ...uniq].map((s, i) => `<span class="chip pos-chip${i === 0 ? ' active' : ''}" onclick="filterSlot('${esc(s)}', this)">${esc(s)}</span>`).join('');
+  }
+  function filterSlot(slot, chip){
+    document.querySelectorAll('#pos-filter .pos-chip').forEach(c => c.classList.toggle('active', c === chip));
+    document.querySelectorAll('#feed-start-sit .slot-section').forEach(sec => { sec.hidden = slot !== 'All' && sec.dataset.slot !== slot; });
   }
   // ---- headshots (2026-09-23): Sleeper's own thumbnail CDN, keyed by the Sleeper id every
   // roster/report entry carries; a team defense uses the team logo. Missing image -> initials.
