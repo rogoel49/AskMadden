@@ -908,7 +908,7 @@
         const starters = (entry.recommended_starters || [entry.recommended_starter]).map(st => recCard(st.name, st.position || entry.position, st.team, 'start', st.signals_summary || entry.reasoning, st, slotLabel));
         const sits = (entry.alternatives_considered || []).filter(alt => !startsSomewhere.has(alt.player_id)).map(alt => recCard(alt.name, alt.position || entry.position, alt.team, 'sit', alt.signals_summary, alt, slotLabel));
         const shown = sits.slice(0, 2), hidden = sits.slice(2);
-        const more = hidden.length ? `<div class="card-grid more" hidden>${hidden.join('')}</div><a href="#" class="more-link" onclick="const m=this.previousElementSibling; m.hidden=!m.hidden; this.textContent = m.hidden ? 'Show ${hidden.length} more' : 'Show fewer'; return false;">Show ${hidden.length} more</a>` : '';
+        const more = hidden.length ? `<div class="card-grid more" hidden>${hidden.join('')}</div><a href="#" class="more-link" onclick="track('show_more', { slot: '${esc(entry.position)}' }); const m=this.previousElementSibling; m.hidden=!m.hidden; this.textContent = m.hidden ? 'Show ${hidden.length} more' : 'Show fewer'; return false;">Show ${hidden.length} more</a>` : '';
         return `<section class="slot-section" data-slot="${esc(entry.position)}"><div class="pos-label">${esc(slotLabel)}${entry.eligible_positions ? ` <span class="ppos">(${esc(entry.eligible_positions.join('/'))})</span>` : ''}</div><div class="card-grid">${starters.join('')}${shown.join('')}</div>${more}</section>`;
       });
       ss.innerHTML = sections.length ? sections.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
@@ -939,6 +939,7 @@
     el.innerHTML = ['All', ...uniq].map((s, i) => `<span class="chip pos-chip${i === 0 ? ' active' : ''}" onclick="filterSlot('${esc(s)}', this)">${esc(s)}</span>`).join('');
   }
   function filterSlot(slot, chip){
+    track('pos_filter', { slot });
     document.querySelectorAll('#pos-filter .pos-chip').forEach(c => c.classList.toggle('active', c === chip));
     document.querySelectorAll('#feed-start-sit .slot-section').forEach(sec => { sec.hidden = slot !== 'All' && sec.dataset.slot !== slot; });
   }
@@ -1074,7 +1075,7 @@
     try { await runChat(q, document.getElementById('chat-scroll'), 'messages'); }
     finally { state.busy = false; document.getElementById('chat-send').disabled = false; }
   }
-  function askChat(text){ document.getElementById('chat-input').value = text; sendChat(); }
+  function askChat(text){ track('suggest_chip', { text }); document.getElementById('chat-input').value = text; sendChat(); }
 
   /* ---------------- moves ---------------- */
   function switchMoves(seg){
@@ -1097,7 +1098,13 @@
     document.documentElement.classList.toggle('app-open', name === 'app');  // see html.app-open in the CSS
     if(name === 'app'){ renderLeagueList('modal-league-list', true); }
   }
+  // Usage events (2026-09-24): fire-and-forget, tied to the session; the server drops anything without one.
+  function track(kind, detail){
+    if (!state.session) return;
+    try { fetch(API_BASE + '/api/events', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ session_id: state.session.session_id, kind, detail: detail || null }), keepalive: true }).catch(() => {}); } catch (e) {}
+  }
   function setTab(tab){
+    track('tab', { tab });
     document.querySelectorAll('.tab-btn, .nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
     if (tab === 'roster') loadRoster();

@@ -96,6 +96,7 @@ run on a machine with network access; see TODO.md's Phase 5.2 entry.
 """
 from __future__ import annotations
 
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -297,6 +298,65 @@ def _signals_consulted(tool_calls: list[dict]) -> list[dict]:
 # ---- endpoints ----
 
 
+class EventRequest(BaseModel):
+    session_id: str
+    kind: str = Field(max_length=40)
+    detail: dict | None = None
+
+
+@app.post("/api/events")
+def ui_event(body: EventRequest, storage: Storage = Depends(get_storage)) -> dict:
+    """UI events the page sends (tab views, filter and chip clicks). Tied to a
+    real session so they carry a user and league; anything else is dropped."""
+    session = storage.session(body.session_id)
+    if session is None:
+        return {"ok": False}
+    storage.record_event(f"ui:{body.kind}", session["username"], session.get("league_id"), body.detail)
+    return {"ok": True}
+
+
+def stats_key() -> str:
+    return (os.environ.get("ASKMADDEN_STATS_KEY") or "").strip()
+
+
+@app.get("/stats", include_in_schema=False)
+def stats_page(key: str = "", storage: Storage = Depends(get_storage)):
+    """A private usage page: who, how often, what they ask. Gated by
+    ASKMADDEN_STATS_KEY; unset means the page doesn't exist."""
+    from fastapi.responses import HTMLResponse
+    from html import escape
+
+    expected = stats_key()
+    if not expected or key != expected:
+        raise HTTPException(status_code=404, detail="Not Found")
+    st = storage.usage_stats()
+
+    def table(rows: list[dict], cols: list[str] | None = None) -> str:
+        if not rows:
+            return "<p class=m>none yet</p>"
+        cols = cols or list(rows[0].keys())
+        head = "".join(f"<th>{escape(c)}</th>" for c in cols)
+        body = "".join("<tr>" + "".join(f"<td>{escape(str(r.get(c, '')))}</td>" for c in cols) + "</tr>" for r in rows)
+        return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+    questions = [{"ts": r["ts"][:16], "user": r["username"], "league": r["league_id"], **(json.loads(r["detail"]) if r.get("detail") else {})} for r in st["recent_questions"]]
+    html = f"""<!doctype html><meta charset=utf-8><title>Ask Madden usage</title>
+<style>body{{font:14px/1.45 -apple-system,system-ui,sans-serif;background:#0b0e13;color:#e6e9ef;margin:24px;max-width:1100px}}
+h1{{font-size:20px}}h2{{font-size:15px;margin:26px 0 8px;color:#39e39a}}table{{border-collapse:collapse;width:100%;font-size:12.5px}}
+th,td{{text-align:left;padding:5px 8px;border-bottom:1px solid #222831;vertical-align:top}}th{{color:#8a93a3;font-weight:600}}.m{{color:#8a93a3}}</style>
+<h1>Ask Madden usage</h1><p class=m>Events since {escape(st['since'][:10])} (UTC). Chat counts include API checks run from the dev machine as rohangoel.</p>
+<h2>Users</h2>{table(st['users'])}
+<h2>Sessions by user</h2>{table(st['sessions_by_user'])}
+<h2>Sessions by day</h2>{table(st['sessions_by_day'])}
+<h2>Chat questions by day</h2>{table(st['chats_by_day'])}
+<h2>Events by kind</h2>{table(st['events_by_kind'])}
+<h2>Events by day</h2>{table(st['events_by_day'])}
+<h2>Recent chat questions</h2>{table(questions, ['ts', 'user', 'league', 'question', 'turn', 'tools', 'data_gaps', 'answer_chars'])}
+<h2>Recent events</h2>{table([{**r, 'ts': r['ts'][:16]} for r in st['recent_events']])}
+"""
+    return HTMLResponse(html)
+
+
 @app.get("/api/health")
 def health() -> dict:
     """Process is up -> 200, always. The refresh summary is informational:
@@ -383,6 +443,7 @@ def create_session(body: SessionRequest, storage: Storage = Depends(get_storage)
     except requests.RequestException as e:  # first-use ingest hits Sleeper (and nflverse)
         raise HTTPException(status_code=502, detail=f"upstream data source unreachable while ingesting league: {e}") from e
     session = storage.create_session(body.username, league_id=body.league_id, roster_id=roster_id)
+    storage.record_event("league_open", body.username, body.league_id, {"league_name": config.name, "league_type": config.league_type})
     return {**session, "league_name": config.name, "scoring_settings": config.scoring_settings, "status": config.status,
             "league_type": config.league_type}
 
@@ -406,6 +467,7 @@ def roster(session_id: str = Query(...), storage: Storage = Depends(get_storage)
     # then bench, then reserve. `players`/`counts_by_position` stay as
     # they were for anything that reads the flat list.
     lineup = lookup.lineup_for_roster_id(session["roster_id"], config.roster_positions, config.raw_dir) or {}
+    storage.record_event("roster", session["username"], config.league_id)
     return {
         "league_id": config.league_id,
         "league_name": config.name,
@@ -425,6 +487,7 @@ def get_report(
 ) -> dict:
     session = _session_or_404(storage, session_id)
     config = _league_for_session(session)
+    storage.record_event("report", session["username"], config.league_id, {"type": report_type})
     try:
         return report.generate_report(
             report_type,
@@ -481,6 +544,12 @@ def chat(
     # deterministically -- the first live trade answer used the numbers
     # correctly but left the "crude proxy" label out of its text.
     used_proxy = any(call.get("name") in ("get_league_rosters", "get_waiver_targets") for call in result["tool_calls"])
+    storage.record_event(
+        "chat", session["username"], config.league_id,
+        {"question": body.question, "turn": len(body.messages or []) // 2 + 1,
+         "tools": [c.get("name") for c in result["tool_calls"]], "data_gaps": len(result["data_gaps"] or []),
+         "error": result["error"], "answer_chars": len(result["recommendation"] or "")},
+    )
     return {
         "recommendation": result["recommendation"],
         "reasoning": result["reasoning"],

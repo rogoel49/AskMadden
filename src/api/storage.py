@@ -19,8 +19,9 @@ src/api/leagues.py manages.
 from __future__ import annotations
 
 import secrets
+import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,15 @@ CREATE TABLE IF NOT EXISTS query_counts (
     count    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (username, day)
 );
+CREATE TABLE IF NOT EXISTS events (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts        TEXT NOT NULL,
+    username  TEXT,
+    league_id TEXT,
+    kind      TEXT NOT NULL,
+    detail    TEXT
+);
+CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
 """
 
 
@@ -201,6 +211,41 @@ class Storage:
                 (_norm_username(username), day or _today()),
             ).fetchone()
         return int(row["count"]) if row else 0
+
+    # ---- usage events (2026-09-24) ----
+    # What people actually do: league opens, report loads, every chat
+    # question (text kept, so we can learn what gets asked), and UI events
+    # the page sends. Rohan opted in to storing this; it is one table,
+    # readable only through the key-gated /stats page.
+
+    def record_event(self, kind: str, username: str | None = None, league_id: str | None = None, detail: dict | None = None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO events(ts, username, league_id, kind, detail) VALUES (?, ?, ?, ?, ?)",
+                (_now(), _norm_username(username) if username else None, str(league_id) if league_id else None, kind,
+                 json.dumps(detail, default=str) if detail is not None else None),
+            )
+
+    def usage_stats(self, days: int = 30, recent: int = 50) -> dict:
+        """Everything the /stats page shows: users, sessions and chats by
+        day, events by kind, and the most recent chat questions."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._connect() as conn:
+            q = lambda sql, *a: [dict(r) for r in conn.execute(sql, a).fetchall()]  # noqa: E731
+            return {
+                "since": since,
+                "users": q("SELECT username, display_name, updated_at AS last_login FROM users ORDER BY updated_at DESC"),
+                "sessions_by_user": q(
+                    "SELECT username, COUNT(*) AS sessions, COUNT(DISTINCT league_id) AS leagues, MIN(created_at) AS first, MAX(created_at) AS last "
+                    "FROM sessions GROUP BY username ORDER BY sessions DESC"),
+                "sessions_by_day": q("SELECT substr(created_at,1,10) AS day, COUNT(*) AS sessions, COUNT(DISTINCT username) AS users FROM sessions GROUP BY day ORDER BY day"),
+                "chats_by_day": q("SELECT day, username, count FROM query_counts WHERE username != '__all_users__' ORDER BY day, username"),
+                "events_by_kind": q("SELECT kind, COUNT(*) AS n, COUNT(DISTINCT username) AS users FROM events WHERE ts >= ? GROUP BY kind ORDER BY n DESC", since),
+                "events_by_day": q("SELECT substr(ts,1,10) AS day, kind, COUNT(*) AS n FROM events WHERE ts >= ? GROUP BY day, kind ORDER BY day, n DESC", since),
+                "recent_questions": q(
+                    "SELECT ts, username, league_id, detail FROM events WHERE kind = 'chat' ORDER BY id DESC LIMIT ?", recent),
+                "recent_events": q("SELECT ts, username, league_id, kind, detail FROM events ORDER BY id DESC LIMIT ?", recent),
+            }
 
     def record_query(self, username: str, cap: int, day: str | None = None) -> int:
         """Count one Claude-backed query against username's daily cap and

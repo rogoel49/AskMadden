@@ -200,6 +200,12 @@ conversation). Chat responses carry `data_gaps` and per-player
 chat is capped per user per day (`ASKMADDEN_DAILY_QUERY_CAP`, default
 25); reports are free. Interactive docs at `/docs` once it's running.
 
+Usage is recorded in an `events` table (league opens, report loads,
+chat questions with their text, and UI events the page posts to
+`POST /api/events`). `GET /stats?key=...` shows it as one HTML page,
+gated by `ASKMADDEN_STATS_KEY`; leave the variable unset and the route
+does not exist.
+
 ### Deploying (Phase 5.6)
 The whole product is one container: `Dockerfile` runs
 `src.api.main:app` (API + `/ui` frontend + in-process refresh) behind
