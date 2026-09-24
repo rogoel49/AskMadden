@@ -179,7 +179,7 @@ async def _canonical_host(request, call_next):
     if CANONICAL_HOST and host and host != CANONICAL_HOST and not request.url.path.startswith("/api/health") and "." in host:
         from fastapi.responses import RedirectResponse as _R
 
-        return _R(str(request.url.replace(netloc=CANONICAL_HOST, scheme="https")), status_code=301)
+        return _R(str(request.url.replace(netloc=CANONICAL_HOST, scheme="https")), status_code=308)  # 308 keeps the method: a 301 turns a POST into a GET
     return await call_next(request)
 
 
