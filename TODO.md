@@ -2007,8 +2007,20 @@ actually want texts. Needs Rohan's pick before building.
 (stale-behind-current ordering incl. the week-1 exception; the NA
 player excluded from rank_players with the note; asset-stage bands;
 age/depth/stage on league rosters; the prompt rules). Suite green.
-- [ ] Real-model check of the lineup and trade answers on the hosted
-      app after this deploy.
+- [x] Real-model check on the hosted app (Rohan's Dynasty of Chips
+      roster, 2026-09-23). Lineup: no NA/IR player anywhere, Goedert
+      flagged "monitor status -- if out, replace with Hockenson". Trade:
+      "Trade Mahomes + a mid-tier asset for Jaxon Smith-Njigba from
+      Prathik11 (30.1 ppg, young/prime), or package James Cook (14.4,
+      prime) + Jaylen Waddle (9.25, prime) for Justin Jefferson (17.1,
+      prime) from rebrijnayak" -- stages stated, targets chosen by the
+      other teams' needs, no aging-for-young, no ppg summing. Still
+      imperfect: "a mid-tier asset" is not a named player, and the
+      reasoning field came back empty (the FORMAT rule's bullets are
+      still only partly followed). Also found on this deploy: the
+      canonical-host redirect was a 301, which turns a POST into a GET
+      -- POST /api/sessions on the fly.dev host became a 405; now 308
+      (PR after #59).
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
