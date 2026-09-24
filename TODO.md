@@ -1936,6 +1936,80 @@ recent game's share (a role change shows there first).
       from public per-week numbers has a ceiling near where the ranking
       already sits.
 
+## Chat lineups now honor availability and no-snaps; dynasty trade pitches carry asset stage; Feed indexed by slot (2026-09-23)
+
+Feedback from a second user of the dynasty league (Vikram, roster #3),
+relayed by Rohan.
+
+**"It recommended Josh Jacobs" (Sleeper's commissioner-exempt list).**
+Two defects, both in the chat path only. (1) Sleeper marks Jacobs
+`injury_status: NA` ("not active", body part "Personal", 4th on his
+depth chart). The Feed's start/sit has excluded NA/Out/IR/PUP/Sus/COV/
+DNR since 09-20; `rank_players` -- what chat's "optimal lineup" runs on
+-- never applied the rule, so it ranked him. It now leaves such players
+out with an `unavailable` list ("listed NA by Sleeper -- not available
+to start this week") and the prompt forbids putting one in a lineup.
+(2) He was ranked on 2025 numbers over backs with real 2026 games. Once
+the season is underway, having no current-season plays IS the signal:
+`rank_candidates` now sorts every stale-fallback player behind every
+player with current-season data (week 1, when everyone is stale, is
+unaffected; ties are judged within a group). Both are Chat/Feed shared,
+so the surfaces still agree. On injury freshness: Sleeper's player
+statuses are re-pulled on every 6-hourly refresh, so a status change
+reaches the app within six hours; `src/ingest/realtime.py`'s tighter
+tier is still not wired (see 5.7).
+
+**"Stefon Diggs + Carson Wentz for James Cook or TreVeyon Henderson" in
+a dynasty league.** Why it's heinous: Diggs is 32, Wentz is a 33-year-
+old backup (`depth_chart_order` 2), Cook is 26 and an RB1, Henderson is
+23 -- in a league that keeps rosters forever, the other manager would
+be giving away years of value for two players near the end. The tool
+had given the model only points per game (16.4 + 15.8 vs 14.4 looked
+generous) and the prompt let it (a) add two players' ppg together and
+(b) skip why the other side says yes. Fix: `get_league_rosters` now
+carries `age`, `years_exp`, `depth_chart_order` for every player and,
+in dynasty/keeper leagues, an `asset_stage` (young / prime / aging /
+declining from position-specific age bands: RB 27/29, WR 29/31, TE
+30/32, QB 33/36; rookies and second-year players are young). Hard
+rules in the prompt: never sum ppg (a 2-for-1 is judged by its best
+player and the receiving side must cut someone); a pitch must name from
+the other team's own needs why THAT manager says yes or not be made; in
+dynasty/keeper never offer aging/declining for young/prime as if points
+made them equal, and state every player's stage; `depth_chart_order` 2+
+is a backup and must be said. Still no market value -- this makes the
+absurd pitch unlikely, it doesn't make the plausible ones "fair".
+
+**"Start today is cluttered / indexed by position would be nice."**
+The Feed's start/sit is now one section per slot (QB, RB ×2, WR ×2, TE,
+FLEX, SUPER_FLEX...) with starters first, the first two SIT cards shown
+and the rest behind "Show N more", and filter chips above (All / QB /
+RB / ...). Checked in headless Chrome against the real league: sections
+and chips render, the RB filter hides the others, the collapsed cards
+toggle (that needed a `[hidden]{display:none!important}` rule -- the
+grid's own display beat the attribute).
+
+**Feature request (recorded, not built): lineup-change alerts.** "A
+cron monitoring Sleeper that runs Thursday afternoon and Saturday night
+and texts lineup changes based on latest matchups / injuries." Shape:
+a scheduler job (`--once`-style, cron on Thu 15:00 and Sat 21:00 local)
+that, for every remembered user+league, regenerates start_sit, diffs it
+against the last saved lineup, and sends only the changes ("Nabers now
+Questionable -> start Coker; Jacobs NA"). The channel is the decision:
+SMS needs Twilio (a number ~$1/mo + ~$0.008/msg, plus opt-in handling);
+email is free at this scale (SendGrid/Resend); web push is free and
+native to the installed PWA (VAPID keys, a subscription table, a push
+from the job; iOS 16.4+ delivers to Home Screen apps). Recommendation:
+web push first (no third party, no phone numbers), SMS only if people
+actually want texts. Needs Rohan's pick before building.
+- [ ] Lineup-change alerts: choose channel, then build (Phase 8?).
+
+**Validated:** `tests/test_lineup_availability_and_dynasty_trades.py`
+(stale-behind-current ordering incl. the week-1 exception; the NA
+player excluded from rank_players with the note; asset-stage bands;
+age/depth/stage on league rosters; the prompt rules). Suite green.
+- [ ] Real-model check of the lineup and trade answers on the hosted
+      app after this deploy.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

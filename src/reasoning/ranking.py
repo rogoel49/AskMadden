@@ -557,12 +557,21 @@ def rank_candidates(candidates: list[dict]) -> dict:
                 "_score": score,
             }
         )
-    scored.sort(key=lambda entry: entry["_score"], reverse=True)
+    # Once anyone in the comparison has current-season data, a player whose
+    # only numbers are last season's -- i.e. zero plays this season -- sorts
+    # behind every player who has actually played (2026-09-23: a chat lineup
+    # started Josh Jacobs on 2025 numbers, 4th on his depth chart with no
+    # 2026 snaps, over backs with real 2026 games). Week 1, when everyone is
+    # stale, is unaffected; a tie inside each group is still a tie.
+    if any(not e["stale"] for e in scored):
+        scored.sort(key=lambda entry: (not entry["stale"], entry["_score"]), reverse=True)
+    else:
+        scored.sort(key=lambda entry: entry["_score"], reverse=True)
 
     if len(scored) < 2:
         verdict = "insufficient_data"
         tied_at_top: list[dict] = []
-    elif abs(scored[0]["_score"] - scored[1]["_score"]) <= TIE_TOLERANCE:
+    elif scored[0]["stale"] == scored[1]["stale"] and abs(scored[0]["_score"] - scored[1]["_score"]) <= TIE_TOLERANCE:
         verdict = "tied"
         top = scored[0]["_score"]
         tied_at_top = [entry for entry in scored if abs(entry["_score"] - top) <= TIE_TOLERANCE]
