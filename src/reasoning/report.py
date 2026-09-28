@@ -153,6 +153,7 @@ from src.rag.embed import CHROMA_DIR, RAW_DIR
 from src.reasoning import recommend
 from src.reasoning.league import load_league
 from src.reasoning.ranking import (
+    availability_of,
     SIGNALS_DIR,
     SignalTables,
     fmt_signal_row,
@@ -289,6 +290,12 @@ def _player_ref(ranked: dict, injury_status: str | None = None, sleeper_id: str 
         # P(this player outscores the next one in the ranking) and its label -- see ranking.CONFIDENCE_DESCRIPTION.
         "win_probability_vs_next": ranked.get("win_probability_vs_next"),
         "confidence_label": ranked.get("confidence_label"),
+        # Injury-report availability (None for a healthy player) -- see ranking.AVAILABILITY_DESCRIPTION.
+        "report_status": ranked.get("report_status"),
+        "practice_status": ranked.get("practice_status"),
+        "play_probability": ranked.get("play_probability"),
+        "played_output_factor": ranked.get("played_output_factor"),
+        "expected_output": ranked.get("expected_output"),
         "key_stats": ranked.get("key_stats") or {},
         "signals_summary": ranked["signals_summary"],
         "stale": ranked["stale"],
@@ -312,6 +319,17 @@ def _start_sit_entry(
         reasoning = f"Start {names} at {where}. " + " ".join(f"{s['name']}: {s['signals_summary']}." for s in starters)
     for alt in alternatives:
         reasoning += f" By comparison, {alt['name']}: {alt['signals_summary']}."
+    # A designated starter: say the base rate, and who steps in if he sits
+    # (the best alternative not already starting here).
+    if_out = []
+    for s in starters:
+        if s.get("play_probability") is None:
+            continue
+        replacement = alternatives[0] if alternatives else None
+        if_out.append({"starter": s["name"], "player_id": s["player_id"],
+                       "replacement": replacement["name"] if replacement else None,
+                       "replacement_player_id": replacement["player_id"] if replacement else None})
+        reasoning += " " + availability_sentence(s) + (f" If he sits, {replacement['name']} steps in." if replacement else "")
     entry = {
         "position": slot,
         "slots": n_slots,
@@ -321,10 +339,28 @@ def _start_sit_entry(
         "recommended_starters": [_player_ref(s, injuries.get(s["player_id"]), sleeper_ids.get(s["player_id"])) for s in starters],
         "alternatives_considered": [_player_ref(a, injuries.get(a["player_id"]), sleeper_ids.get(a["player_id"])) for a in alternatives],
         "reasoning": reasoning,
+        "if_out": if_out,
     }
     if eligible is not None:
         entry["eligible_positions"] = list(eligible)
     return entry
+
+
+def availability_sentence(entry: dict) -> str:
+    """'X is Questionable (limited practice): players in that spot have
+    played 62% of the time and scored 78% of their usual when they did,
+    so the ranking counts him at 48% of himself.'"""
+    status = entry.get("report_status") or entry.get("injury_status") or "on the injury report"
+    practice = entry.get("practice_status")
+    p, k, m = entry.get("play_probability"), entry.get("played_output_factor"), entry.get("expected_output")
+    where = f"{status} ({practice})" if practice else f"{status} (no practice report)"
+    text = f"{entry['name']} is {where}: players in that spot have played {p:.0%} of the time"
+    if k is not None:
+        text += f" and scored {k:.0%} of their usual when they did"
+    if m is not None:
+        text += f", so the ranking counts him at {m:.0%} of himself"
+    return text + " -- a base rate for the situation, not a read on his injury."
+
 
 
 def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> dict:
@@ -340,6 +376,23 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
         resolved = [c for c in resolved if c.get("injury_status") not in UNAVAILABLE_STATUSES]
     injuries = {c["player_id"]: c.get("injury_status") for c in resolved}
     sleeper_ids = {c["player_id"]: c.get("sleeper_id") for c in resolved}
+    designated = [
+        (c, availability_of(c["row"], c.get("injury_status"), c.get("position")))
+        for c in resolved
+    ]
+    designated = [(c, a) for c, a in designated if a.get("play_probability") is not None]
+    if designated:
+        notes.append(
+            "On the injury report this week, counted at a share of their usual output (historical rate of playing "
+            "x output when playing): "
+            + "; ".join(
+                f"{c['name']} {a['report_status'] or c.get('injury_status')}"
+                + (f", {a['practice_status']}" if a.get("practice_status") else "")
+                + f" -- plays {a['play_probability']:.0%}, counted at {a['expected_output']:.0%}"
+                for c, a in designated
+            )
+            + "."
+        )
 
     by_position: dict[str, list[dict]] = {}
     for candidate in resolved:

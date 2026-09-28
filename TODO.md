@@ -2051,6 +2051,83 @@ Not done: a chart or per-league view (the page is tables), and a
 retention policy (events grow unbounded; at current traffic that is
 kilobytes per week, revisit at thousands of users).
 
+## Play probability: a Questionable player is counted at his chance to play (2026-09-27)
+A friend's observation, via Rohan: "if I know questionable is 75% likely
+vs 50% likely it really changes the calculus of setting your lineup",
+and "starting 0/3 is a back breaker". Until now the lineup treated every
+Questionable player as healthy and only Out/IR were excluded.
+
+**What the data says.** nflverse publishes the official NFL injury
+report (designation + practice status), updated in-season (the week-3
+report was in on Sunday morning 09-27). Joined to snap counts,
+2020-2025 skill positions ("played" = at least one offensive snap):
+Questionable after a full practice 71%, limited 65%, did not practice
+42%, Doubtful 1%; QBs lower (limited 41%, n=152). And the ones who do
+play score about 86% of their season-to-date average (full 91%,
+limited 87%, DNP 74%). Sleeper's own practice fields are empty for
+every player, so nflverse is the live source; Sleeper's designation
+alone gets the pooled rate.
+
+**Held-out test on 2025** (`evals/results/2026-09-27_play_rates.json`,
+fit on 2020-2024):
+- Brier 0.223 vs 0.232 for "Questionable = 50/50" and 0.384 for
+  "every Questionable player plays". The practice split adds little
+  over one pooled rate per designation (0.226): in 2025 full-practice
+  Q players played 59%, DNP 54% -- the ordering that held in 2023-24
+  mostly collapsed. The robust content is "Questionable ~ 60%,
+  Doubtful ~ 0"; practice status is a modest modifier.
+- Lineup test, 1,380 pairs (each designated player vs healthy
+  same-position players at 40-120% of his average): pick the higher
+  average 46%; higher average x play rate 62%; x play rate x output
+  factor 63%; **never start the designated player 70%**. Designated
+  players outscored the healthy partner only 31% of the time, even a
+  partner averaging 40% of their number 40% of the time. So the
+  discount is a large improvement over ignoring the designation, and
+  the data says a heavy one is warranted; the product uses the fitted
+  expected-output discount because it is explainable and the "always
+  bench" rule would bench a star against a bench body.
+
+**What shipped.**
+- `src/signals/availability.py` (league-agnostic): fetch/write/load
+  the season's injury-report table (`data/processed/injuries/`), the
+  fitted `play_rates.json` (rates x position when n >= 30, else
+  pooled; output factors), `play_probability()`, `output_factor()`,
+  `expected_output()`, `availability_for(week)`. Refit with
+  `python -m evals.fit_play_rates --write` (fits on 2020-2024, tests
+  on 2025, ships a table fit on all six seasons).
+- The refresh cycle writes the injury table each run; a failure there
+  is a warning, never a lost cycle.
+- `ranking.SignalTables` joins availability by gsis_id onto every row;
+  `rank_candidates` counts a designated player at `expected_output`
+  of his points -- the discount is (1 - expected_output) x his ppg at
+  the model's fitted points weight, so the order agrees with expected
+  points (a 14-point back at 55% ranks like a 7.7-point one) and a
+  healthy lineup is untouched. Confidence = P(plays) x P(outscores at
+  reduced output), so a Q starter honestly shows a coin flip.
+  A Sleeper-only designation (no report row) uses the pooled rate.
+- start/sit: each ref carries `report_status`, `practice_status`,
+  `play_probability`, `played_output_factor`, `expected_output`; a
+  designated starter's entry gets `if_out` (who steps in) and a
+  sentence in `reasoning`; a note lists everyone on the report with
+  their numbers.
+- Chat: `rank_players` returns `designated` + `availability_description`,
+  `get_player_signals` carries the fields, and the prompt requires the
+  percentage, what he is counted at, who steps in, and the "base rate,
+  not a read on his injury" framing.
+- UI: the card chip reads "Questionable · plays 70% · counted at 60% ·
+  limited practice" with the full explanation on hover; an "If X sits:
+  Y steps in" line under the slot heading.
+- Tests: `tests/test_availability.py` (rates, pooling, week lookup,
+  ranking order and confidence, Sleeper-only fallback, adjusted score);
+  `test_report.py`'s availability test now expects the discount.
+**Not done / honest limits:** it is a base rate, not a read on the
+player -- beat-reporter signal (game-time decisions) is not ingested
+(X's API costs money and tweets need parsing; revisit with the
+Thu/Sat alert feature, which is the natural consumer). The QB-specific
+rates rest on ~150 rows. The first production table has to be seeded
+by hand after deploy (`python -m src.signals.availability --season
+2026`), after that the refresh keeps it current.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

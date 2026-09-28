@@ -601,7 +601,7 @@ def test_start_sit_leaves_out_players_who_cannot_play_and_says_so(tmp_path, monk
     rbs = [("00-0000001", "Alpha Back", 0.50), ("00-0000002", "Bravo Back", 0.40), ("00-0000003", "Charlie Back", 0.30)]
     roster = {f"s_{pid}": {"full_name": name, "position": "RB", "team": "PHI"} for pid, name, _ in rbs}
     roster["s_00-0000001"]["injury_status"] = "IR"          # the best back, but on IR
-    roster["s_00-0000002"]["injury_status"] = "Questionable"  # stays in -- that IS the call to help with
+    roster["s_00-0000002"]["injury_status"] = "Questionable"  # stays in, discounted by his play probability (2026-09-27)
     players_df = pl.DataFrame([_rb_index_row(pid, name) for pid, name, _ in rbs])
     raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_rb_row(pid, name, rz) for pid, name, rz in rbs], players_df)
     _league_with_slots(raw_dir, ["QB", "RB", "WR", "BN"])
@@ -611,10 +611,17 @@ def test_start_sit_leaves_out_players_who_cannot_play_and_says_so(tmp_path, monk
     )
 
     entry = result["entries"][0]
-    assert entry["recommended_starter"]["name"] == "Bravo Back"
-    assert entry["recommended_starter"]["injury_status"] == "Questionable"
-    assert [a["name"] for a in entry["alternatives_considered"]] == ["Charlie Back"]
+    # Bravo has the better usage but is Questionable with no practice report: players in that spot have
+    # played ~63% of the time, so he is counted at ~54% of himself (no points on record in this fixture,
+    # so the standing itself is scaled) and Charlie, healthy, gets the slot; Bravo stays in as the alternative.
+    assert entry["recommended_starter"]["name"] == "Charlie Back"
+    assert [a["name"] for a in entry["alternatives_considered"]] == ["Bravo Back"]
+    bravo = entry["alternatives_considered"][0]
+    assert bravo["injury_status"] == "Questionable" and bravo["report_status"] == "Questionable"
+    assert 0.5 < bravo["play_probability"] < 0.8 and bravo["expected_output"] < bravo["play_probability"]
+    assert entry["if_out"] == []  # the starter is healthy
     assert any(note == "Not available this week, left out of the lineup: Alpha Back (IR)." for note in result["notes"])
+    assert any(note.startswith("On the injury report this week") and "Bravo Back Questionable" in note for note in result["notes"])
 
 
 def test_waiver_pickups_rank_within_position_and_interleave(tmp_path, monkeypatch):

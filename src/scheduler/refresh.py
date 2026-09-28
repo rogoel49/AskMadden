@@ -107,7 +107,7 @@ import polars as pl
 
 from src.ingest import nflverse, ngs, sleeper
 from src.rag import embed
-from src.signals import matchup_signals, player_stats
+from src.signals import availability, matchup_signals, player_stats
 
 LOGGER = logging.getLogger("askmadden.refresh")
 
@@ -266,6 +266,15 @@ def refresh_signals(
     for stats_season in (season, season - 1):
         player_stats.write_weekly_stats(stats_season, stats_dir=stats_dir)
         LOGGER.info("player stats %s written -> %s", stats_season, stats_dir)
+    # 2026-09-27: this season's NFL injury reports (designation + practice
+    # status), the source of every play probability. Small, rewritten
+    # each cycle; a failure here must not cost the cycle its signals.
+    try:
+        injuries_dir = Path(signals_dir).parent / "injuries"
+        availability.write_injury_reports(season, injuries_dir=injuries_dir)
+        LOGGER.info("injury reports %s written -> %s", season, injuries_dir)
+    except Exception as e:  # noqa: BLE001 -- nflverse may not have the season yet
+        LOGGER.warning("injury reports %s not written: %s", season, e)
     pbp = nflverse.fetch_pbp(season)
     ngs_receiving = ngs.fetch_ngs(season, "receiving")
     ngs_rushing = ngs.fetch_ngs(season, "rushing")

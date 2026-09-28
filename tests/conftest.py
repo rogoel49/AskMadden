@@ -83,3 +83,7 @@ def no_network_player_stats(monkeypatch):
            "season": pl.Series([], dtype=pl.Int64), "week": pl.Series([], dtype=pl.Int64)}
     )
     monkeypatch.setattr(player_stats, "fetch_weekly_stats", lambda season: empty)
+    from src.signals import availability
+
+    no_reports = pl.DataFrame({c: pl.Series([], dtype=pl.Int64 if c in ("season", "week") else pl.Utf8) for c in availability.COLUMNS})
+    monkeypatch.setattr(availability, "fetch_injury_reports", lambda season: no_reports)

@@ -320,6 +320,7 @@
   .pcard .chip-row{ margin-top:0; }
   [hidden]{ display:none !important; }  /* the hidden attribute must beat any class's display */
   .slot-section{ margin-bottom:18px; } .slot-section .pos-label{ margin-bottom:8px; }
+  .if-out{ margin:-2px 0 8px; color:var(--muted,#8a93a3); font-size:12.5px; }
   .more-link{ display:inline-block; margin-top:8px; font-size:11.5px; color:var(--text-dim); text-decoration:underline; }
   .pos-filter{ display:flex; gap:6px; flex-wrap:wrap; margin:0 0 12px; }
   .pos-chip{ cursor:pointer; } .pos-chip.active{ color:var(--green); border-color:var(--green-line); background:var(--green-dim); }
@@ -909,7 +910,7 @@
         const sits = (entry.alternatives_considered || []).filter(alt => !startsSomewhere.has(alt.player_id)).map(alt => recCard(alt.name, alt.position || entry.position, alt.team, 'sit', alt.signals_summary, alt, slotLabel));
         const shown = sits.slice(0, 2), hidden = sits.slice(2);
         const more = hidden.length ? `<div class="card-grid more" hidden>${hidden.join('')}</div><a href="#" class="more-link" onclick="track('show_more', { slot: '${esc(entry.position)}' }); const m=this.previousElementSibling; m.hidden=!m.hidden; this.textContent = m.hidden ? 'Show ${hidden.length} more' : 'Show fewer'; return false;">Show ${hidden.length} more</a>` : '';
-        return `<section class="slot-section" data-slot="${esc(entry.position)}"><div class="pos-label">${esc(slotLabel)}${entry.eligible_positions ? ` <span class="ppos">(${esc(entry.eligible_positions.join('/'))})</span>` : ''}</div><div class="card-grid">${starters.join('')}${shown.join('')}</div>${more}</section>`;
+        return `<section class="slot-section" data-slot="${esc(entry.position)}"><div class="pos-label">${esc(slotLabel)}${entry.eligible_positions ? ` <span class="ppos">(${esc(entry.eligible_positions.join('/'))})</span>` : ''}</div>${ifOutLine(entry)}<div class="card-grid">${starters.join('')}${shown.join('')}</div>${more}</section>`;
       });
       ss.innerHTML = sections.length ? sections.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
       if (sections.length && rep.notes && rep.notes.length) ss.insertAdjacentHTML('beforeend', notesCard(rep));
@@ -931,6 +932,24 @@
     const label = entry.confidence_label || '';
     const cls = label === 'coin flip' ? 'stale' : label === 'lean' ? 'pos' : 'conf';
     return `<span class="chip ${cls}" title="Probability of outscoring the next player in this ranking this week (calibrated on 2024-25 backtests; capped at 85%)">${p}% · ${esc(label)}</span>`;
+  }
+  // Availability (2026-09-27): a Questionable/Doubtful player shows the historical rate at which
+  // players in his spot (designation, practice status, position) actually played, and what the
+  // ranking counts him at. A base rate for the situation, never a read on his specific injury.
+  function availabilityChip(entry){
+    if (!entry) return '';
+    if (entry.play_probability == null) {
+      return entry.injury_status ? `<span class="chip ${entry.injury_status === 'Questionable' ? 'stale' : 'scope'}" title="Sleeper injury designation">${esc(entry.injury_status)}</span>` : '';
+    }
+    const p = Math.round(entry.play_probability * 100), m = entry.expected_output != null ? Math.round(entry.expected_output * 100) : null;
+    const status = entry.report_status || entry.injury_status || 'Q';
+    const practice = entry.practice_status ? ` · ${entry.practice_status}` : '';
+    const title = `${status}${practice}. Players in this spot took the field ${p}% of the time (2020-25 NFL injury reports)` + (entry.played_output_factor != null ? ` and scored ${Math.round(entry.played_output_factor * 100)}% of their usual when they did` : '') + (m != null ? `, so the ranking counts him at ${m}% of himself.` : '.') + ' A base rate, not a read on his injury.';
+    return `<span class="chip ${status === 'Doubtful' ? 'scope' : 'stale'}" title="${esc(title)}">${esc(status)} · plays ${p}%${m != null ? ` · counted at ${m}%` : ''}${practice ? esc(practice) : ''}</span>`;
+  }
+  function ifOutLine(entry){
+    const rows = (entry.if_out || []).filter(r => r.replacement);
+    return rows.length ? `<div class="pcard-line if-out">${rows.map(r => `If <b>${esc(r.starter)}</b> sits: <b>${esc(r.replacement)}</b> steps in`).join(' · ')}</div>` : '';
   }
   function renderPosFilter(slots){
     const el = document.getElementById('pos-filter');
@@ -979,7 +998,7 @@
     const stale = !!(entry && entry.stale);
     const head = `<div class="pcard-head">${rank ? `<div class="rank">${esc(rank)}</div>` : ''}${avatar(name, pos, entry && (entry.sleeper_id || entry.player_id_sleeper), team)}<div class="who"><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div>${verdict ? `<div class="verdict ${verdict}">${esc(verdictLabel || verdict.toUpperCase())}</div>` : ''}</div>`;
     const stats = statCells(ks, stale);
-    const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${entry && entry.injury_status ? `<span class="chip ${entry.injury_status === 'Questionable' ? 'stale' : 'scope'}" title="Sleeper injury designation">${esc(entry.injury_status)}</span>` : ''}</div>`;
+    const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${availabilityChip(entry)}</div>`;
     const title = esc((entry && (entry.signals_summary || entry.reasoning)) || '');
     return `<div class="pcard ${verdict || ''}${stale ? ' stale-card' : ''}" title="${title}">${head}${stats ? `<div class="pcard-stats">${stats}</div>` : `<div class="pcard-line">No usage numbers yet.</div>`}${matchupLine(ks)}${reason ? `<div class="pcard-reason">${esc(reason)}</div>` : ''}${chips}</div>`;
   }
