@@ -596,7 +596,14 @@ def _build_system_prompt(
         "which season it rests on, but do not override it with your own read of the players. If rank_players "
         "returns verdict 'tied', say the ranking can't separate them and name the tied players -- do not pick "
         "one. rank_players lists anyone Sleeper marks Out / IR / NA / suspended under `unavailable` and leaves him out "
-        "of the ranking -- never put such a player in a lineup; say why he is out. A player whose only numbers "
+        "of the ranking -- never put such a player in a lineup; say why he is out. A player listed Questionable or "
+        "Doubtful stays in the ranking discounted by his availability: rank_players returns him under `designated` "
+        "with play_probability (the share of players in his spot -- designation, practice status, position -- who "
+        "took the field, 2020-2025 injury reports), played_output_factor (the share of their usual points the ones "
+        "who played scored) and expected_output (the product, what the ranking counts him at). Whenever you "
+        "recommend or discuss such a player, state the play probability as a percentage and what he is counted "
+        "at, name who steps in if he sits, and call it a base rate for the situation, never a read on his "
+        "specific injury (you have no such read). A player whose only numbers "
         "are last season's while others have this season's is ranked behind them on purpose (no snaps this "
         "year is itself the signal) -- do not promote him on reputation. "
         "If it returns 'insufficient_data', say the comparison can't be grounded (name who lacked "
@@ -815,6 +822,8 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
         # proxy for "how good has this player been", never a projection or
         # a trade value (see the system prompt).
         **ctx.signal_tables().proxy_fields(match.player_id),
+        # This week's injury-report availability (all None when healthy) -- see ranking.AVAILABILITY_DESCRIPTION.
+        **ctx.signal_tables().availability_fields(match.player_id),
     }
     if chunk is None:
         # Identity resolved but genuinely nothing computed for them, ever
@@ -897,11 +906,13 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
                 "name": match.player_name,
                 "position": match.position,
                 "team": match.team,
+                "injury_status": status,
                 "row": tables.row_for(match.player_id),
             }
         )
 
     ranked = ranking.rank_candidates(candidates)
+    designated = [e for e in ranked["ranked"] if e.get("play_probability") is not None]
     # A resolved player with no usable signal at all is the has_signals:
     # false case -- the same reason code the system prompt maps to a
     # data_gaps entry, so the model can't mistake "unranked" for "ranked
@@ -921,6 +932,13 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
         "unranked": unranked + unresolved + unavailable,
         "unavailable": unavailable,
         "same_position": len(positions) <= 1,
+        "designated": [
+            {"name": e["name"], "report_status": e.get("report_status"), "practice_status": e.get("practice_status"),
+             "play_probability": e["play_probability"], "played_output_factor": e.get("played_output_factor"),
+             "expected_output": e.get("expected_output")}
+            for e in designated
+        ],
+        "availability_description": ranked["availability_description"],
         "score_description": ranked["score_description"],
         "note": (
             "This is the same deterministic ranking the Feed's start/sit report shows for these players."

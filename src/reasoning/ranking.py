@@ -121,13 +121,61 @@ CONFIDENCE_DESCRIPTION = (
 )
 
 
-def pairwise_confidence(score_a: float, score_b: float) -> float:
-    """P(a outscores b) for two ranked players' scores, tempered and
-    capped -- see CONFIDENCE_TEMPERATURE / CONFIDENCE_CAP."""
+def _sigmoid(x: float) -> float:
     import math
 
-    logit = CONFIDENCE_TEMPERATURE * (score_a - score_b)
-    return round(min(CONFIDENCE_CAP, 1.0 / (1.0 + math.exp(-logit))), 3)
+    return 1.0 / (1.0 + math.exp(-x))
+
+
+def pairwise_confidence(score_a: float, score_b: float, play_a: float = 1.0, play_b: float = 1.0) -> float:
+    """P(a outscores b) for two ranked players' scores, tempered and
+    capped -- see CONFIDENCE_TEMPERATURE / CONFIDENCE_CAP. play_* is each
+    player's probability of taking the field (1.0 when healthy; see
+    AVAILABILITY_DESCRIPTION): a wins outright when he plays and b
+    doesn't, loses when the reverse, and the fitted model decides when
+    both do (pass scores already adjusted for reduced output, see
+    availability_adjusted_score)."""
+    both = _sigmoid(CONFIDENCE_TEMPERATURE * (score_a - score_b))
+    p = play_a * play_b * both + play_a * (1.0 - play_b) + 0.5 * (1.0 - play_a) * (1.0 - play_b)
+    return round(min(CONFIDENCE_CAP, p), 3)
+
+
+# Availability (2026-09-27). A player on the injury report as Questionable
+# or Doubtful carries the historical rate at which players in his
+# situation (designation x practice status x position) took the field
+# (play_probability), and the share of their usual output the ones who
+# played delivered (played_output_factor) -- both fitted on 2020-2025
+# reports (src/signals/play_rates.json, evals/fit_play_rates.py).
+# expected_output is the product. The ranking removes the points he is
+# not expected to deliver -- (1 - expected_output) x his points per game
+# -- at the model's own fitted points weight, so the order agrees with
+# expected points (a 14-point back counted at 55% ranks like a 7.7-point
+# one) and a healthy lineup is untouched. Confidence is P(plays) x
+# P(outscores at reduced output). A base rate for the situation, never a
+# read on the specific injury; the prose says so.
+AVAILABILITY_DESCRIPTION = (
+    "play_probability = the share of players with this injury designation, practice status and position who "
+    "took an offensive snap that week (2020-2025 NFL injury reports); played_output_factor = the share of their "
+    "usual points the ones who played scored; expected_output = the product. The ranking counts such a player "
+    "at expected_output of his usual points (a 14-point player at 55% ranks like a 7.7-point one), and his "
+    "win probability is P(plays) x P(outscores the next player at reduced output). Healthy players carry none "
+    "of these. A base rate for the situation, not a read on this player's specific injury."
+)
+
+
+def availability_adjusted_score(score: float, row: dict | None, multiplier: float) -> float:
+    """The score with (1 - multiplier) of the player's points per game
+    removed, at the fitted points weight. Without any points on record
+    the standing is scaled by the multiplier instead (log-space, the
+    same thing in the model's tail)."""
+    import math
+
+    if multiplier >= 1.0:
+        return score
+    ppg = blended_ppg(row or {})
+    if ppg is not None and ppg > 0:
+        return score - PPG_WEIGHT * (1.0 - multiplier) * ppg
+    return score + math.log(max(multiplier, 1e-6)) / CONFIDENCE_TEMPERATURE
 
 
 def confidence_label(probability: float | None) -> str | None:
@@ -265,6 +313,10 @@ class SignalTables:
     # empty when no scoring settings or no stat tables were given.
     proxy: dict[str, dict] = field(default_factory=dict)
     proxy_prior: dict[str, dict] = field(default_factory=dict)
+    # 2026-09-27: this week's NFL injury report, gsis_id -> availability
+    # fields (see src/signals/availability.py). Empty when no report table
+    # has been written for the season yet.
+    availability: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
     def load(
@@ -274,6 +326,7 @@ class SignalTables:
         as_of_week: int,
         scoring_settings: dict | None = None,
         stats_dir: Path | None = None,
+        injuries_dir: Path | None = None,
     ) -> "SignalTables":
         signals_by_id = load_signals_table(signals_dir, season, as_of_week)
         fallback_season, fallback_rows = load_prior_season_fallback_table(signals_dir, season)
@@ -290,7 +343,19 @@ class SignalTables:
 
             proxy = points_proxy.season_points_proxy(ps.load_weekly_stats(season, stats_dir), scoring_settings, as_of_week)
             proxy_prior = points_proxy.season_points_proxy(ps.load_weekly_stats(season - 1, stats_dir), scoring_settings)
-        return cls(season, as_of_week, signals_by_id, fallback_season, fallback_rows, proxy, proxy_prior)
+        from src.signals import availability as av
+
+        injuries_dir = injuries_dir or (Path(signals_dir).parent / "injuries")
+        availability = av.availability_for(av.load_injury_reports(season, injuries_dir), as_of_week)
+        return cls(season, as_of_week, signals_by_id, fallback_season, fallback_rows, proxy, proxy_prior, availability)
+
+    def availability_fields(self, player_id: str) -> dict:
+        """This week's injury-report availability for one player; every
+        field None when he is not on the report."""
+        from src.signals.availability import AVAILABILITY_FIELDS
+
+        found = self.availability.get(player_id) or {}
+        return {k: found.get(k) for k in AVAILABILITY_FIELDS}
 
     def proxy_fields(self, player_id: str) -> dict:
         """The Phase 6 points proxy for one player, as the fields every
@@ -319,7 +384,7 @@ class SignalTables:
             if proxy["ppg"] is None and proxy["ppg_prior_season"] is None:
                 return None
             row = {"player_id": player_id, "proxy_only": True, "stale": False}
-        return {**row, **proxy}
+        return {**row, **proxy, **self.availability_fields(player_id)}
 
 
 def signal_row(
@@ -382,7 +447,8 @@ def opportunity_score(row: dict | None) -> float | None:
 
 
 KEY_STAT_FIELDS = ("ppg", "games_played", "ppg_prior_season", "red_zone_share", "opponent", "implied_total",
-                   "run_funnel_rate_vs_avg", "cpoe", "stale", "source_season")
+                   "run_funnel_rate_vs_avg", "cpoe", "stale", "source_season",
+                   "play_probability", "practice_status", "expected_output")
 
 
 def key_stats(row: dict | None) -> dict:
@@ -504,6 +570,21 @@ def weakness_reasons(row: dict) -> list[str]:
     return reasons
 
 
+def availability_of(row: dict | None, injury_status: str | None, position: str | None) -> dict:
+    """The availability fields for a candidate: from his row (this week's
+    NFL injury report, with practice status) when he is on it, else from
+    Sleeper's designation alone (no practice information -- the pooled
+    rate for the designation). All None when healthy."""
+    from src.signals import availability as av
+
+    row = row or {}
+    if row.get("play_probability") is not None:
+        return {k: row.get(k) for k in av.AVAILABILITY_FIELDS}
+    if injury_status in av.PROBABILISTIC_STATUSES:
+        return av.fields_for(injury_status, None, position)
+    return {k: None for k in av.AVAILABILITY_FIELDS}
+
+
 def rank_candidates(candidates: list[dict]) -> dict:
     """Rank a set of candidates by opportunity score -- THE start/sit
     verdict, shared by the Feed's start_sit report and Chat's
@@ -511,7 +592,9 @@ def rank_candidates(candidates: list[dict]) -> dict:
 
     Each candidate is {"player_id", "name", "position", "team", "row"}
     where "row" is the player's signal row (current-season or stale
-    fallback, from SignalTables.row_for / signal_row) or None.
+    fallback, from SignalTables.row_for / signal_row) or None, plus an
+    optional "injury_status" (Sleeper's designation) used when the row
+    carries no injury-report availability of its own.
 
     Returns:
       verdict: "clear" -- 2+ rankable candidates and a single top score;
@@ -547,14 +630,22 @@ def rank_candidates(candidates: list[dict]) -> dict:
         if score is None:
             unranked.append(entry)
             continue
+        avail = availability_of(row, candidate.get("injury_status"), candidate.get("position"))
         scored.append(
             {
                 **entry,
                 "opportunity_score": round(score, 4),
                 "signals_summary": fmt_signal_row(row),
-                "key_stats": key_stats(row),
+                "key_stats": {**key_stats(row), "play_probability": avail["play_probability"],
+                              "practice_status": avail["practice_status"], "expected_output": avail["expected_output"]},
                 **stale_fields(row),
+                **avail,
                 "_score": score,
+                "_play": avail["play_probability"] if avail["play_probability"] is not None else 1.0,
+                # the sort key: his standing at expected_output of his points (healthy: the score itself)
+                "_key": availability_adjusted_score(score, row, avail["expected_output"] if avail["expected_output"] is not None else 1.0),
+                # his standing when he does play, at reduced output -- what the confidence compares
+                "_when_playing": availability_adjusted_score(score, row, avail["played_output_factor"] if avail["played_output_factor"] is not None else 1.0),
             }
         )
     # Once anyone in the comparison has current-season data, a player whose
@@ -564,27 +655,32 @@ def rank_candidates(candidates: list[dict]) -> dict:
     # 2026 snaps, over backs with real 2026 games). Week 1, when everyone is
     # stale, is unaffected; a tie inside each group is still a tie.
     if any(not e["stale"] for e in scored):
-        scored.sort(key=lambda entry: (not entry["stale"], entry["_score"]), reverse=True)
+        scored.sort(key=lambda entry: (not entry["stale"], entry["_key"]), reverse=True)
     else:
-        scored.sort(key=lambda entry: entry["_score"], reverse=True)
+        scored.sort(key=lambda entry: entry["_key"], reverse=True)
+
+    def _tied(a: dict, b: dict) -> bool:
+        return a["stale"] == b["stale"] and abs(a["_key"] - b["_key"]) <= TIE_TOLERANCE
 
     if len(scored) < 2:
         verdict = "insufficient_data"
         tied_at_top: list[dict] = []
-    elif scored[0]["stale"] == scored[1]["stale"] and abs(scored[0]["_score"] - scored[1]["_score"]) <= TIE_TOLERANCE:
+    elif _tied(scored[0], scored[1]):
         verdict = "tied"
-        top = scored[0]["_score"]
-        tied_at_top = [entry for entry in scored if abs(entry["_score"] - top) <= TIE_TOLERANCE]
+        tied_at_top = [entry for entry in scored if _tied(entry, scored[0])]
     else:
         verdict = "clear"
         tied_at_top = []
 
     for i, entry in enumerate(scored):
-        nxt = scored[i + 1]["_score"] if i + 1 < len(scored) else None
-        entry["win_probability_vs_next"] = pairwise_confidence(entry["_score"], nxt) if nxt is not None else None
+        nxt = scored[i + 1] if i + 1 < len(scored) else None
+        entry["win_probability_vs_next"] = (
+            pairwise_confidence(entry["_when_playing"], nxt["_when_playing"], entry["_play"], nxt["_play"]) if nxt is not None else None
+        )
         entry["confidence_label"] = confidence_label(entry["win_probability_vs_next"])
-    ranked = [{k: v for k, v in entry.items() if k != "_score"} for entry in scored]
-    tied_at_top = [{k: v for k, v in entry.items() if k != "_score"} for entry in tied_at_top]
+    _private = ("_score", "_play", "_key", "_when_playing")
+    ranked = [{k: v for k, v in entry.items() if k not in _private} for entry in scored]
+    tied_at_top = [{k: v for k, v in entry.items() if k not in _private} for entry in tied_at_top]
     top_conf = ranked[0]["win_probability_vs_next"] if len(ranked) >= 2 else None
     return {
         "verdict": verdict,
@@ -596,4 +692,5 @@ def rank_candidates(candidates: list[dict]) -> dict:
         "unranked": unranked,
         "score_description": SCORE_DESCRIPTION,
         "confidence_description": CONFIDENCE_DESCRIPTION,
+        "availability_description": AVAILABILITY_DESCRIPTION,
     }

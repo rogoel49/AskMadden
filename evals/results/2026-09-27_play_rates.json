@@ -1,0 +1,358 @@
+{
+  "date": "2026-09-27",
+  "fit_seasons": [
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "test_season": 2025,
+  "fit_rows": 2510,
+  "test_rows": 380,
+  "test_brier": 0.2231,
+  "baseline_brier_every_questionable_plays": 0.3842,
+  "baseline_brier_questionable_is_50_50": 0.2316,
+  "pooled_per_designation_brier": 0.2261,
+  "pooled_per_designation_rates": {
+    "Questionable|unknown|*": {
+      "n": 2224,
+      "rate": 0.627
+    },
+    "Doubtful|unknown|*": {
+      "n": 286,
+      "rate": 0.01
+    }
+  },
+  "test_calibration": [
+    {
+      "status": "Doubtful",
+      "practice": "dnp",
+      "n": 19,
+      "predicted": 0.005,
+      "actual": 0.0
+    },
+    {
+      "status": "Doubtful",
+      "practice": "limited",
+      "n": 9,
+      "predicted": 0.03,
+      "actual": 0.0
+    },
+    {
+      "status": "Questionable",
+      "practice": "limited",
+      "n": 223,
+      "predicted": 0.648,
+      "actual": 0.587
+    },
+    {
+      "status": "Questionable",
+      "practice": "full",
+      "n": 76,
+      "predicted": 0.728,
+      "actual": 0.592
+    },
+    {
+      "status": "Questionable",
+      "practice": "dnp",
+      "n": 43,
+      "predicted": 0.435,
+      "actual": 0.535
+    },
+    {
+      "status": "Questionable",
+      "practice": null,
+      "n": 10,
+      "predicted": 0.68,
+      "actual": 0.7
+    }
+  ],
+  "output_factors": {
+    "Questionable|unknown|*": {
+      "n": 1063,
+      "factor": 0.851
+    },
+    "Questionable|full|*": {
+      "n": 207,
+      "factor": 0.925
+    },
+    "Questionable|limited|*": {
+      "n": 719,
+      "factor": 0.851
+    },
+    "Questionable|dnp|*": {
+      "n": 120,
+      "factor": 0.72
+    },
+    "Doubtful|unknown|*": {
+      "n": 2,
+      "factor": 0.161
+    },
+    "Doubtful|limited|*": {
+      "n": 1,
+      "factor": 0.455
+    },
+    "Doubtful|dnp|*": {
+      "n": 1,
+      "factor": 0.0
+    }
+  },
+  "lineup_test": {
+    "pairs": 1380,
+    "description": "designated player vs the healthy same-position player with the closest season-to-date half-PPR average; raw = pick the higher average, adjusted = pick the higher average x play probability, adjusted_with_output_factor = average x play probability x share-of-usual-output when playing",
+    "raw_accuracy": 0.46,
+    "adjusted_accuracy": 0.616,
+    "adjusted_with_output_factor_accuracy": 0.634,
+    "always_healthy_accuracy": 0.696,
+    "designated_actually_outscored": 0.304,
+    "by_group": [
+      {
+        "status": "Doubtful",
+        "bucket": "dnp",
+        "pairs": 75,
+        "raw_accuracy": 0.307,
+        "adjusted_accuracy": 1.0,
+        "adjusted_with_output_factor_accuracy": 1.0,
+        "always_healthy_accuracy": 1.0
+      },
+      {
+        "status": "Doubtful",
+        "bucket": "limited",
+        "pairs": 15,
+        "raw_accuracy": 0.267,
+        "adjusted_accuracy": 1.0,
+        "adjusted_with_output_factor_accuracy": 1.0,
+        "always_healthy_accuracy": 1.0
+      },
+      {
+        "status": "Questionable",
+        "bucket": null,
+        "pairs": 35,
+        "raw_accuracy": 0.457,
+        "adjusted_accuracy": 0.686,
+        "adjusted_with_output_factor_accuracy": 0.771,
+        "always_healthy_accuracy": 0.8
+      },
+      {
+        "status": "Questionable",
+        "bucket": "dnp",
+        "pairs": 165,
+        "raw_accuracy": 0.43,
+        "adjusted_accuracy": 0.679,
+        "adjusted_with_output_factor_accuracy": 0.691,
+        "always_healthy_accuracy": 0.739
+      },
+      {
+        "status": "Questionable",
+        "bucket": "full",
+        "pairs": 225,
+        "raw_accuracy": 0.471,
+        "adjusted_accuracy": 0.6,
+        "adjusted_with_output_factor_accuracy": 0.591,
+        "always_healthy_accuracy": 0.684
+      },
+      {
+        "status": "Questionable",
+        "bucket": "limited",
+        "pairs": 865,
+        "raw_accuracy": 0.48,
+        "adjusted_accuracy": 0.565,
+        "adjusted_with_output_factor_accuracy": 0.591,
+        "always_healthy_accuracy": 0.654
+      }
+    ],
+    "by_healthy_avg_ratio": [
+      {
+        "ratio": 0.4,
+        "pairs": 276,
+        "raw_accuracy": 0.399,
+        "adjusted_accuracy": 0.489,
+        "adjusted_with_output_factor_accuracy": 0.504,
+        "always_healthy_accuracy": 0.605
+      },
+      {
+        "ratio": 0.6,
+        "pairs": 276,
+        "raw_accuracy": 0.348,
+        "adjusted_accuracy": 0.5,
+        "adjusted_with_output_factor_accuracy": 0.569,
+        "always_healthy_accuracy": 0.663
+      },
+      {
+        "ratio": 0.8,
+        "pairs": 276,
+        "raw_accuracy": 0.293,
+        "adjusted_accuracy": 0.663,
+        "adjusted_with_output_factor_accuracy": 0.67,
+        "always_healthy_accuracy": 0.721
+      },
+      {
+        "ratio": 1.0,
+        "pairs": 276,
+        "raw_accuracy": 0.529,
+        "adjusted_accuracy": 0.688,
+        "adjusted_with_output_factor_accuracy": 0.688,
+        "always_healthy_accuracy": 0.721
+      },
+      {
+        "ratio": 1.2,
+        "pairs": 276,
+        "raw_accuracy": 0.732,
+        "adjusted_accuracy": 0.739,
+        "adjusted_with_output_factor_accuracy": 0.739,
+        "always_healthy_accuracy": 0.768
+      }
+    ]
+  },
+  "rates": {
+    "Questionable|full|*": {
+      "n": 412,
+      "rate": 0.728
+    },
+    "Questionable|full|QB": {
+      "n": 29,
+      "rate": 0.655
+    },
+    "Questionable|full|RB": {
+      "n": 110,
+      "rate": 0.636
+    },
+    "Questionable|full|WR": {
+      "n": 181,
+      "rate": 0.773
+    },
+    "Questionable|full|TE": {
+      "n": 92,
+      "rate": 0.772
+    },
+    "Questionable|limited|*": {
+      "n": 1410,
+      "rate": 0.654
+    },
+    "Questionable|limited|QB": {
+      "n": 128,
+      "rate": 0.445
+    },
+    "Questionable|limited|RB": {
+      "n": 372,
+      "rate": 0.624
+    },
+    "Questionable|limited|WR": {
+      "n": 650,
+      "rate": 0.705
+    },
+    "Questionable|limited|TE": {
+      "n": 260,
+      "rate": 0.673
+    },
+    "Questionable|dnp|*": {
+      "n": 368,
+      "rate": 0.408
+    },
+    "Questionable|dnp|QB": {
+      "n": 28,
+      "rate": 0.179
+    },
+    "Questionable|dnp|RB": {
+      "n": 99,
+      "rate": 0.354
+    },
+    "Questionable|dnp|WR": {
+      "n": 183,
+      "rate": 0.475
+    },
+    "Questionable|dnp|TE": {
+      "n": 58,
+      "rate": 0.397
+    },
+    "Questionable|unknown|*": {
+      "n": 34,
+      "rate": 0.676
+    },
+    "Questionable|unknown|QB": {
+      "n": 1,
+      "rate": 0.0
+    },
+    "Questionable|unknown|RB": {
+      "n": 13,
+      "rate": 0.769
+    },
+    "Questionable|unknown|WR": {
+      "n": 10,
+      "rate": 0.6
+    },
+    "Questionable|unknown|TE": {
+      "n": 10,
+      "rate": 0.7
+    },
+    "Doubtful|full|*": {
+      "n": 17,
+      "rate": 0.0
+    },
+    "Doubtful|full|QB": {
+      "n": 4,
+      "rate": 0.0
+    },
+    "Doubtful|full|RB": {
+      "n": 8,
+      "rate": 0.0
+    },
+    "Doubtful|full|WR": {
+      "n": 4,
+      "rate": 0.0
+    },
+    "Doubtful|full|TE": {
+      "n": 1,
+      "rate": 0.0
+    },
+    "Doubtful|limited|*": {
+      "n": 69,
+      "rate": 0.029
+    },
+    "Doubtful|limited|QB": {
+      "n": 12,
+      "rate": 0.0
+    },
+    "Doubtful|limited|RB": {
+      "n": 27,
+      "rate": 0.0
+    },
+    "Doubtful|limited|WR": {
+      "n": 20,
+      "rate": 0.1
+    },
+    "Doubtful|limited|TE": {
+      "n": 10,
+      "rate": 0.0
+    },
+    "Doubtful|dnp|*": {
+      "n": 199,
+      "rate": 0.005
+    },
+    "Doubtful|dnp|QB": {
+      "n": 19,
+      "rate": 0.0
+    },
+    "Doubtful|dnp|RB": {
+      "n": 49,
+      "rate": 0.02
+    },
+    "Doubtful|dnp|WR": {
+      "n": 91,
+      "rate": 0.0
+    },
+    "Doubtful|dnp|TE": {
+      "n": 40,
+      "rate": 0.0
+    },
+    "Doubtful|unknown|*": {
+      "n": 1,
+      "rate": 0.0
+    },
+    "Doubtful|unknown|RB": {
+      "n": 1,
+      "rate": 0.0
+    }
+  }
+}

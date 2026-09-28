@@ -1,0 +1,198 @@
+{
+  "fitted_on": [
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "holdout_test": {
+    "season": 2025,
+    "brier": 0.2231,
+    "results_file": "2026-09-27_play_rates.json"
+  },
+  "played_means": "at least one offensive snap that week",
+  "source": "nflverse injuries + snap_counts",
+  "rates": {
+    "Questionable|full|*": {
+      "n": 488,
+      "rate": 0.707
+    },
+    "Questionable|full|QB": {
+      "n": 34,
+      "rate": 0.588
+    },
+    "Questionable|full|RB": {
+      "n": 133,
+      "rate": 0.624
+    },
+    "Questionable|full|WR": {
+      "n": 213,
+      "rate": 0.746
+    },
+    "Questionable|full|TE": {
+      "n": 108,
+      "rate": 0.769
+    },
+    "Questionable|limited|*": {
+      "n": 1633,
+      "rate": 0.645
+    },
+    "Questionable|limited|QB": {
+      "n": 152,
+      "rate": 0.408
+    },
+    "Questionable|limited|RB": {
+      "n": 426,
+      "rate": 0.615
+    },
+    "Questionable|limited|WR": {
+      "n": 752,
+      "rate": 0.697
+    },
+    "Questionable|limited|TE": {
+      "n": 303,
+      "rate": 0.677
+    },
+    "Questionable|dnp|*": {
+      "n": 411,
+      "rate": 0.421
+    },
+    "Questionable|dnp|QB": {
+      "n": 31,
+      "rate": 0.226
+    },
+    "Questionable|dnp|RB": {
+      "n": 106,
+      "rate": 0.368
+    },
+    "Questionable|dnp|WR": {
+      "n": 209,
+      "rate": 0.478
+    },
+    "Questionable|dnp|TE": {
+      "n": 65,
+      "rate": 0.415
+    },
+    "Questionable|unknown|*": {
+      "n": 34,
+      "rate": 0.676
+    },
+    "Questionable|unknown|QB": {
+      "n": 1,
+      "rate": 0.0
+    },
+    "Questionable|unknown|RB": {
+      "n": 13,
+      "rate": 0.769
+    },
+    "Questionable|unknown|WR": {
+      "n": 10,
+      "rate": 0.6
+    },
+    "Questionable|unknown|TE": {
+      "n": 10,
+      "rate": 0.7
+    },
+    "Doubtful|full|*": {
+      "n": 17,
+      "rate": 0.0
+    },
+    "Doubtful|full|QB": {
+      "n": 4,
+      "rate": 0.0
+    },
+    "Doubtful|full|RB": {
+      "n": 8,
+      "rate": 0.0
+    },
+    "Doubtful|full|WR": {
+      "n": 4,
+      "rate": 0.0
+    },
+    "Doubtful|full|TE": {
+      "n": 1,
+      "rate": 0.0
+    },
+    "Doubtful|limited|*": {
+      "n": 78,
+      "rate": 0.026
+    },
+    "Doubtful|limited|QB": {
+      "n": 12,
+      "rate": 0.0
+    },
+    "Doubtful|limited|RB": {
+      "n": 32,
+      "rate": 0.0
+    },
+    "Doubtful|limited|WR": {
+      "n": 22,
+      "rate": 0.091
+    },
+    "Doubtful|limited|TE": {
+      "n": 12,
+      "rate": 0.0
+    },
+    "Doubtful|dnp|*": {
+      "n": 218,
+      "rate": 0.005
+    },
+    "Doubtful|dnp|QB": {
+      "n": 21,
+      "rate": 0.0
+    },
+    "Doubtful|dnp|RB": {
+      "n": 53,
+      "rate": 0.019
+    },
+    "Doubtful|dnp|WR": {
+      "n": 101,
+      "rate": 0.0
+    },
+    "Doubtful|dnp|TE": {
+      "n": 43,
+      "rate": 0.0
+    },
+    "Doubtful|unknown|*": {
+      "n": 1,
+      "rate": 0.0
+    },
+    "Doubtful|unknown|RB": {
+      "n": 1,
+      "rate": 0.0
+    }
+  },
+  "factors": {
+    "Questionable|unknown|*": {
+      "n": 1224,
+      "factor": 0.86
+    },
+    "Questionable|full|*": {
+      "n": 240,
+      "factor": 0.913
+    },
+    "Questionable|limited|*": {
+      "n": 824,
+      "factor": 0.865
+    },
+    "Questionable|dnp|*": {
+      "n": 138,
+      "factor": 0.742
+    },
+    "Doubtful|unknown|*": {
+      "n": 2,
+      "factor": 0.161
+    },
+    "Doubtful|limited|*": {
+      "n": 1,
+      "factor": 0.455
+    },
+    "Doubtful|dnp|*": {
+      "n": 1,
+      "factor": 0.0
+    }
+  },
+  "factors_mean": "among designated players who played: actual half-PPR points / season-to-date average"
+}

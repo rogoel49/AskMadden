@@ -409,6 +409,16 @@ or monetized, it needs to genuinely work for more than one league.
   writes under Chroma's 5,461-record cap (a league's index would have
   crossed it mid-season). See TODO.md's "Fixed: 'Tutu or Malachi
   Fields'..." entry and the Step 2 item in the accuracy plan.
+- Play probability (2026-09-27): `src/signals/availability.py` reads
+  the official NFL injury report from nflverse (designation + practice
+  status, written each refresh cycle to `data/processed/injuries/`) and
+  `play_rates.json`, fitted on 2020-2025 (`evals/fit_play_rates.py`,
+  held-out 2025 in `evals/results/2026-09-27_play_rates.json`). A
+  Questionable/Doubtful player is counted at `expected_output` (play
+  rate x output when playing) of his points in every ranking, the
+  start/sit report says who steps in if he sits, and Chat states the
+  percentage. Base rate, never a read on the specific injury. See
+  TODO.md's "Play probability" entry.
 - Usage analytics (2026-09-24): `src/api/storage.py` has an `events`
   table (league opens, roster/report loads, every chat question with
   its text and the tools called, and UI events the page posts to
