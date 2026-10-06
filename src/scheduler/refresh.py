@@ -38,6 +38,15 @@ played. Exposure the scheduler deliberately accepts: the upcoming-week
 opponent and Vegas implied total for week N, both of which are published
 before kickoff and are not results. See target_as_of_week().
 
+Since 2026-10-05 a cycle also writes NEXT week's table early, as soon
+as the target week's first game is final, and rewrites it every cycle
+until the week completes (see _run_cycle). That table holds only games
+already played -- no result can exist before it happens -- so the rule
+above is intact; what it closes is the window between Sleeper flipping
+its `week` after Monday night's game and the first cycle after nflverse
+posts that result, during which every report had fallen back to last
+season for want of a table.
+
 **Cadence: every 6 hours by default**, from what nflverse's own build
 schedule actually is (checked against the live repos, Sept 2026 -- see
 TODO.md's Phase 5.7 entry for the raw evidence):
@@ -200,6 +209,14 @@ def _game_settled(game: dict, cutoff) -> bool:
         return datetime.strptime(str(gameday), "%Y-%m-%d").date() < cutoff
     except ValueError:
         return False
+
+
+def week_has_started(schedules: pl.DataFrame, season: int, week: int) -> bool:
+    """Whether any regular-season game of `week` is already final."""
+    games = schedules.filter(
+        (pl.col("season") == season) & (pl.col("game_type") == matchup_signals.REG_SEASON_TYPE) & (pl.col("week") == week)
+    )
+    return any(game.get("result") is not None for game in games.iter_rows(named=True))
 
 
 def target_as_of_week(schedules: pl.DataFrame, season: int, now: datetime | None = None) -> int:
@@ -423,18 +440,38 @@ def _run_cycle(season, as_of_week, signals_dir, league_ids, backfill, status_pat
         "season": season,
         "as_of_week": as_of_week,
         "completed_weeks": None,
+        "early_as_of_week": None,
         "signals": None,
         "leagues": [],
         "error": None,
     }
 
     try:
+        explicit_week = as_of_week is not None
         season, as_of_week, schedules, done = resolve_season_and_week(season, as_of_week)
         record.update(season=season, as_of_week=as_of_week, completed_weeks=done)
         weeks = list(range(1, as_of_week + 1)) if backfill else [as_of_week]
+        # 2026-10-05: once the target week's first game is final, also write
+        # NEXT week's table from every game played so far, and keep
+        # rewriting it each cycle until the week completes and it becomes
+        # the target. Sleeper flips its `week` the moment Monday night's
+        # game ends; the strict target can't follow until nflverse has the
+        # result AND a cycle runs, and in that window (up to six hours,
+        # seen live the night of 2026-10-05) every report fell back to last
+        # season because "week N+1" had no table. Nothing in the early
+        # table is from the future -- a play exists only once it's been
+        # played -- it is just a week's trailing history with one or two
+        # of its games still to come, and the file is replaced as they
+        # finish. Only for the inferred week: an explicit --as-of-week is a
+        # recompute of a past week and gets exactly that week.
+        early = None
+        if not explicit_week and week_has_started(schedules, season, as_of_week):
+            early = as_of_week + 1
+            weeks.append(early)
+        record["early_as_of_week"] = early
         LOGGER.info(
-            "cycle start: season %s, as-of-week %d (%d completed week(s)), signal week(s) %s",
-            season, as_of_week, done, weeks,
+            "cycle start: season %s, as-of-week %d (%d completed week(s)), signal week(s) %s%s",
+            season, as_of_week, done, weeks, f" (week {early} early, week {as_of_week} has started)" if early else "",
         )
         record["signals"] = refresh_signals(season, as_of_week, schedules, signals_dir=signals_dir, weeks=weeks)
     except Exception as e:
@@ -610,7 +647,8 @@ def _print_status(status_path: Path) -> int:
     print(f"last run:   {run.get('started_at')} -> {run.get('finished_at')} ({run.get('duration_seconds')}s)")
     print(f"outcome:    {run.get('outcome')}  (consecutive failures: {status.get('consecutive_failures')})")
     print(f"season:     {run.get('season')}, as-of-week {run.get('as_of_week')} "
-          f"({run.get('completed_weeks')} completed week(s))")
+          f"({run.get('completed_weeks')} completed week(s))"
+          + (f", week {run['early_as_of_week']} table written early" if run.get("early_as_of_week") else ""))
     for table in ((run.get("signals") or {}).get("tables") or []):
         print(f"  signals:  week {table['as_of_week']}, {table['rows']} rows -> {table['path']}")
     for league in run.get("leagues") or []:

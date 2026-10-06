@@ -378,6 +378,8 @@ def health() -> dict:
             "last_finished_at": last.get("finished_at"),
             "season": last.get("season"),
             "as_of_week": last.get("as_of_week"),
+            # The next week's table, computed early once this week has started (2026-10-05) -- see refresh.py.
+            "early_as_of_week": last.get("early_as_of_week"),
             "consecutive_failures": status.get("consecutive_failures"),
             "next_run_after": status.get("next_run_after"),
         },
@@ -498,6 +500,9 @@ def get_report(
             as_of_week=as_of_week,
             signals_dir=SIGNALS_DIR,
             roster_id=session["roster_id"],
+            # Live product: points per game count this week's finished games
+            # (2026-10-05) -- see ranking.SignalTables.points_through_week.
+            count_games_played_this_week=True,
         )
     except ValueError as e:  # unknown report_type
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -538,6 +543,7 @@ def chat(
         as_of_week=body.as_of_week,
         client=client,
         roster_id=session["roster_id"],
+        count_games_played_this_week=True,
     )
     # Phase 6: whenever this turn compared players via the points proxy
     # (any get_league_rosters call), the caveat is attached here,

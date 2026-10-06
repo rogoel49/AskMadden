@@ -152,7 +152,10 @@ from src.rag import lookup, player_index
 from src.rag.embed import CHROMA_DIR, RAW_DIR
 from src.reasoning import recommend
 from src.reasoning.league import load_league
+from src.reasoning.ranking import is_backup_qb as ranking_is_backup_qb
+from src.reasoning.ranking import on_bye as ranking_on_bye
 from src.reasoning.ranking import (
+    availability_adjusted_score,
     availability_of,
     SIGNALS_DIR,
     SignalTables,
@@ -165,6 +168,14 @@ from src.reasoning.ranking import (
 )
 
 REPORT_TYPES = ("start_sit", "drop", "waiver_pickups")
+
+# A waiver pickup needs a role now. Once the season has data, a player
+# with fewer current-season plays than this is not ranked as one -- the
+# same reasoning as the last-season-only rule below, a week later: on
+# 2026-10-05 a back with 2 plays and a 25-point team total led a real list
+# over backs with real roles. Ten plays is under one game's worth for a
+# starter and more than a goal-line cameo.
+MIN_PICKUP_PLAYS = 10
 PRE_DRAFT_STATUS = "pre_draft"
 DYNASTY_LIKE = {"dynasty", "keeper"}
 YOUNG_PLAYER_MAX_YEARS_EXP = 1  # rookies (0) and second-year players (1)
@@ -228,6 +239,7 @@ def _resolve_roster_with_signals(
                 "position": player.get("position") or signal_result.get("position"),
                 "team": player.get("team") or signal_result.get("team"),
                 "injury_status": player.get("injury_status"),
+                "depth_chart_order": player.get("depth_chart_order"),  # Sleeper's depth chart -> ranking.is_backup_qb
                 "years_exp": player.get("years_exp"),
                 "sleeper_id": player.get("player_id"),  # Sleeper's own id -> its headshot CDN in the UI
                 "row": tables.row_for(player_id),
@@ -287,6 +299,9 @@ def _player_ref(ranked: dict, injury_status: str | None = None, sleeper_id: str 
         "team": ranked["team"],
         "position": ranked.get("position"),
         "injury_status": injury_status,
+        # Sleeper's depth chart and whether it makes him a backup QB -- see ranking.DEPTH_CHART_DESCRIPTION.
+        "depth_chart_order": ranked.get("depth_chart_order"),
+        "backup_qb": bool(ranked.get("backup_qb")),
         # P(this player outscores the next one in the ranking) and its label -- see ranking.CONFIDENCE_DESCRIPTION.
         "win_probability_vs_next": ranked.get("win_probability_vs_next"),
         "confidence_label": ranked.get("confidence_label"),
@@ -374,8 +389,22 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
             + ", ".join(f"{c['name']} ({c['injury_status']})" for c in unavailable) + "."
         )
         resolved = [c for c in resolved if c.get("injury_status") not in UNAVAILABLE_STATUSES]
+    byes = ctx.bye_weeks()
+    on_bye = [c for c in resolved if ranking_on_bye(c["row"], ctx.season, ctx.as_of_week, c.get("team"), byes)]
+    if on_bye:
+        notes.append(
+            f"On bye in week {ctx.as_of_week}, left out of the lineup: "
+            + ", ".join(f"{c['name']} ({c.get('team') or '?'})" for c in on_bye) + "."
+        )
+        resolved = [c for c in resolved if c not in on_bye]
     injuries = {c["player_id"]: c.get("injury_status") for c in resolved}
     sleeper_ids = {c["player_id"]: c.get("sleeper_id") for c in resolved}
+    backups = [c for c in resolved if ranking_is_backup_qb(c.get("position"), c.get("depth_chart_order"))]
+    if backups:
+        notes.append(
+            "Listed as a backup on Sleeper's depth chart, so ranked behind every starting quarterback whatever the "
+            "numbers say: " + ", ".join(f"{c['name']} (QB{int(c['depth_chart_order'])})" for c in backups) + "."
+        )
     designated = [
         (c, availability_of(c["row"], c.get("injury_status"), c.get("position")))
         for c in resolved
@@ -565,8 +594,16 @@ def _waiver_pickups_report(
     # season's first table exists, last season is all there is and is used,
     # labeled stale as everywhere else.
     season_has_data = bool(tables.signals_by_id)
+    # Sleeper's side of each unrostered player: injury designation and depth
+    # chart (2026-10-05 -- a real list led with a back on IR with a torn ACL
+    # and a QB2; the pool had only ever looked at nflverse usage numbers).
+    sleeper_info = lookup.sleeper_player_info_by_name(raw_dir)
     candidates = []
     last_season_only = 0
+    too_few_plays = 0
+    no_team: list[dict] = []
+    unavailable: list[tuple[dict, str]] = []
+    backup_qbs: list[tuple[dict, int | None]] = []
     for player in ctx.player_idx.to_dicts():
         if player["player_id"] in rostered_ids:
             continue
@@ -576,10 +613,40 @@ def _waiver_pickups_report(
         if season_has_data and row.get("stale"):
             last_season_only += 1
             continue
-        candidates.append({**player, "row": row})
+        if season_has_data and (row.get("season_plays") or 0) < MIN_PICKUP_PLAYS:
+            too_few_plays += 1  # a 2-play body with a big implied total led a real list (2026-10-05)
+            continue
+        info = sleeper_info.get((player["player_name"], player["position"]))
+        matched = info is not None  # Sleeper's data has this (name, position); otherwise none of its facts apply
+        info = info or {}
+        if matched and not info.get("team"):
+            no_team.append(player)  # a free agent in Sleeper's data is not a pickup, whatever he did before he was cut
+            continue
+        if info.get("injury_status") in UNAVAILABLE_STATUSES:
+            unavailable.append((player, info["injury_status"]))
+            continue
+        # A quarterback is a pickup only as his team's listed starter: QB2+
+        # is a backup, and no listing at all (every team lists a QB1) means
+        # a practice-squad arm. A name Sleeper's data doesn't carry at all
+        # is left alone -- there is nothing to say he isn't the starter.
+        if player["position"] == "QB" and matched and info.get("depth_chart_order") != 1:
+            backup_qbs.append((player, info.get("depth_chart_order")))
+            continue
+        candidates.append({**player, "row": row, "injury_status": info.get("injury_status"),
+                           "depth_chart_order": info.get("depth_chart_order")})
 
-    scored = [(c, opportunity_score(c["row"])) for c in candidates]
-    scored = [(c, score) for c, score in scored if score is not None]
+    scored = []
+    for c in candidates:
+        score = opportunity_score(c["row"])
+        if score is None:
+            continue
+        # A Questionable/Doubtful pickup is counted at his expected output,
+        # exactly as the start/sit ranking counts him.
+        avail = availability_of(c["row"], c.get("injury_status"), c.get("position"))
+        c["availability"] = avail
+        if avail.get("expected_output") is not None:
+            score = availability_adjusted_score(score, c["row"], avail["expected_output"])
+        scored.append((c, score))
     # Ranked WITHIN position, then interleaved (the best RB, the best WR,
     # the best TE, the best QB, the second-best RB, ...). The score is not
     # position-normalized -- its own description says so -- and once
@@ -615,8 +682,21 @@ def _waiver_pickups_report(
             "team": c["team"],
             "position_rank": position_rank,
             "opportunity_score": round(score, 3),
-            "key_stats": key_stats(c["row"]),
-            "reasoning": f"{c['player_name']} ({c['position']}, {c['team']}): {fmt_signal_row(c['row'])}.",
+            "injury_status": c.get("injury_status"),
+            "depth_chart_order": c.get("depth_chart_order"),
+            # No game this week (a pickup for next week, not this one's lineup).
+            "bye_this_week": ranking_on_bye(c["row"], ctx.season, ctx.as_of_week),
+            "key_stats": {**key_stats(c["row"]), "play_probability": c["availability"].get("play_probability"),
+                          "practice_status": c["availability"].get("practice_status"),
+                          "expected_output": c["availability"].get("expected_output"),
+                          "depth_chart_order": c.get("depth_chart_order")},
+            "report_status": c["availability"].get("report_status"),
+            "practice_status": c["availability"].get("practice_status"),
+            "play_probability": c["availability"].get("play_probability"),
+            "played_output_factor": c["availability"].get("played_output_factor"),
+            "expected_output": c["availability"].get("expected_output"),
+            "reasoning": f"{c['player_name']} ({c['position']}, {c['team']}): {fmt_signal_row(c['row'])}."
+            + (f" {availability_sentence({**c['availability'], 'name': c['player_name']})}" if c["availability"].get("play_probability") is not None else ""),
             **stale_fields(c["row"]),
         }
         for c, score, position_rank in top
@@ -634,6 +714,42 @@ def _waiver_pickups_report(
             f"{last_season_only} unrostered player(s) with no {ctx.season} plays yet were not ranked as pickups -- "
             f"a role at the end of last season says nothing about a role now."
         )
+    if unavailable:
+        shown = ", ".join(f"{p['player_name']} ({status})" for p, status in unavailable[:6])
+        more = f", and {len(unavailable) - 6} more" if len(unavailable) > 6 else ""
+        notes.append(
+            f"Left out, listed by Sleeper as not available to play (Out / IR / PUP / suspended): {shown}{more}."
+        )
+    byes_listed = [c for c, _, _ in top if ranking_on_bye(c["row"], ctx.season, ctx.as_of_week)]
+    if byes_listed:
+        notes.append(
+            f"On bye in week {ctx.as_of_week} (a pickup for the weeks after, not for this lineup): "
+            + ", ".join(f"{c['player_name']} ({c['team']})" for c in byes_listed) + "."
+        )
+    if too_few_plays:
+        notes.append(
+            f"{too_few_plays} unrostered player(s) with fewer than {MIN_PICKUP_PLAYS} plays this season were not "
+            "ranked as pickups -- too small a role now to call a pickup."
+        )
+    if no_team:
+        notes.append(
+            "Left out, not on an NFL roster in Sleeper's data: "
+            + ", ".join(p["player_name"] for p in no_team[:6]) + (f", and {len(no_team) - 6} more" if len(no_team) > 6 else "") + "."
+        )
+    if backup_qbs:
+        listed = [(p, d) for p, d in backup_qbs if d is not None]
+        unlisted = [p for p, d in backup_qbs if d is None]
+        if listed:
+            notes.append(
+                "Left out, a backup on Sleeper's depth chart (a QB2 plays only if the starter sits): "
+                + ", ".join(f"{p['player_name']} (QB{int(depth)})" for p, depth in listed[:6])
+                + (f", and {len(listed) - 6} more" if len(listed) > 6 else "") + "."
+            )
+        if unlisted:
+            notes.append(
+                f"{len(unlisted)} quarterback(s) with no depth-chart listing in Sleeper's data were not ranked as "
+                "pickups -- every team lists a starter, so an unlisted QB is not one."
+            )
     stale = [c for c, _, _ in top if c["row"].get("stale")]
     if stale:
         notes.append(
@@ -665,6 +781,7 @@ def generate_report(
     drop_bottom_n: int = 3,
     roster_id: str | None = None,
     player_stats_dir: Path | None = None,
+    count_games_played_this_week: bool = False,
 ) -> dict:
     """Generate one of the three buildable Phase 3.5 report types
     (start_sit, drop, waiver_pickups -- trade suggestions are explicitly
@@ -721,6 +838,12 @@ def generate_report(
         season = season if season is not None else inferred_season
         as_of_week = as_of_week if as_of_week is not None else inferred_week
 
+    # count_games_played_this_week (2026-10-05, the live product's setting --
+    # see ranking.SignalTables.points_through_week): points per game count
+    # every game already played, including this week's finished games. Off
+    # by default so a backtest stays strictly as-of. Set on the context too,
+    # so a tool a report calls (get_player_signals) reads the same horizon.
+    points_through_week = as_of_week + 1 if count_games_played_this_week else None
     ctx = recommend.RecommendContext(
         raw_dir=raw_dir,
         persist_dir=persist_dir,
@@ -730,9 +853,11 @@ def generate_report(
         league=league,
         roster_id=str(roster_id) if roster_id is not None else None,
         signals_dir=signals_dir,
+        points_through_week=points_through_week,
     )
     tables = SignalTables.load(
-        signals_dir, season, as_of_week, scoring_settings=league.scoring_settings, stats_dir=player_stats_dir
+        signals_dir, season, as_of_week, scoring_settings=league.scoring_settings, stats_dir=player_stats_dir,
+        points_through_week=points_through_week,
     )
 
     # A league that hasn't drafted has no rosters: nothing to start, sit or
@@ -751,10 +876,25 @@ def generate_report(
         return report
 
     if report_type == "start_sit":
-        return _start_sit_report(ctx, tables)
-    if report_type == "drop":
-        return _drop_report(ctx, tables, bottom_n=drop_bottom_n)
-    return _waiver_pickups_report(raw_dir, ctx, tables, top_n=waiver_top_n)
+        result = _start_sit_report(ctx, tables)
+    elif report_type == "drop":
+        result = _drop_report(ctx, tables, bottom_n=drop_bottom_n)
+    else:
+        result = _waiver_pickups_report(raw_dir, ctx, tables, top_n=waiver_top_n)
+    result["points_through_week"] = points_through_week
+    if count_games_played_this_week:
+        result["notes"].append(points_horizon_note(as_of_week))
+    return result
+
+
+def points_horizon_note(as_of_week: int) -> str:
+    """What the points-per-game numbers cover when the live product counts
+    this week's finished games (the matchup columns are still this
+    week's)."""
+    return (
+        f"Points per game count every game played so far this season, including any week-{as_of_week} games already "
+        f"final; the matchup columns (opponent, team total) are for week {as_of_week}."
+    )
 
 
 def _print_report(report: dict) -> None:

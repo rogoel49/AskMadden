@@ -76,23 +76,35 @@ MIN_POINTS_BOTH = 5.0     # both players fantasy-relevant that week -- same spir
 PAIRS_PER_GROUP = 300     # per (season, week, position), seeded
 
 
-def blended_ppg(proxy: dict | None, prior: dict | None, k: float) -> float | None:
+# --no-prior-zero (2026-10-05): a player with NO stat line last season (didn't play, or a rookie) is shrunk toward
+# zero with the same K pseudo-games instead of taking his raw average -- the Case Keenum case: one 24-point start
+# and no 2025 line ranked him the #1 waiver QB and over Mahomes in a superflex league.
+NO_PRIOR_ZERO = False
+# --no-prior-position-mean: the same, but toward the position's average prior-season ppg (set per build_pairs season).
+NO_PRIOR_POSITION_MEAN = False
+POSITION_PRIOR_MEAN: dict[str, float] = {}
+
+
+def blended_ppg(proxy: dict | None, prior: dict | None, k: float, position: str | None = None) -> float | None:
     ppg, games = (proxy or {}).get("ppg"), (proxy or {}).get("games_played") or 0
     prior_ppg = (prior or {}).get("ppg")
     if ppg is None and prior_ppg is None:
         return None
     if prior_ppg is None:
-        return ppg
+        if NO_PRIOR_POSITION_MEAN and position in POSITION_PRIOR_MEAN:
+            prior_ppg = POSITION_PRIOR_MEAN[position]
+        else:
+            return (games * ppg) / (games + k) if NO_PRIOR_ZERO else ppg
     if ppg is None:
         return prior_ppg
     return (games * ppg + k * prior_ppg) / (games + k)
 
 
-def features_for(row: dict | None, proxy: dict | None, prior: dict | None, extra: dict | None = None) -> list[float]:
+def features_for(row: dict | None, proxy: dict | None, prior: dict | None, extra: dict | None = None, position: str | None = None) -> list[float]:
     row = row or {}
     extra = extra or {}
     if BLEND_K is not None:
-        proxy = {"ppg": blended_ppg(proxy, prior, BLEND_K)}
+        proxy = {"ppg": blended_ppg(proxy, prior, BLEND_K, position)}
         prior = {"ppg": None}
     share = row.get("target_share_adjusted")
     share = share if share is not None else row.get("target_share")
@@ -161,6 +173,13 @@ def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
     stats_prev = ps.fetch_weekly_stats(season - 1)
     prior = pp.season_points_proxy(stats_prev, FIT_SCORING)
     positions = {r["player_id"]: r["position"] for r in stats.select("player_id", "position").unique().to_dicts()}
+    global POSITION_PRIOR_MEAN
+    prev_positions = {r["player_id"]: r["position"] for r in stats_prev.select("player_id", "position").unique().to_dicts()}
+    _sums: dict[str, list[float]] = {}
+    for pid, pr in prior.items():
+        if pr.get("ppg") is not None and prev_positions.get(pid):
+            _sums.setdefault(prev_positions[pid], []).append(float(pr["ppg"]))
+    POSITION_PRIOR_MEAN = {pos: sum(v) / len(v) for pos, v in _sums.items()}
     weekly = pp.points_by_week(stats, FIT_SCORING)
     rng = random.Random(seed)
     pairs = []
@@ -199,8 +218,8 @@ def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
             all_pairs = [(a, b) for i, a in enumerate(pids) for b in pids[i + 1:] if actual[a] != actual[b]]
             rng.shuffle(all_pairs)
             for a, b in all_pairs[:PAIRS_PER_GROUP]:
-                fa = features_for(rows.get(a), proxy.get(a), prior.get(a), extra_for(a))
-                fb = features_for(rows.get(b), proxy.get(b), prior.get(b), extra_for(b))
+                fa = features_for(rows.get(a), proxy.get(a), prior.get(a), extra_for(a), positions.get(a))
+                fb = features_for(rows.get(b), proxy.get(b), prior.get(b), extra_for(b), positions.get(b))
                 pairs.append({"season": season, "week": week, "position": pos, "x": [p - q for p, q in zip(fa, fb)],
                               "y": 1 if actual[a] > actual[b] else 0, "gap": abs(actual[a] - actual[b]),
                               "fa": fa, "fb": fb})
@@ -265,9 +284,13 @@ def main() -> None:
     parser.add_argument("--blend", type=float, default=None, help="shrink ppg toward last season with this many pseudo-games (see BLEND_K)")
     parser.add_argument("--with", dest="extra", nargs="*", default=[], choices=CANDIDATE_FEATURES, help="candidate features to add (Step 3)")
     parser.add_argument("--per-position", action="store_true", help="fit one weight vector per position instead of one shared")
+    parser.add_argument("--no-prior-zero", action="store_true", help="with --blend: shrink a player with no prior-season line toward 0 (see NO_PRIOR_ZERO)")
+    parser.add_argument("--no-prior-position-mean", action="store_true", help="with --blend: shrink a player with no prior-season line toward his position's mean prior ppg")
     args = parser.parse_args()
-    global BLEND_K, FEATURES
+    global BLEND_K, FEATURES, NO_PRIOR_ZERO, NO_PRIOR_POSITION_MEAN
     BLEND_K = args.blend
+    NO_PRIOR_ZERO = args.no_prior_zero
+    NO_PRIOR_POSITION_MEAN = args.no_prior_position_mean
     FEATURES = list(BASE_FEATURES) + list(args.extra)
     weeks = range(args.weeks[0], args.weeks[1] + 1)
 
@@ -317,14 +340,14 @@ def main() -> None:
     report = {
         "date": date.today().isoformat(), "train_seasons": args.train, "test_seasons": args.test,
         "weeks": [args.weeks[0], args.weeks[1]], "features": FEATURES, "fit_scoring": FIT_SCORING,
-        "min_points_both": MIN_POINTS_BOTH, "pairs_per_group": PAIRS_PER_GROUP, "blend_k": BLEND_K,
+        "min_points_both": MIN_POINTS_BOTH, "pairs_per_group": PAIRS_PER_GROUP, "blend_k": BLEND_K, "no_prior_zero": NO_PRIOR_ZERO, "no_prior_position_mean": NO_PRIOR_POSITION_MEAN,
         "train_pairs": len(train), "test_pairs": len(test), "weights": weights,
         "test": {"fitted": accuracy(test, fitted), "hand_weights_pre_fit": accuracy(test, hand_weight_score),
                  "ppg_only": accuracy(test, ppg_only), "prior_season_ppg_only": accuracy(test, prior_only)},
         "train_fit": {"fitted": accuracy(train, fitted)},
     }
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    tag = ('' if BLEND_K is None else f'_blend{BLEND_K:g}') + (('_with_' + '_'.join(args.extra)) if args.extra else '')
+    tag = ('' if BLEND_K is None else f'_blend{BLEND_K:g}') + ('_noprior0' if NO_PRIOR_ZERO else '') + ('_nopriorposmean' if NO_PRIOR_POSITION_MEAN else '') + (('_with_' + '_'.join(args.extra)) if args.extra else '')
     out = RESULTS_DIR / f"{report['date']}_ranking_fit{tag}.json"
     out.write_text(json.dumps(report, indent=2))
     print(json.dumps({k: v for k, v in report.items() if k != "features"}, indent=2))

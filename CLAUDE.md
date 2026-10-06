@@ -426,6 +426,18 @@ or monetized, it needs to genuinely work for more than one league.
   gated by the `ASKMADDEN_STATS_KEY` Fly secret (404 when unset). The
   key lives only in Fly secrets, never in the repo. See TODO.md's
   "Usage events and a private stats page" entry.
+- Monday-afternoon fixes (2026-10-05): the waiver pool now reads
+  Sleeper's injury designation, depth chart and team (`lookup.
+  sleeper_player_info_by_name`), a backup QB (`ranking.is_backup_qb`,
+  Sleeper depth 2+) ranks behind every starter everywhere and is never a
+  pickup, bye-week players (`ranking.on_bye`) are left out of lineups
+  and `rank_players`, points per game count this week's finished games
+  on the live paths only (`count_games_played_this_week=True` from the
+  API/CLIs; evals stay strictly as-of), and the refresh writes next
+  week's table early once the current week has started (closes the
+  Monday-night stale window; `early_as_of_week` in status/health). Two
+  no-prior shrinkage rules were tested on the harness and not adopted.
+  See TODO.md's "A Monday afternoon in week 4" entry.
 - Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
   after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
   this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit
