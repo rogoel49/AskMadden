@@ -387,6 +387,10 @@ class RecommendContext:
     # generate_report()'s signals_dir, so Chat and the Feed rank from the
     # same files by construction.
     signals_dir: Path = SIGNALS_DIR
+    # 2026-10-05: the stat-line horizon for points per game (None = strictly
+    # before as_of_week; the live product sets as_of_week + 1 so this
+    # week's finished games count) -- see ranking.SignalTables.
+    points_through_week: int | None = None
     # Phase 6: where the league-agnostic weekly stat-line tables live (None =
     # the default data/processed/player_stats); scored under this league's
     # settings at load time -- see ranking.SignalTables.load.
@@ -420,6 +424,7 @@ class RecommendContext:
                 self.as_of_week,
                 scoring_settings=self.league.scoring_settings if self.league else None,
                 stats_dir=self.player_stats_dir,
+                points_through_week=self.points_through_week,
             )
         return self._signal_tables
 
@@ -596,7 +601,14 @@ def _build_system_prompt(
         "which season it rests on, but do not override it with your own read of the players. If rank_players "
         "returns verdict 'tied', say the ranking can't separate them and name the tied players -- do not pick "
         "one. rank_players lists anyone Sleeper marks Out / IR / NA / suspended under `unavailable` and leaves him out "
-        "of the ranking -- never put such a player in a lineup; say why he is out. A player listed Questionable or "
+        "of the ranking -- never put such a player in a lineup; say why he is out. A player whose team is on bye "
+        "this week comes back under `unavailable` with reason 'bye' -- he has no game, so never start him and say "
+        "so. A quarterback Sleeper's depth "
+        "chart lists 2nd or deeper comes back with backup_qb: true (and under `backup_qbs`), ranked behind every "
+        "other player in the comparison on purpose: he plays only if the starter sits, so one big spot start "
+        "(Case Keenum, 24 points in relief, then QB2 again) does not make him a starter. Never put a backup QB "
+        "in a lineup over a starting one, and when he comes up say 'listed QB2 on Sleeper's depth chart'. "
+        "A player listed Questionable or "
         "Doubtful stays in the ranking discounted by his availability: rank_players returns him under `designated` "
         "with play_probability (the share of players in his spot -- designation, practice status, position -- who "
         "took the field, 2020-2025 injury reports), played_output_factor (the share of their usual points the ones "
@@ -615,7 +627,9 @@ def _build_system_prompt(
         "passed. If a name still comes back ambiguous, ask -- never run the comparison with a candidate you "
         "picked yourself, and never state a candidate's team from memory (the tool lists each one's team).\n\n"
         "WAIVERS. For 'who should I pick up / bid on', call get_waiver_targets (it carries the ranked unrostered "
-        "players, your needs, and the league's waiver rules and FAAB standing). Lead with the targets at the "
+        "players, your needs, and the league's waiver rules and FAAB standing); it already leaves out players "
+        "Sleeper lists Out / IR / PUP / suspended and backup quarterbacks (its notes name them), so never suggest "
+        "picking up a player on IR or a QB2 from your own knowledge. Lead with the targets at the "
         "positions you need. For bids in a FAAB league, give each target's `bid_guide` amount range with its "
         "`marginal_ppg` and who he'd replace (`replaces`), and say it is a rule of thumb on your remaining budget, "
         "then its `suggested_bid` with the `competition` behind it (how many teams here need the position and what "
@@ -659,6 +673,9 @@ def _tool_get_my_roster(tool_input: dict, ctx: RecommendContext) -> dict:
                 # Sleeper's own designation (Questionable / Doubtful / Out /
                 # IR / PUP / ...), or None when healthy.
                 "injury_status": p.get("injury_status"),
+                # Sleeper's depth chart (1 = the starter). A QB at 2+ is a
+                # backup -- see ranking.DEPTH_CHART_DESCRIPTION.
+                "depth_chart_order": p.get("depth_chart_order"),
                 "years_exp": p.get("years_exp"),
                 "age": p.get("age"),
             }
@@ -681,12 +698,16 @@ def _tool_find_owner(tool_input: dict, ctx: RecommendContext) -> dict:
 UNAVAILABLE_INJURY_STATUSES = {"Out", "IR", "PUP", "Sus", "COV", "DNR", "NA"}
 
 
-def _injury_status_by_name(ctx: RecommendContext) -> dict[str, str | None]:
+def _sleeper_field_by_name(ctx: RecommendContext, field: str) -> dict[str, Any]:
     try:
         players = lookup._load(ctx.raw_dir, "players.json")
     except Exception:
         return {}
-    return {p.get("full_name"): p.get("injury_status") for p in players.values() if p.get("full_name")}
+    return {p.get("full_name"): p.get(field) for p in players.values() if p.get("full_name")}
+
+
+def _injury_status_by_name(ctx: RecommendContext) -> dict[str, str | None]:
+    return _sleeper_field_by_name(ctx, "injury_status")
 
 
 # Where a player sits in his career for a league that keeps rosters year
@@ -876,6 +897,7 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
     # start/sit has applied this since 09-20; chat did not, and started a
     # player on Sleeper's 'NA' -- not active -- list). Matched by name.
     status_by_name = _injury_status_by_name(ctx)
+    depth_by_name = _sleeper_field_by_name(ctx, "depth_chart_order")
     for name in names:
         result = resolve_named_player(name, ctx)
         if result.match_type == "none":
@@ -900,6 +922,11 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
             unavailable.append({"name": match.player_name, "reason": "unavailable", "injury_status": status,
                                 "note": f"{match.player_name} is listed {status} by Sleeper -- not available to start this week."})
             continue
+        row = tables.row_for(match.player_id)
+        if ranking.on_bye(row, ctx.season, ctx.as_of_week, match.team, ctx.bye_weeks()):
+            unavailable.append({"name": match.player_name, "reason": "bye", "team": match.team,
+                                "note": f"{match.player_name}'s team ({match.team}) is on bye in week {ctx.as_of_week} -- no game to start him in."})
+            continue
         candidates.append(
             {
                 "player_id": match.player_id,
@@ -907,7 +934,8 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
                 "position": match.position,
                 "team": match.team,
                 "injury_status": status,
-                "row": tables.row_for(match.player_id),
+                "depth_chart_order": depth_by_name.get(match.player_name),
+                "row": row,
             }
         )
 
@@ -929,6 +957,8 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
         "confidence_description": ranked["confidence_description"],
         "ranked": ranked["ranked"],
         "tied_at_top": ranked["tied_at_top"],
+        "backup_qbs": [e["name"] for e in ranked["ranked"] if e.get("backup_qb")],
+        "depth_chart_description": ranked["depth_chart_description"],
         "unranked": unranked + unresolved + unavailable,
         "unavailable": unavailable,
         "same_position": len(positions) <= 1,
@@ -1158,7 +1188,8 @@ def _tool_get_waiver_targets(tool_input: dict, ctx: RecommendContext) -> dict:
             competition = competition_for(e["position"], e["name"], ctx, trending)
             guide = {**guide, "competition": competition, "suggested_bid": suggested_bid(guide, competition)}
         targets.append(
-            {k: e.get(k) for k in ("name", "position", "team", "position_rank", "opportunity_score", "key_stats", "stale", "source_season")}
+            {k: e.get(k) for k in ("name", "position", "team", "position_rank", "opportunity_score", "key_stats", "stale", "source_season",
+                                   "injury_status", "depth_chart_order", "play_probability", "expected_output")}
             | {"bid_guide": guide}
         )
     return {
@@ -1276,6 +1307,7 @@ def recommend(
     roster_id: str | None = None,
     signals_dir: Path = SIGNALS_DIR,
     player_stats_dir: Path | None = None,
+    count_games_played_this_week: bool = False,
 ) -> dict:
     """Answer question using retrieved facts + computed signals via a
     Claude tool-use agent, returning
@@ -1366,6 +1398,10 @@ def recommend(
         roster_id=str(roster_id) if roster_id is not None else None,
         signals_dir=signals_dir,
         player_stats_dir=player_stats_dir,
+        # The live product counts this week's finished games in points per
+        # game (see report.generate_report's parameter of the same name);
+        # an eval never does, so a dilemma stays strictly as-of its week.
+        points_through_week=as_of_week + 1 if count_games_played_this_week else None,
         question=question,
     )
 
@@ -1513,7 +1549,8 @@ def _run_repl(league_id: str, season: int | None, as_of_week: int | None, roster
         if not question or question.lower() in {"exit", "quit"}:
             break
         result = recommend(
-            question, league_id, messages=messages, season=season, as_of_week=as_of_week, roster_id=roster_id
+            question, league_id, messages=messages, season=season, as_of_week=as_of_week, roster_id=roster_id,
+            count_games_played_this_week=True,
         )
         messages = result["messages"]
         _print_result(result)
@@ -1576,7 +1613,8 @@ def main() -> None:
 
         _print_report(
             generate_report(
-                args.report, args.league_id, season=args.season, as_of_week=args.as_of_week, roster_id=args.roster_id
+                args.report, args.league_id, season=args.season, as_of_week=args.as_of_week, roster_id=args.roster_id,
+                count_games_played_this_week=True,
             )
         )
         return
@@ -1589,7 +1627,8 @@ def main() -> None:
         raise SystemExit("a question is required unless --interactive or --report is given")
 
     result = recommend(
-        args.question, args.league_id, season=args.season, as_of_week=args.as_of_week, roster_id=args.roster_id
+        args.question, args.league_id, season=args.season, as_of_week=args.as_of_week, roster_id=args.roster_id,
+        count_games_played_this_week=True,
     )
     _print_result(result)
 

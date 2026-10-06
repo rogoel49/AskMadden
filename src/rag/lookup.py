@@ -353,16 +353,28 @@ def waiver_status(roster_id: Any, raw_dir: Path = RAW_DIR) -> dict:
     }
 
 
-def sleeper_ids_by_name(raw_dir: Path = RAW_DIR) -> dict[tuple[str, str], str]:
-    """{(full name, position): Sleeper player id} over the league's
-    players.json -- for entries that come from nflverse ids (the waiver
-    pool) and need Sleeper's id for its headshot CDN."""
+def sleeper_player_info_by_name(raw_dir: Path = RAW_DIR) -> dict[tuple[str, str], dict]:
+    """{(full name, position): {sleeper_id, injury_status, depth_chart_order}}
+    over the league's players.json -- the Sleeper-side facts about a player
+    the waiver pool (built from nflverse ids) can't see otherwise. Added
+    2026-10-05 after a real waiver list led with De'Von Achane (Sleeper:
+    IR, "Knee - ACL") and Case Keenum (QB2 behind Tyson Bagent): both
+    facts were in this file the whole time; nothing read them."""
     _, players = _load_teams_and_players(raw_dir)
-    out: dict[tuple[str, str], str] = {}
+    out: dict[tuple[str, str], dict] = {}
     for pid, p in players.items():
         if p.get("full_name") and p.get("position"):
-            out.setdefault((p["full_name"], p["position"]), pid)
+            out.setdefault(
+                (p["full_name"], p["position"]),
+                {"sleeper_id": pid, "injury_status": p.get("injury_status"), "depth_chart_order": p.get("depth_chart_order"),
+                 "team": p.get("team")},
+            )
     return out
+
+
+def sleeper_ids_by_name(raw_dir: Path = RAW_DIR) -> dict[tuple[str, str], str]:
+    """{(full name, position): Sleeper player id} -- see sleeper_player_info_by_name()."""
+    return {key: info["sleeper_id"] for key, info in sleeper_player_info_by_name(raw_dir).items()}
 
 
 def all_teams_faab(raw_dir: Path = RAW_DIR) -> list[dict]:

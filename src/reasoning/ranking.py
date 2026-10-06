@@ -234,6 +234,44 @@ def blended_ppg(row: dict) -> float | None:
     return (games * float(ppg) + PPG_BLEND_GAMES * float(prior)) / (games + PPG_BLEND_GAMES)
 
 
+# A quarterback listed this deep or deeper on Sleeper's depth chart is a
+# backup: he takes the field only if the starter doesn't. 2026-10-05: one
+# 24-point spot start put Case Keenum (QB2 once Tyson Bagent was healthy)
+# at the top of a waiver list and over Patrick Mahomes in a superflex
+# lineup. The depth chart is Sleeper's, re-pulled every refresh cycle, and
+# is named as the source wherever it decides anything. Only quarterbacks:
+# an RB2 or WR3 still plays a real share of snaps, a QB2 plays none.
+BACKUP_QB_DEPTH = 2
+
+DEPTH_CHART_DESCRIPTION = (
+    f"A QB whose Sleeper depth_chart_order is {BACKUP_QB_DEPTH} or deeper (backup_qb: true) is ranked behind every "
+    "other rankable player in the comparison, whatever his numbers: he only plays if the starter sits. Sleeper's depth "
+    "chart is the source and is re-pulled every refresh cycle; say 'listed QB2 on Sleeper's depth chart' when it decides."
+)
+
+
+def on_bye(row: dict | None, season: int, as_of_week: int, team: str | None = None, bye_weeks: dict | None = None) -> bool:
+    """Whether a player has no game in as_of_week. This week's signals
+    table is the first source -- its opponent map comes from the schedule,
+    and a team without a game that week has no row in it, so a
+    current-week row with opponent None is a bye. A player without a
+    current-week row (stale fallback, proxy-only) is checked against
+    nflverse's bye map by team when one is given. 2026-10-05: the first
+    week-5 lineup started Patrick Mahomes in SUPER_FLEX with Kansas City
+    on bye; nothing had ever looked."""
+    if row and row.get("season") == season and row.get("as_of_week") == as_of_week and "opponent" in row:
+        return row.get("opponent") is None
+    return bool(bye_weeks) and team is not None and bye_weeks.get(team) == as_of_week
+
+
+def is_backup_qb(position: str | None, depth_chart_order: int | None) -> bool:
+    try:
+        depth = int(depth_chart_order) if depth_chart_order is not None else None
+    except (TypeError, ValueError):
+        return False
+    return (position or "").upper() == "QB" and depth is not None and depth >= BACKUP_QB_DEPTH
+
+
 def trend_is_trustworthy(row: dict) -> bool:
     """Whether row's epa_trend rests on enough plays to count (see
     MIN_TREND_PLAYS). A row that doesn't carry season_plays at all is
@@ -317,6 +355,13 @@ class SignalTables:
     # fields (see src/signals/availability.py). Empty when no report table
     # has been written for the season yet.
     availability: dict[str, dict] = field(default_factory=dict)
+    # 2026-10-05: the stat-line horizon for ppg. None = strictly before
+    # as_of_week (every backtest). The live product passes as_of_week + 1:
+    # every game played so far counts, including this week's games that
+    # are already final -- on a Monday afternoon the week's Sunday games
+    # are known and nothing about them is "future" (a stat line exists
+    # only for a game that has been played, so no unplayed game can leak).
+    points_through_week: int | None = None
 
     @classmethod
     def load(
@@ -327,6 +372,7 @@ class SignalTables:
         scoring_settings: dict | None = None,
         stats_dir: Path | None = None,
         injuries_dir: Path | None = None,
+        points_through_week: int | None = None,
     ) -> "SignalTables":
         signals_by_id = load_signals_table(signals_dir, season, as_of_week)
         fallback_season, fallback_rows = load_prior_season_fallback_table(signals_dir, season)
@@ -341,13 +387,17 @@ class SignalTables:
             from src.reasoning import points_proxy
             from src.signals import player_stats as ps  # local: keeps ranking importable without nflreadpy loaded eagerly
 
-            proxy = points_proxy.season_points_proxy(ps.load_weekly_stats(season, stats_dir), scoring_settings, as_of_week)
+            proxy = points_proxy.season_points_proxy(
+                ps.load_weekly_stats(season, stats_dir), scoring_settings,
+                points_through_week if points_through_week is not None else as_of_week,
+            )
             proxy_prior = points_proxy.season_points_proxy(ps.load_weekly_stats(season - 1, stats_dir), scoring_settings)
         from src.signals import availability as av
 
         injuries_dir = injuries_dir or (Path(signals_dir).parent / "injuries")
         availability = av.availability_for(av.load_injury_reports(season, injuries_dir), as_of_week)
-        return cls(season, as_of_week, signals_by_id, fallback_season, fallback_rows, proxy, proxy_prior, availability)
+        return cls(season, as_of_week, signals_by_id, fallback_season, fallback_rows, proxy, proxy_prior, availability,
+                   points_through_week)
 
     def availability_fields(self, player_id: str) -> dict:
         """This week's injury-report availability for one player; every
@@ -383,7 +433,12 @@ class SignalTables:
         if row is None:
             if proxy["ppg"] is None and proxy["ppg_prior_season"] is None:
                 return None
-            row = {"player_id": player_id, "proxy_only": True, "stale": False}
+            # Only last season's points and nothing this season is a stale
+            # row like any other (2026-10-05: two free-agent QBs with a
+            # 2025 line and no 2026 team were "current" waiver targets).
+            stale = proxy["ppg"] is None
+            row = {"player_id": player_id, "proxy_only": True, "stale": stale,
+                   "source_season": (self.season - 1) if stale else self.season, "source_as_of_week": None}
         return {**row, **proxy, **self.availability_fields(player_id)}
 
 
@@ -631,13 +686,21 @@ def rank_candidates(candidates: list[dict]) -> dict:
             unranked.append(entry)
             continue
         avail = availability_of(row, candidate.get("injury_status"), candidate.get("position"))
+        depth = candidate.get("depth_chart_order")
+        backup = is_backup_qb(candidate.get("position"), depth)
+        summary = fmt_signal_row(row)
+        if backup:
+            summary = f"listed QB{int(depth)} on Sleeper's depth chart -- a backup who plays only if the starter sits; " + summary
         scored.append(
             {
                 **entry,
                 "opportunity_score": round(score, 4),
-                "signals_summary": fmt_signal_row(row),
+                "signals_summary": summary,
+                "depth_chart_order": depth,
+                "backup_qb": backup,
                 "key_stats": {**key_stats(row), "play_probability": avail["play_probability"],
-                              "practice_status": avail["practice_status"], "expected_output": avail["expected_output"]},
+                              "practice_status": avail["practice_status"], "expected_output": avail["expected_output"],
+                              "depth_chart_order": depth},
                 **stale_fields(row),
                 **avail,
                 "_score": score,
@@ -654,13 +717,17 @@ def rank_candidates(candidates: list[dict]) -> dict:
     # started Josh Jacobs on 2025 numbers, 4th on his depth chart with no
     # 2026 snaps, over backs with real 2026 games). Week 1, when everyone is
     # stale, is unaffected; a tie inside each group is still a tie.
+    # And a backup QB (see BACKUP_QB_DEPTH) sorts behind everyone who is
+    # not one, inside either group: his numbers may be a real start's, but
+    # the job is someone else's now.
     if any(not e["stale"] for e in scored):
-        scored.sort(key=lambda entry: (not entry["stale"], entry["_key"]), reverse=True)
+        scored.sort(key=lambda entry: (not entry["stale"], not entry["backup_qb"], entry["_key"]), reverse=True)
     else:
-        scored.sort(key=lambda entry: entry["_key"], reverse=True)
+        scored.sort(key=lambda entry: (not entry["backup_qb"], entry["_key"]), reverse=True)
 
     def _tied(a: dict, b: dict) -> bool:
-        return a["stale"] == b["stale"] and abs(a["_key"] - b["_key"]) <= TIE_TOLERANCE
+        return (a["stale"] == b["stale"] and a["backup_qb"] == b["backup_qb"]
+                and abs(a["_key"] - b["_key"]) <= TIE_TOLERANCE)
 
     if len(scored) < 2:
         verdict = "insufficient_data"
@@ -693,4 +760,5 @@ def rank_candidates(candidates: list[dict]) -> dict:
         "score_description": SCORE_DESCRIPTION,
         "confidence_description": CONFIDENCE_DESCRIPTION,
         "availability_description": AVAILABILITY_DESCRIPTION,
+        "depth_chart_description": DEPTH_CHART_DESCRIPTION,
     }

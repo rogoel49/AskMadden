@@ -1016,7 +1016,7 @@ below that decision: the wrong one of Sleeper's three week fields.
       and `matchup_signals.py` should expose how many weeks the trend
       covers so the ranking weight can be muted early in the season.
       Signal-computation + prose, its own session.
-- [ ] Transient stale window: between the end of Monday night's game
+- [x] (closed 2026-10-05 by the early next-week table -- see "A Monday afternoon in week 4") Transient stale window: between the end of Monday night's game
       (Sleeper flips `week`) and the next 6-hour refresh, the inferred
       week has no table yet and everything falls back to stale, honestly
       labeled. A refresh triggered on "inferred week has no signals
@@ -2127,6 +2127,129 @@ Thu/Sat alert feature, which is the natural consumer). The QB-specific
 rates rest on ~150 rows. The first production table has to be seeded
 by hand after deploy (`python -m src.signals.availability --season
 2026`), after that the refresh keeps it current.
+
+## A Monday afternoon in week 4: Keenum, Achane, the stale window, byes (2026-10-05)
+
+Three screenshots from two friends and Rohan, all the same afternoon.
+*"It's telling me Keenum over Mahomes"* (Dynasty of Chips, superflex);
+*"he's not even playing in week 5 ... he didn't even play this week"*
+(Fellowship, waiver #1 QB); *"Devon Achane is out for the season with an
+ACL, why is he recommended to be picked up?"* (Victorious Secret, waiver
+#1 overall). Rohan's read: the site was still "in a week-4 mindset" and
+needed a daily refresh.
+
+**RCA.** The refresh cadence was not it: a cycle ran at 3:09pm PT, 46
+minutes before the first screenshot, and correctly stayed on week 4
+because Monday night's game had not been played; a daily refresh would
+have been strictly worse than the 6-hourly one. Five real defects were
+behind the screenshots, none of them cadence:
+1. **The waiver pool never read Sleeper's injury designation.** Achane
+   was `injury_status: IR`, `injury_body_part: Knee - ACL` in every
+   league's players.json the whole time; the pool was built from nflverse
+   usage numbers only, and the start/sit's Out/IR exclusion (09-20) was
+   never applied to pickups. 42 unavailable players were in one league's
+   pool.
+2. **Nothing read Sleeper's depth chart.** Keenum was `depth_chart_order:
+   2` behind Tyson Bagent (1). One 24-point relief start, and no 2025
+   stat line to shrink it toward, ranked him the #1 waiver QB in two
+   leagues and over Mahomes at QB in the superflex league.
+3. **The points horizon stopped at last week.** On Monday, week 4's
+   Sunday games were final but points per game counted weeks 1-3 only
+   (strict as-of, which is right for a backtest and a week stale for a
+   live user).
+4. **The transient stale window was live that night.** Sleeper flipped
+   `week` to 5 after Monday night's game; the week-5 table could only
+   exist after nflverse posted the result AND a cycle ran (3am PT), so
+   for hours every report fell back to 2025 (TODO item from 09-16).
+5. **Bye weeks were never excluded.** Found by this fix's own headless-
+   Chrome check: with Keenum demoted, the week-5 lineup started Mahomes
+   in SUPER_FLEX -- Kansas City is on bye in week 5. Nothing anywhere
+   had ever looked at byes for a lineup.
+
+**What shipped (PR after #64).**
+- `lookup.sleeper_player_info_by_name()` ({sleeper_id, injury_status,
+  depth_chart_order, team} by (name, position)); the waiver pool leaves
+  out Out/IR/PUP/Sus/COV/DNR/NA, free agents (`team` None), and any QB
+  Sleeper doesn't list as his team's starter (QB2+ or unlisted -- all 32
+  teams carry a QB1), and names them in `notes`. A name Sleeper's data
+  doesn't carry at all is left alone. A Questionable pickup is counted at
+  expected output like a start/sit ref and carries the same fields.
+- `ranking.is_backup_qb()` / `BACKUP_QB_DEPTH = 2` / `DEPTH_CHART_
+  DESCRIPTION`: in `rank_candidates` a backup QB sorts behind every
+  non-backup (inside the stale/current grouping), carries
+  `backup_qb` / `depth_chart_order`, and his summary opens "listed QB2
+  on Sleeper's depth chart". QB-only on purpose: an RB3 still plays
+  snaps. `get_my_roster` returns `depth_chart_order`; `rank_players`
+  carries it and returns `backup_qbs`; start/sit refs carry it; the
+  prompt forbids starting a backup over a starter and requires the
+  phrase. UI: a "QB2 on depth chart" chip.
+- `ranking.on_bye()`: this week's table first (a current-week row with
+  `opponent` None is a bye -- the opponent map is the schedule), the
+  nflverse bye map by team for stale/proxy-only rows. start/sit leaves
+  such players out with a note; `rank_players` returns them under
+  `unavailable` with reason `bye`; waiver entries carry `bye_this_week`
+  and a note; the prompt says never start one.
+- **Points horizon.** `SignalTables.load(points_through_week=)` and
+  `count_games_played_this_week=True` on `generate_report()` /
+  `recommend()`: the API and the CLIs pass it, so ppg counts every game
+  played so far including this week's finished ones (a stat line exists
+  only for a played game, so nothing future can leak); every eval leaves
+  it off and stays strictly as-of. Every report carries
+  `points_through_week` and a note saying what the numbers cover.
+- **Early next-week table.** `refresh.week_has_started()`; once the
+  target week's first game is final a cycle also writes week N+1's table
+  from every game played so far and rewrites it each cycle until the
+  week completes (not for an explicit --as-of-week). Nothing in it is
+  from the future; it is what Sleeper's week-N+1 reads the moment it
+  flips, instead of 2025. Status/health carry `early_as_of_week`. This
+  closes the 09-16 "transient stale window" item.
+- A proxy-only row with last season's points and nothing this season is
+  now `stale: True` (two free-agent QBs with a 2025 line had been
+  "current" pickups); a pickup needs `MIN_PICKUP_PLAYS` (10) plays this
+  season once the season has data (a 2-play back with a 25-point team
+  total had led a list on the implied-total term).
+- Frontend: a QB filling a SUPER_FLEX-type slot is shown under QB with
+  that slot's chip ("QB ×2 (QB + SUPER_FLEX)"), and the flex section says
+  who fills it and where he is shown. Landing band: the real 59% /
+  69%-at-10+ decision number replaces the "being redesigned" line.
+- `.gitignore`: `.env.*` (a `.env.bak` with the real key was sitting
+  untracked and un-ignored) and the refresh-written injury tables.
+
+**Tested on the harness, not adopted.** The ranking-side fix for "one
+big game, no prior" was tried both ways on 38,957 held-out 2024+2025
+pairs (`fit_ranking_weights.py --no-prior-zero` /
+`--no-prior-position-mean`, base 60.83%): shrinking a no-prior player
+toward zero **60.52%**, toward his position's mean prior **60.76%** --
+both within or below noise, so the fitted blend stays as is and the
+depth chart is what fixes Keenum. `evals/results/2026-10-05_*`.
+
+**Validated.** `tests/test_depth_chart_and_points_horizon.py` (19
+tests: the sort rule, QB-only, ties, horizon default vs. live, report
+and chat context plumbing, the four waiver exclusions with their notes,
+start/sit backup note and roster field, prompt text, early table with
+and without a started week and for an explicit week, `on_bye` sources,
+the bye exclusion in start/sit and rank_players, the UI strings). Suite
+green. Real data, all three local leagues after a fresh `refresh --once`
+(week 5): Keenum out of every waiver list and SIT behind both starting
+QBs; 42 unavailable players named in one league's note; Mahomes left out
+on bye. Headless Chrome against the real server as the real user:
+QB section "QB ×2 (QB + SUPER_FLEX)" with the slot chips when a QB fills
+superflex, "QB2 on depth chart" chip on Keenum, no console errors.
+
+**Not done / honest limits.**
+- [ ] Deploy (`fly deploy`) and watch the first real flip with the early
+      table: `/api/health` should show `early_as_of_week: 6` from
+      Thursday night of week 5 and `as_of_week: 6` after the week
+      completes.
+- [ ] Sleeper's depth chart can lag a day after an injury; the chip and
+      notes name Sleeper as the source so a wrong listing is visible,
+      not silent.
+- [ ] Names that differ between nflverse and Sleeper ("Bam" vs "Zonovan"
+      Knight) get none of Sleeper's facts; nflverse's players table has
+      a `sleeper_id` column that would make the join exact. Not built.
+- [ ] Rohan's "daily refresh" ask is answered by the horizon + early
+      table rather than cadence; nflverse rebuilds twice a day, so a
+      faster loop would mostly re-read the same files.
 
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)

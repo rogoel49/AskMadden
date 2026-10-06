@@ -510,10 +510,10 @@
 
   <div id="eval-numbers" class="stat-band">
     <div class="stat-item"><div class="num">95%</div><div class="lbl">Retrieval accuracy<br>(80 of 84 league-fact questions, 4 real leagues, as-of-week filtered)</div></div>
-    <div class="stat-item"><div class="num">4</div><div class="lbl">Real leagues connected<br>(each one's own scoring, rosters and lineup slots)</div></div>
+    <div class="stat-item"><div class="num">59%</div><div class="lbl">Decision accuracy<br>(28,330 real 2024 start/sit calls, weeks 2-18, strictly as-of each week; 69% where the gap was 10+ pts)</div></div>
     <div class="stat-item"><div class="num">—%</div><div class="lbl">Matchup-fit accuracy<br>(unlocks once Phase 4's coverage classification lands)</div></div>
   </div>
-  <div class="stat-note">Retrieval measured 2026-09-20 against the leagues' own data (evals/results). Decision accuracy has been backtested too — the number and its caveats are in the README, and the eval is being redesigned before it goes on this page. Matchup-fit is a placeholder until its eval exists, never invented.</div>
+  <div class="stat-note">Retrieval measured 2026-09-20 against the leagues' own data; decision accuracy on 2026-09-22 against real nflverse box scores (both in evals/results, caveats in the README — weekly fantasy points are mostly touchdown variance, so a coin flip is called a coin flip). Matchup-fit is a placeholder until its eval exists, never invented.</div>
 
   <div class="cta-band">
     <h2>Built for one league. Works for yours too.</h2>
@@ -904,13 +904,34 @@
       // Indexed by slot (2026-09-23: "the start today screen is a bit cluttered ... indexed by
       // position would be nice"): one section per slot, starters first, the first two SIT
       // cards shown and the rest behind a toggle; chips above filter to one slot.
+      // Superflex (2026-10-05, Dynasty of Chips: "Mahomes shows up as
+      // superflex but he's also a QB"): a QB who fills a SUPER_FLEX-type
+      // slot is shown under QB with that slot's chip, so a league that
+      // really starts two quarterbacks shows them together; the flex
+      // section says who fills it and where he is shown.
+      const qbSection = rep.entries.find(e => e.position === 'QB');
+      const flexQbs = [];
+      if (qbSection) rep.entries.filter(e => e.eligible_positions && e.eligible_positions.includes('QB')).forEach(e =>
+        (e.recommended_starters || [e.recommended_starter]).forEach(st => { if ((st.position || '') === 'QB') flexQbs.push({ st, slot: e.position, entry: e }); }));
       const sections = rep.entries.map(entry => {
         const slotLabel = entry.slots > 1 ? `${entry.position} ×${entry.slots}` : entry.position;
-        const starters = (entry.recommended_starters || [entry.recommended_starter]).map(st => recCard(st.name, st.position || entry.position, st.team, 'start', st.signals_summary || entry.reasoning, st, slotLabel));
+        let starters = (entry.recommended_starters || [entry.recommended_starter]).map(st => recCard(st.name, st.position || entry.position, st.team, 'start', st.signals_summary || entry.reasoning, st, slotLabel));
+        let labelHtml = esc(slotLabel) + (entry.eligible_positions ? ` <span class="ppos">(${esc(entry.eligible_positions.join('/'))})</span>` : '');
+        let fillLine = '';
+        if (entry.position === 'QB' && flexQbs.length) {
+          flexQbs.forEach(f => starters.push(recCard(f.st.name, 'QB', f.st.team, 'start', f.st.signals_summary || f.entry.reasoning, f.st, f.slot)));
+          labelHtml = `QB ×${1 + flexQbs.length} <span class="ppos">(${esc(slotLabel)} + ${flexQbs.map(f => esc(f.slot)).join(' + ')})</span>`;
+        } else if (entry.eligible_positions && entry.eligible_positions.includes('QB')) {
+          const mine = flexQbs.filter(f => f.slot === entry.position);
+          if (mine.length) {
+            starters = (entry.recommended_starters || [entry.recommended_starter]).filter(st => (st.position || '') !== 'QB').map(st => recCard(st.name, st.position || entry.position, st.team, 'start', st.signals_summary || entry.reasoning, st, slotLabel));
+            fillLine = `<div class="pcard-line fill-line">${mine.map(f => esc(f.st.name) + ' (QB)').join(', ')} fill${mine.length > 1 ? '' : 's'} this slot — shown under QB.</div>`;
+          }
+        }
         const sits = (entry.alternatives_considered || []).filter(alt => !startsSomewhere.has(alt.player_id)).map(alt => recCard(alt.name, alt.position || entry.position, alt.team, 'sit', alt.signals_summary, alt, slotLabel));
         const shown = sits.slice(0, 2), hidden = sits.slice(2);
         const more = hidden.length ? `<div class="card-grid more" hidden>${hidden.join('')}</div><a href="#" class="more-link" onclick="track('show_more', { slot: '${esc(entry.position)}' }); const m=this.previousElementSibling; m.hidden=!m.hidden; this.textContent = m.hidden ? 'Show ${hidden.length} more' : 'Show fewer'; return false;">Show ${hidden.length} more</a>` : '';
-        return `<section class="slot-section" data-slot="${esc(entry.position)}"><div class="pos-label">${esc(slotLabel)}${entry.eligible_positions ? ` <span class="ppos">(${esc(entry.eligible_positions.join('/'))})</span>` : ''}</div>${ifOutLine(entry)}<div class="card-grid">${starters.join('')}${shown.join('')}</div>${more}</section>`;
+        return `<section class="slot-section" data-slot="${esc(entry.position)}"><div class="pos-label">${labelHtml}</div>${ifOutLine(entry)}${fillLine}<div class="card-grid">${starters.join('')}${shown.join('')}</div>${more}</section>`;
       });
       ss.innerHTML = sections.length ? sections.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
       if (sections.length && rep.notes && rep.notes.length) ss.insertAdjacentHTML('beforeend', notesCard(rep));
@@ -936,6 +957,11 @@
   // Availability (2026-09-27): a Questionable/Doubtful player shows the historical rate at which
   // players in his spot (designation, practice status, position) actually played, and what the
   // ranking counts him at. A base rate for the situation, never a read on his specific injury.
+  // Sleeper's depth chart: a backup QB is ranked behind every starter (ranking.DEPTH_CHART_DESCRIPTION).
+  function depthChip(entry){
+    if (!entry || !entry.backup_qb) return '';
+    return `<span class="chip scope" title="Listed QB${esc(entry.depth_chart_order)} on Sleeper's depth chart: a backup plays only if the starter sits, so he is ranked behind every starting player whatever his numbers.">QB${esc(entry.depth_chart_order)} on depth chart</span>`;
+  }
   function availabilityChip(entry){
     if (!entry) return '';
     if (entry.play_probability == null) {
@@ -998,7 +1024,7 @@
     const stale = !!(entry && entry.stale);
     const head = `<div class="pcard-head">${rank ? `<div class="rank">${esc(rank)}</div>` : ''}${avatar(name, pos, entry && (entry.sleeper_id || entry.player_id_sleeper), team)}<div class="who"><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div>${verdict ? `<div class="verdict ${verdict}">${esc(verdictLabel || verdict.toUpperCase())}</div>` : ''}</div>`;
     const stats = statCells(ks, stale);
-    const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${availabilityChip(entry)}</div>`;
+    const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${availabilityChip(entry)}${depthChip(entry)}</div>`;
     const title = esc((entry && (entry.signals_summary || entry.reasoning)) || '');
     return `<div class="pcard ${verdict || ''}${stale ? ' stale-card' : ''}" title="${title}">${head}${stats ? `<div class="pcard-stats">${stats}</div>` : `<div class="pcard-line">No usage numbers yet.</div>`}${matchupLine(ks)}${reason ? `<div class="pcard-reason">${esc(reason)}</div>` : ''}${chips}</div>`;
   }
