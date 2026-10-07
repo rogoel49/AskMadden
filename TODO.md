@@ -2236,6 +2236,32 @@ on bye. Headless Chrome against the real server as the real user:
 QB section "QB ×2 (QB + SUPER_FLEX)" with the slot chips when a QB fills
 superflex, "QB2 on depth chart" chip on Keenum, no console errors.
 
+**Same night, from Rohan's own chat (2026-10-06, PR after #65).** With
+a one-hour waiver deadline he asked about Will Shipley "since Saquon
+Barkley will be injured"; the answer: "Saquon Barkley shows no injury
+status and is healthy." Barkley had hurt his hamstring on his only carry
+Sunday and was week-to-week; Sleeper's data on disk said `Out,
+Hamstring`. The `get_player_signals` tool returned only the official NFL
+injury report's fields (`report_status` / `practice_status`), which are
+empty until the week's report is published midweek, and its own comment
+said "(all None when healthy)" -- so absence of a report became
+"healthy". Sleeper's designation reached the model only for rostered
+players (`get_my_roster`) and league rosters, never for a named player
+on someone else's team. Fix: `get_player_signals` now carries Sleeper's
+`injury_status` / `injury_body_part` / `depth_chart_order` /
+`unavailable_this_week` for any player, every Sleeper-backed tool
+carries `sleeper_data_as_of` (`lookup.sleeper_fetched_at`, the
+players.json pull time), and the prompt's INJURY FACTS rule names the
+two sources, forbids "healthy" / "shows no injury" for a player with no
+designation ("not on Sleeper's injury list as of <time>"), treats an Out
+player's `depth_chart_order` 2 teammate as this week's starter, and
+tells the model not to contradict news the user cites from the absence
+of a designation. Test: the Barkley case in
+`tests/test_depth_chart_and_points_horizon.py`. Also learned: a manual
+`refresh --once` over `fly ssh` on the 2GB machine while the server runs
+hung for 37 minutes (two processes each loading a season of play-by-
+play); stopped, not retried -- leave cycles to the in-process scheduler.
+
 **Not done / honest limits.**
 - [ ] Deploy (`fly deploy`) and watch the first real flip with the early
       table: `/api/health` should show `early_as_of_week: 6` from
