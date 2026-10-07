@@ -354,3 +354,34 @@ def test_start_sit_leaves_a_bye_week_player_out_and_says_so(tmp_path, monkeypatc
     assert [u["name"] for u in ranked["unavailable"]] == ["Patrick Mahomes"] and ranked["unavailable"][0]["reason"] == "bye"
     assert [e["name"] for e in ranked["ranked"]] == ["Case Keenum"]
     assert "on bye" in recommend._build_system_prompt({"name": "L"}, {"rec": 0.5}, 2026, 5)
+
+
+# ---- 2026-10-06: "Saquon Barkley shows no injury status and is healthy" (he was Out, Hamstring in Sleeper's data) ----
+
+
+def test_get_player_signals_carries_sleepers_designation_for_any_player_and_when_it_was_pulled(tmp_path, monkeypatch):
+    from tests.test_report import _BARKLEY_ROW, _BARKLEY_SIGNAL_ROW
+
+    my_roster = {"sleeper_wilson": {"full_name": "Jaylen Wilson", "position": "WR", "team": "MIA"}}
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, my_roster, [_WEAK_WR_SIGNAL_ROW, _BARKLEY_SIGNAL_ROW],
+                                               pl.DataFrame([_WEAK_WR_ROW, _BARKLEY_ROW]))
+    # Barkley is rostered by nobody in this fixture league; Sleeper's data still carries his designation.
+    _add_to_players_json(raw_dir, {"s_barkley": {"full_name": "Saquon Barkley", "position": "RB", "team": "PHI",
+                                                 "injury_status": "Out", "injury_body_part": "Hamstring", "depth_chart_order": 1}})
+    from src.rag import player_index
+    ctx = recommend.RecommendContext(raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK,
+                                     player_idx=player_index.build_player_index(_SEASON), signals_dir=signals_dir)
+
+    out = recommend.dispatch_tool("get_player_signals", {"player_name": "Saquon Barkley"}, ctx)
+
+    assert out["resolved"] and out["has_signals"]
+    assert out["injury_status"] == "Out" and out["injury_body_part"] == "Hamstring" and out["depth_chart_order"] == 1
+    assert out["unavailable_this_week"] is True
+    assert out["sleeper_data_as_of"] == "2026-01-01T00:00:00Z"  # the fixture's fetched_at
+    assert out["report_status"] is None  # the NFL report has nothing: the two sources are kept apart
+    healthy = recommend.dispatch_tool("get_player_signals", {"player_name": "Jaylen Wilson"}, ctx)
+    assert healthy["injury_status"] is None and healthy["unavailable_this_week"] is False
+    roster = recommend.dispatch_tool("get_my_roster", {}, ctx)
+    assert roster["sleeper_data_as_of"] == "2026-01-01T00:00:00Z"
+    prompt = recommend._build_system_prompt({"name": "L"}, {"rec": 0.5}, 2026, 5)
+    assert "NEVER 'healthy'" in prompt and "sleeper_data_as_of" in prompt and "unavailable_this_week" in prompt

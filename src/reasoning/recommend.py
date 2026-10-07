@@ -184,7 +184,11 @@ TOOLS: list[dict] = [
             "refers to yourself. This resolves the name against the real player list first: if "
             "more than one real player plausibly matches (e.g. two players share a surname), it "
             "returns every candidate instead of picking one -- when that happens, ask for the "
-            "player's team or position to disambiguate rather than guessing which one was meant."
+            "player's team or position to disambiguate rather than guessing which one was meant. "
+            "Also returns Sleeper's injury designation and body part, depth_chart_order and "
+            "unavailable_this_week for the player, whoever rosters him, with sleeper_data_as_of "
+            "(when that snapshot was pulled) -- the official NFL injury-report fields are separate "
+            "and empty until the week's report is published."
         ),
         "input_schema": {
             "type": "object",
@@ -615,7 +619,17 @@ def _build_system_prompt(
         "who played scored) and expected_output (the product, what the ranking counts him at). Whenever you "
         "recommend or discuss such a player, state the play probability as a percentage and what he is counted "
         "at, name who steps in if he sits, and call it a base rate for the situation, never a read on his "
-        "specific injury (you have no such read). A player whose only numbers "
+        "specific injury (you have no such read). INJURY FACTS come from two sources and you must name which: "
+        "Sleeper's designation (`injury_status` / `injury_body_part` on get_player_signals, get_my_roster, "
+        "get_league_rosters and get_waiver_targets -- for ANY player, rostered or not) and the official NFL "
+        "injury report (`report_status` / `practice_status`, published midweek, so it is empty early in the "
+        "week). A player with no designation in either is 'not on Sleeper's injury list as of <sleeper_data_as_of>' "
+        "-- NEVER 'healthy', 'shows no injury' or 'fine': the data is a snapshot re-pulled every six hours and an "
+        "injury from the weekend's game can be newer than it. If get_player_signals says unavailable_this_week: "
+        "true (Out / IR / PUP / suspended), say so with the body part and treat his backup (depth_chart_order 2, "
+        "same team) as the starter for this week. When the user cites news you can't see ('it looks like X is "
+        "injured'), do not contradict it from the absence of a designation: report what Sleeper shows and when it "
+        "was pulled, and answer both ways if the two differ. A player whose only numbers "
         "are last season's while others have this season's is ranked behind them on purpose (no snaps this "
         "year is itself the signal) -- do not promote him on reputation. "
         "If it returns 'insufficient_data', say the comparison can't be grounded (name who lacked "
@@ -664,6 +678,7 @@ def _tool_get_my_roster(tool_input: dict, ctx: RecommendContext) -> dict:
     except RuntimeError as e:
         return {"error": str(e)}
     return {
+        "sleeper_data_as_of": lookup.sleeper_fetched_at(ctx.raw_dir),
         "players": [
             {
                 "player_id": p.get("player_id"),
@@ -671,7 +686,7 @@ def _tool_get_my_roster(tool_input: dict, ctx: RecommendContext) -> dict:
                 "position": p.get("position"),
                 "team": p.get("team"),
                 # Sleeper's own designation (Questionable / Doubtful / Out /
-                # IR / PUP / ...), or None when healthy.
+                # IR / PUP / ...), or None when not on Sleeper's injury list.
                 "injury_status": p.get("injury_status"),
                 # Sleeper's depth chart (1 = the starter). A QB at 2+ is a
                 # backup -- see ranking.DEPTH_CHART_DESCRIPTION.
@@ -832,6 +847,13 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
     chunk, stale = retrieve.query_player_signal_with_fallback(
         match.player_id, season=ctx.season, as_of_week=ctx.as_of_week, persist_dir=ctx.persist_dir
     )
+    # Sleeper's own designation for this player, whoever rosters him
+    # (2026-10-06: Saquon Barkley was "Out, Hamstring" in Sleeper's data
+    # and the tool returned only the NFL injury report's fields, which
+    # don't exist until the week's report is published midweek -- so the
+    # model told a user with a waiver deadline that he "shows no injury
+    # status and is healthy").
+    sleeper_status = _sleeper_field_by_name(ctx, "injury_status").get(match.player_name)
     base = {
         "resolved": True,
         "player_id": match.player_id,
@@ -843,8 +865,15 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
         # proxy for "how good has this player been", never a projection or
         # a trade value (see the system prompt).
         **ctx.signal_tables().proxy_fields(match.player_id),
-        # This week's injury-report availability (all None when healthy) -- see ranking.AVAILABILITY_DESCRIPTION.
+        # This week's official NFL injury-report availability (all None when
+        # the player is not on the report, or before the week's report is
+        # published) -- see ranking.AVAILABILITY_DESCRIPTION.
         **ctx.signal_tables().availability_fields(match.player_id),
+        "injury_status": sleeper_status,
+        "injury_body_part": _sleeper_field_by_name(ctx, "injury_body_part").get(match.player_name),
+        "depth_chart_order": _sleeper_field_by_name(ctx, "depth_chart_order").get(match.player_name),
+        "unavailable_this_week": sleeper_status in UNAVAILABLE_INJURY_STATUSES,
+        "sleeper_data_as_of": lookup.sleeper_fetched_at(ctx.raw_dir),
     }
     if chunk is None:
         # Identity resolved but genuinely nothing computed for them, ever
@@ -1195,6 +1224,7 @@ def _tool_get_waiver_targets(tool_input: dict, ctx: RecommendContext) -> dict:
     return {
         "season": ctx.season,
         "as_of_week": ctx.as_of_week,
+        "sleeper_data_as_of": lookup.sleeper_fetched_at(ctx.raw_dir),
         "targets": targets,
         "your_needs": needs,
         "your_weakest_starters": replacements,

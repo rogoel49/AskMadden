@@ -372,6 +372,16 @@ def sleeper_player_info_by_name(raw_dir: Path = RAW_DIR) -> dict[tuple[str, str]
     return out
 
 
+def sleeper_fetched_at(raw_dir: Path = RAW_DIR) -> str | None:
+    """When the league's players.json was pulled from Sleeper (ISO 8601,
+    UTC) -- the age of every injury designation and depth-chart fact the
+    tools report. None if it can't be read."""
+    try:
+        return json.loads((raw_dir / "players.json").read_text()).get("fetched_at")
+    except Exception:
+        return None
+
+
 def sleeper_ids_by_name(raw_dir: Path = RAW_DIR) -> dict[tuple[str, str], str]:
     """{(full name, position): Sleeper player id} -- see sleeper_player_info_by_name()."""
     return {key: info["sleeper_id"] for key, info in sleeper_player_info_by_name(raw_dir).items()}
