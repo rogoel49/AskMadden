@@ -431,15 +431,20 @@ def test_reports_say_kickers_and_defenses_have_no_signals_instead_of_failing_to_
         "sleeper_cook": {"full_name": "James Cook", "position": "RB", "team": "BUF"},
         "sleeper_bates": {"full_name": "Jake Bates", "position": "K", "team": "DET"},
     }
-    players_df = pl.DataFrame([_BARKLEY_ROW, _COOK_ROW])
+    # 2026-10-06: kickers resolve through the name index like everyone else
+    # (their points per game is computed now); a kicker is never a drop
+    # candidate -- he is streamed -- and the note says so.
+    bates = {"gsis_id": "00-0039900", "display_name": "Jake Bates", "position": "K", "latest_team": "DET", "last_season": 2026}
+    players_df = pl.DataFrame([_BARKLEY_ROW, _COOK_ROW, bates])
     raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [_BARKLEY_SIGNAL_ROW, _COOK_SIGNAL_ROW], players_df)
 
     result = report.generate_report(
         "drop", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
 
-    assert "No matchup signals exist for kickers or defenses, so they aren't ranked: Jake Bates (K)." in result["notes"]
     assert not any("identity-resolve" in note for note in result["notes"])
+    assert not any(e["name"] == "Jake Bates" for e in result["entries"])
+    assert any("aren't drop candidates" in note and "Jake Bates" in note for note in result["notes"])
 
 
 def test_drop_report_explains_an_unrankable_player_once_not_twice(tmp_path, monkeypatch):
@@ -615,7 +620,8 @@ def test_start_sit_leaves_out_players_who_cannot_play_and_says_so(tmp_path, monk
     # played ~63% of the time, so he is counted at ~54% of himself (no points on record in this fixture,
     # so the standing itself is scaled) and Charlie, healthy, gets the slot; Bravo stays in as the alternative.
     assert entry["recommended_starter"]["name"] == "Charlie Back"
-    assert [a["name"] for a in entry["alternatives_considered"]] == ["Bravo Back"]
+    # 2026-10-06: the IR player stays visible as a SIT card with the reason, after the ranked alternatives
+    assert [(a["name"], a.get("sit_reason")) for a in entry["alternatives_considered"]] == [("Bravo Back", None), ("Alpha Back", "listed IR by Sleeper")]
     bravo = entry["alternatives_considered"][0]
     assert bravo["injury_status"] == "Questionable" and bravo["report_status"] == "Questionable"
     assert 0.5 < bravo["play_probability"] < 0.8 and bravo["expected_output"] < bravo["play_probability"]

@@ -438,6 +438,16 @@ or monetized, it needs to genuinely work for more than one league.
   Monday-night stale window; `early_as_of_week` in status/health). Two
   no-prior shrinkage rules were tested on the harness and not adopted.
   See TODO.md's "A Monday afternoon in week 4" entry.
+- Kickers and defenses (2026-10-06): `src/signals/unit_stats.py` (weekly
+  K and DEF lines from nflverse, league-agnostic, refreshed each cycle)
+  + `points_proxy.unit_points_proxy` (scored per league) join into
+  `SignalTables` as proxy-only rows; ranked on points per game alone
+  (the fitted weights were never fitted for units -- matchup shown as
+  context, not scored). Start/sit K and DEF slots, waiver pool, chat by
+  team name via `src/rag/teams.py` ("Bucs defense" -> TB). Same day: a
+  sidelined player (bye, Out) stays on the Feed as a SIT card with the
+  reason, and a section renders even with one or zero players left
+  (`open_slots`). See TODO.md's "Kickers and defenses" entry.
 - Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
   after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
   this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit

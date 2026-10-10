@@ -891,7 +891,7 @@
       // show as SIT under his own position -- the slot-fill is right, the two
       // cards read as a contradiction.
       const startsSomewhere = new Set();
-      rep.entries.forEach(entry => (entry.recommended_starters || [entry.recommended_starter]).forEach(st => startsSomewhere.add(st.player_id)));
+      rep.entries.forEach(entry => (entry.recommended_starters || [entry.recommended_starter]).filter(Boolean).forEach(st => startsSomewhere.add(st.player_id)));
       rep.entries.forEach(entry => {
         // One START card per starting slot (a league that starts two RBs gets
         // two RB start cards), each with its own player's signal line rather
@@ -931,7 +931,7 @@
         const sits = (entry.alternatives_considered || []).filter(alt => !startsSomewhere.has(alt.player_id)).map(alt => recCard(alt.name, alt.position || entry.position, alt.team, 'sit', alt.signals_summary, alt, slotLabel));
         const shown = sits.slice(0, 2), hidden = sits.slice(2);
         const more = hidden.length ? `<div class="card-grid more" hidden>${hidden.join('')}</div><a href="#" class="more-link" onclick="track('show_more', { slot: '${esc(entry.position)}' }); const m=this.previousElementSibling; m.hidden=!m.hidden; this.textContent = m.hidden ? 'Show ${hidden.length} more' : 'Show fewer'; return false;">Show ${hidden.length} more</a>` : '';
-        return `<section class="slot-section" data-slot="${esc(entry.position)}"><div class="pos-label">${labelHtml}</div>${ifOutLine(entry)}${fillLine}<div class="card-grid">${starters.join('')}${shown.join('')}</div>${more}</section>`;
+        return `<section class="slot-section" data-slot="${esc(entry.position)}"><div class="pos-label">${labelHtml}</div>${ifOutLine(entry)}${openSlotLine(entry)}${fillLine}<div class="card-grid">${starters.join('')}${shown.join('')}</div>${more}</section>`;
       });
       ss.innerHTML = sections.length ? sections.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
       if (sections.length && rep.notes && rep.notes.length) ss.insertAdjacentHTML('beforeend', notesCard(rep));
@@ -961,6 +961,15 @@
   function depthChip(entry){
     if (!entry || !entry.backup_qb) return '';
     return `<span class="chip scope" title="Listed QB${esc(entry.depth_chart_order)} on Sleeper's depth chart: a backup plays only if the starter sits, so he is ranked behind every starting player whatever his numbers.">QB${esc(entry.depth_chart_order)} on depth chart</span>`;
+  }
+  // Why a SIT card is a SIT regardless of its numbers: on bye, or listed Out/IR by Sleeper (2026-10-06).
+  function sitReasonChip(entry){
+    if (!entry || !entry.sit_reason) return '';
+    const r = entry.sit_reason;
+    return `<span class="chip scope" title="${esc(r)}">${esc(r.charAt(0).toUpperCase() + r.slice(1))}</span>`;
+  }
+  function openSlotLine(entry){
+    return entry && entry.open_slots ? `<div class="pcard-line if-out">${esc(entry.open_slots)} ${esc(entry.position)} slot${entry.open_slots > 1 ? 's' : ''} with no available player this week — pick one up or stream one.</div>` : '';
   }
   function availabilityChip(entry){
     if (!entry) return '';
@@ -1015,6 +1024,8 @@
     if (!ks || ks.stale || !ks.opponent) return '';
     const parts = [`vs <b>${esc(ks.opponent)}</b>`];
     if (ks.implied_total != null) parts.push(`team total <b>${esc(num1(ks.implied_total))}</b>`);
+    if (ks.team_implied_total != null) parts.push(`team total <b>${esc(num1(ks.team_implied_total))}</b>`);
+    if (ks.opponent_implied_total != null) parts.push(`opp total <b>${esc(num1(ks.opponent_implied_total))}</b>`);
     if (ks.run_funnel_rate_vs_avg != null) { const r = Math.round(ks.run_funnel_rate_vs_avg * 100); parts.push(`${r >= 0 ? 'run' : 'pass'}-funnel D (${r >= 0 ? '+' : ''}${r})`); }
     if (ks.epa_trend != null) parts.push(`EPA trend ${ks.epa_trend >= 0 ? '+' : ''}${(Math.round(ks.epa_trend * 100) / 100).toFixed(2)}`);
     return `<div class="pcard-line">${parts.join(' · ')}</div>`;
@@ -1024,7 +1035,7 @@
     const stale = !!(entry && entry.stale);
     const head = `<div class="pcard-head">${rank ? `<div class="rank">${esc(rank)}</div>` : ''}${avatar(name, pos, entry && (entry.sleeper_id || entry.player_id_sleeper), team)}<div class="who"><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div>${verdict ? `<div class="verdict ${verdict}">${esc(verdictLabel || verdict.toUpperCase())}</div>` : ''}</div>`;
     const stats = statCells(ks, stale);
-    const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${availabilityChip(entry)}${depthChip(entry)}</div>`;
+    const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${availabilityChip(entry)}${depthChip(entry)}${sitReasonChip(entry)}</div>`;
     const title = esc((entry && (entry.signals_summary || entry.reasoning)) || '');
     return `<div class="pcard ${verdict || ''}${stale ? ' stale-card' : ''}" title="${title}">${head}${stats ? `<div class="pcard-stats">${stats}</div>` : `<div class="pcard-line">No usage numbers yet.</div>`}${matchupLine(ks)}${reason ? `<div class="pcard-reason">${esc(reason)}</div>` : ''}${chips}</div>`;
   }

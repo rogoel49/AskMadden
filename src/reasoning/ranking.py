@@ -362,6 +362,7 @@ class SignalTables:
     # are known and nothing about them is "future" (a stat line exists
     # only for a game that has been played, so no unplayed game can leak).
     points_through_week: int | None = None
+    _team_matchups: dict | None = field(default=None, repr=False)
 
     @classmethod
     def load(
@@ -392,6 +393,18 @@ class SignalTables:
                 points_through_week if points_through_week is not None else as_of_week,
             )
             proxy_prior = points_proxy.season_points_proxy(ps.load_weekly_stats(season - 1, stats_dir), scoring_settings)
+            # Kickers and team defenses (2026-10-06): points per game under
+            # this league's scoring is the only number computed for them.
+            from src.signals import unit_stats as us
+
+            units_dir = Path(signals_dir).parent / "unit_stats"
+            proxy.update(points_proxy.unit_points_proxy(
+                us.load_kicker_stats(season, units_dir), us.load_defense_stats(season, units_dir), scoring_settings,
+                points_through_week if points_through_week is not None else as_of_week,
+            ))
+            proxy_prior.update(points_proxy.unit_points_proxy(
+                us.load_kicker_stats(season - 1, units_dir), us.load_defense_stats(season - 1, units_dir), scoring_settings,
+            ))
         from src.signals import availability as av
 
         injuries_dir = injuries_dir or (Path(signals_dir).parent / "injuries")
@@ -414,13 +427,46 @@ class SignalTables:
         ppg_prior_season / prior_games_played (all of last season)."""
         now = self.proxy.get(player_id) or {}
         prior = self.proxy_prior.get(player_id) or {}
-        return {
+        out = {
             "ppg": now.get("ppg"),
             "games_played": now.get("games_played"),
             "season_points_so_far_proxy": now.get("season_points_so_far_proxy"),
             "ppg_prior_season": prior.get("ppg"),
             "prior_games_played": prior.get("games_played"),
         }
+        unit = now.get("unit") or prior.get("unit")
+        if unit:
+            out["unit"] = unit
+            out["unit_team"] = now.get("team") or prior.get("team")
+        return out
+
+    def team_matchups(self) -> dict[str, dict]:
+        """{team: {opponent, implied_total}} for this week, read off the
+        current-season player rows (the opponent map and Vegas line are
+        per team). A team on bye has opponent None."""
+        if self._team_matchups is None:
+            m: dict[str, dict] = {}
+            for row in self.signals_by_id.values():
+                if row.get("season") == self.season and row.get("as_of_week") == self.as_of_week and row.get("team"):
+                    m.setdefault(row["team"], {"opponent": row.get("opponent"), "implied_total": row.get("implied_total")})
+            self._team_matchups = m
+        return self._team_matchups
+
+    def unit_fields(self, proxy: dict) -> dict:
+        """The matchup context for a kicker or a defense: this week's
+        opponent and the two implied totals, kept OUT of the fitted score
+        (which was never fitted for units) -- a kicker or defense is
+        ranked on points per game alone, with the matchup shown beside."""
+        team = proxy.get("unit_team")
+        m = self.team_matchups()
+        if not team or team not in m:
+            return {"unit": proxy["unit"], "team": team}
+        opp = m[team]["opponent"]
+        out = {"unit": proxy["unit"], "team": team, "season": self.season, "as_of_week": self.as_of_week,
+               "opponent": opp, "team_implied_total": m[team]["implied_total"]}
+        if proxy["unit"] == "DEF":
+            out["opponent_implied_total"] = m.get(opp, {}).get("implied_total") if opp else None
+        return out
 
     def row_for(self, player_id: str) -> dict | None:
         """The player's signal row (current-season, else stale prior-season
@@ -439,6 +485,8 @@ class SignalTables:
             stale = proxy["ppg"] is None
             row = {"player_id": player_id, "proxy_only": True, "stale": stale,
                    "source_season": (self.season - 1) if stale else self.season, "source_as_of_week": None}
+            if proxy.get("unit"):
+                row.update(self.unit_fields(proxy))
         return {**row, **proxy, **self.availability_fields(player_id)}
 
 
@@ -503,7 +551,8 @@ def opportunity_score(row: dict | None) -> float | None:
 
 KEY_STAT_FIELDS = ("ppg", "games_played", "ppg_prior_season", "red_zone_share", "opponent", "implied_total",
                    "run_funnel_rate_vs_avg", "cpoe", "stale", "source_season",
-                   "play_probability", "practice_status", "expected_output")
+                   "play_probability", "practice_status", "expected_output",
+                   "unit", "team_implied_total", "opponent_implied_total")
 
 
 def key_stats(row: dict | None) -> dict:

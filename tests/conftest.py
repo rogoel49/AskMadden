@@ -87,3 +87,25 @@ def no_network_player_stats(monkeypatch):
 
     no_reports = pl.DataFrame({c: pl.Series([], dtype=pl.Int64 if c in ("season", "week") else pl.Utf8) for c in availability.COLUMNS})
     monkeypatch.setattr(availability, "fetch_injury_reports", lambda season: no_reports)
+    from src.signals import unit_stats
+
+    def _unit_frame(id_cols, stat_cols):
+        return pl.DataFrame({c: pl.Series([], dtype=pl.Int64 if c in ("season", "week") else pl.Utf8) for c in id_cols}
+                            | {c: pl.Series([], dtype=pl.Float64) for c in stat_cols})
+
+    monkeypatch.setattr(unit_stats, "fetch_kicker_stats", lambda season: _unit_frame(unit_stats.KICKER_ID_COLUMNS, unit_stats.KICKER_STAT_COLUMNS))
+    monkeypatch.setattr(unit_stats, "fetch_defense_stats", lambda season: _unit_frame(unit_stats.DEFENSE_ID_COLUMNS, unit_stats.DEFENSE_STAT_COLUMNS))
+
+
+@pytest.fixture(autouse=True)
+def no_network_bye_weeks(monkeypatch):
+    """2026-10-06: the bye-week rule reads nflverse's schedule through
+    RecommendContext.bye_weeks(), so every report test would otherwise
+    fetch it over the network (a stalled fetch hung the whole suite the
+    night it shipped). Every test gets "no byes" unless it patches
+    RecommendContext.bye_weeks itself, as the bye tests do."""
+    from src.ingest import nflverse
+
+    real = nflverse.bye_weeks
+    # A schedule passed in explicitly is still computed for real (pure); only the network path is stubbed.
+    monkeypatch.setattr(nflverse, "bye_weeks", lambda season, schedules=None: real(season, schedules) if schedules is not None else {})

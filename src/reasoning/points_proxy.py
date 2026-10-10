@@ -79,12 +79,17 @@ def season_points_proxy(stats: pl.DataFrame | None, scoring: dict, as_of_week: i
     table."""
     if stats is None or stats.is_empty():
         return {}
-    scored = points_by_week(stats, scoring)
+    return _rollup(points_by_week(stats, scoring), as_of_week)
+
+
+def _rollup(scored: pl.DataFrame, as_of_week: int | None, extra: dict | None = None) -> dict[str, dict]:
+    """player_id, week, points (+ optional team) -> the per-player proxy dict."""
     if as_of_week is not None:
         scored = scored.filter(pl.col("week") < as_of_week)
-    agg = scored.group_by("player_id").agg(
-        pl.len().alias("games_played"), pl.col("points").sum().alias("season_points_so_far_proxy")
-    )
+    aggs = [pl.len().alias("games_played"), pl.col("points").sum().alias("season_points_so_far_proxy")]
+    if "team" in scored.columns:
+        aggs.append(pl.col("team").sort_by("week").last().alias("team"))
+    agg = scored.group_by("player_id").agg(aggs)
     out: dict[str, dict] = {}
     for row in agg.to_dicts():
         games = int(row["games_played"])
@@ -93,7 +98,84 @@ def season_points_proxy(stats: pl.DataFrame | None, scoring: dict, as_of_week: i
             "games_played": games,
             "season_points_so_far_proxy": total,
             "ppg": round(total / games, 2) if games else None,
+            **({"team": row["team"]} if "team" in row else {}),
+            **(extra or {}),
         }
+    return out
+
+
+# ---- kickers and team defenses (2026-10-06; src/signals/unit_stats.py) ----
+# Sleeper scoring key each nflverse kicking column feeds. Distance buckets
+# as Sleeper names them; a league that scores 50+ as one bucket (fgm_50p)
+# is honored for both 50-59 and 60+.
+KICKER_FG_KEYS = {
+    "fg_made_0_19": ("fgm_0_19",), "fg_made_20_29": ("fgm_20_29",), "fg_made_30_39": ("fgm_30_39",),
+    "fg_made_40_49": ("fgm_40_49",), "fg_made_50_59": ("fgm_50_59", "fgm_50p"), "fg_made_60_": ("fgm_60p", "fgm_50p"),
+}
+# Sleeper's points-allowed buckets for a team defense: (key, low, high).
+DEFENSE_POINTS_ALLOWED_BUCKETS = [
+    ("pts_allow_0", 0, 0), ("pts_allow_1_6", 1, 6), ("pts_allow_7_13", 7, 13), ("pts_allow_14_20", 14, 20),
+    ("pts_allow_21_27", 21, 27), ("pts_allow_28_34", 28, 34), ("pts_allow_35p", 35, 10_000),
+]
+
+
+def _weight(scoring: dict, *keys: str) -> float:
+    for key in keys:
+        if scoring.get(key) is not None:
+            return float(scoring[key])
+    return 0.0
+
+
+def kicker_points_expr(scoring: dict) -> pl.Expr:
+    """A kicker's weekly line under one league's scoring: field goals by
+    distance (plus any flat per-FG key), misses (a blocked kick counts as
+    a miss), extra points made and missed."""
+    expr = pl.lit(0.0)
+    for col, keys in KICKER_FG_KEYS.items():
+        expr = expr + pl.col(col).fill_null(0) * _weight(scoring, *keys)
+    expr = expr + pl.col("fg_made").fill_null(0) * _weight(scoring, "fgm")
+    expr = expr + (pl.col("fg_missed").fill_null(0) + pl.col("fg_blocked").fill_null(0)) * _weight(scoring, "fgmiss")
+    expr = expr + pl.col("pat_made").fill_null(0) * _weight(scoring, "xpm")
+    expr = expr + (pl.col("pat_missed").fill_null(0) + pl.col("pat_blocked").fill_null(0)) * _weight(scoring, "xpmiss")
+    return expr.alias("points")
+
+
+def defense_points_expr(scoring: dict) -> pl.Expr:
+    """A team defense's weekly line under one league's scoring: sacks,
+    interceptions, forced fumbles, fumbles recovered, defensive and
+    special-teams touchdowns, safeties, blocked kicks, and the points-
+    allowed bucket (plus a per-point pts_allow key where a league uses
+    one). Yards-allowed keys are not computed."""
+    expr = (
+        pl.col("sacks").fill_null(0) * _weight(scoring, "sack")
+        + pl.col("interceptions").fill_null(0) * _weight(scoring, "int")
+        + pl.col("fumbles_forced").fill_null(0) * _weight(scoring, "ff")
+        + pl.col("fumbles_recovered").fill_null(0) * _weight(scoring, "fum_rec")
+        + pl.col("defensive_tds").fill_null(0) * _weight(scoring, "def_td", "def_st_td")
+        + pl.col("special_teams_tds").fill_null(0) * _weight(scoring, "def_st_td", "st_td")
+        + pl.col("safeties").fill_null(0) * _weight(scoring, "safe")
+        + pl.col("blocked_kicks").fill_null(0) * _weight(scoring, "blk_kick")
+        + pl.col("points_allowed").fill_null(0) * _weight(scoring, "pts_allow")
+    )
+    pa = pl.col("points_allowed").fill_null(0)
+    for key, low, high in DEFENSE_POINTS_ALLOWED_BUCKETS:
+        expr = expr + pl.when((pa >= low) & (pa <= high)).then(pl.lit(_weight(scoring, key))).otherwise(pl.lit(0.0))
+    return expr.alias("points")
+
+
+def unit_points_proxy(
+    kickers: pl.DataFrame | None, defenses: pl.DataFrame | None, scoring: dict, as_of_week: int | None = None
+) -> dict[str, dict]:
+    """The season_points_proxy() shape for kickers (keyed by gsis id) and
+    team defenses (keyed by team abbreviation), each row carrying
+    `unit` ("K" / "DEF") and the latest `team`."""
+    out: dict[str, dict] = {}
+    if kickers is not None and not kickers.is_empty():
+        scored = kickers.select("player_id", "week", "team", kicker_points_expr(scoring))
+        out.update(_rollup(scored, as_of_week, {"unit": "K"}))
+    if defenses is not None and not defenses.is_empty():
+        scored = defenses.select("player_id", "week", "team", defense_points_expr(scoring))
+        out.update(_rollup(scored, as_of_week, {"unit": "DEF"}))
     return out
 
 

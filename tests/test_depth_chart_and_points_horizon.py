@@ -344,7 +344,13 @@ def test_start_sit_leaves_a_bye_week_player_out_and_says_so(tmp_path, monkeypatc
     result = report.generate_report(
         "start_sit", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
     )
-    assert result["entries"] == []  # one QB left after the bye exclusion: nothing to decide
+    # The bye player stays visible as a SIT card with the reason; the one available QB starts.
+    entry = result["entries"][0]
+    assert entry["position"] == "QB" and entry["recommended_starter"]["name"] == "Case Keenum"
+    assert entry["open_slots"] == 0
+    alt = entry["alternatives_considered"][0]
+    assert alt["name"] == "Patrick Mahomes" and alt["sit_reason"] == f"on bye in week {_WEEK}"
+    assert f"Patrick Mahomes sits: on bye in week {_WEEK}." in entry["reasoning"]
     assert any(f"On bye in week {_WEEK}, left out of the lineup: Patrick Mahomes (KC)" in n for n in result["notes"])
 
     ctx = recommend.RecommendContext(raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK,
@@ -385,3 +391,32 @@ def test_get_player_signals_carries_sleepers_designation_for_any_player_and_when
     assert roster["sleeper_data_as_of"] == "2026-01-01T00:00:00Z"
     prompt = recommend._build_system_prompt({"name": "L"}, {"rec": 0.5}, 2026, 5)
     assert "NEVER 'healthy'" in prompt and "sleeper_data_as_of" in prompt and "unavailable_this_week" in prompt
+
+
+def test_a_position_whose_only_player_is_out_still_gets_a_section_with_an_open_slot(tmp_path, monkeypatch):
+    roster = {"s_mahomes": {"full_name": "Patrick Mahomes", "position": "QB", "team": "KC", "injury_status": "Out"}}
+    raw_dir, persist_dir, signals_dir = _setup(tmp_path, monkeypatch, roster, [MAHOMES_SIGNAL], pl.DataFrame([MAHOMES_ROW]))
+    result = report.generate_report(
+        "start_sit", _LEAGUE_ID, raw_dir=raw_dir, persist_dir=persist_dir, season=_SEASON, as_of_week=_WEEK, signals_dir=signals_dir
+    )
+    entry = result["entries"][0]
+    assert entry["position"] == "QB" and entry["recommended_starter"] is None and entry["recommended_starters"] == []
+    assert entry["open_slots"] == 1 and "no available player this week" in entry["reasoning"]
+    assert entry["alternatives_considered"][0]["sit_reason"] == "listed Out by Sleeper"
+
+
+def test_if_out_replacement_is_never_a_sidelined_player():
+    starter = {"player_id": "a", "name": "A", "team": "X", "position": "RB", "signals_summary": "s", "key_stats": {},
+               "stale": False, "source_season": 2026, "source_as_of_week": 5, "play_probability": 0.6,
+               "report_status": "Questionable", "practice_status": None, "played_output_factor": 0.9, "expected_output": 0.54}
+    on_bye = {**starter, "player_id": "b", "name": "B", "play_probability": None, "report_status": None, "expected_output": None,
+              "sit_reason": "on bye in week 5"}
+    healthy = {**starter, "player_id": "c", "name": "C", "play_probability": None, "report_status": None, "expected_output": None}
+    entry = report._start_sit_entry("RB", 1, [starter], [on_bye, healthy], None)
+    assert entry["if_out"][0]["replacement"] == "C"
+    assert "B sits: on bye in week 5." in entry["reasoning"]
+
+
+def test_the_frontend_shows_the_sit_reason_and_open_slots():
+    html = Path("design/askmadden-ui-mockup.html").read_text()
+    assert "function sitReasonChip" in html and "function openSlotLine" in html

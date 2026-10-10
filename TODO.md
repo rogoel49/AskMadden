@@ -2277,6 +2277,97 @@ play); stopped, not retried -- leave cycles to the in-process scheduler.
       table rather than cadence; nflverse rebuilds twice a day, so a
       faster loop would mostly re-read the same files.
 
+## Kickers and defenses, and a sidelined player stays on the Feed (2026-10-06)
+
+Two more from Rohan's own Monday-night use. **"QB is missing altogether
+from the Feed in this league"** (Victorious Secret: Mahomes + Herbert,
+Kansas City on bye in week 5). The bye rule shipped the night before
+removed Mahomes before the position was ranked; one QB left was
+"nothing to decide", and the QB section vanished -- the one call the
+user needed, bench Mahomes this week, was a line in the notes card at
+the bottom. Same shape for a position whose only player is Out. And
+**"what about the Bucs defense? that surely can be updated"** -- the
+chat had answered, correctly for the time, that no defensive data
+exists in this system.
+
+**Sidelined players stay visible.** `_start_sit_report` now keeps the
+players it can't start (Out/IR/PUP/..., on bye) as SIT cards inside
+their position's section with a `sit_reason` ("on bye in week 5",
+"listed Out by Sleeper"), emits the section even when only one or zero
+players remain, reports `open_slots` with a "pick one up or stream one"
+line, and never names a sidelined player as the `if_out` replacement.
+`recommended_starter` is None only when nobody at the position can
+play. UI: a reason chip on the SIT card and an open-slot line under the
+section header. Found on the way: every report test was fetching the
+real NFL schedule for the bye map (a stalled fetch hung the whole
+suite); `tests/conftest.py` now stubs it like the other network pulls.
+
+**Kickers and team defenses.** New league-agnostic
+`src/signals/unit_stats.py`: weekly kicking lines from nflverse's player
+stats (field goals by distance, misses, blocks, PATs) and weekly team-
+defense lines from nflverse's team stats + the schedule (sacks,
+interceptions, forced fumbles, defensive and special-teams TDs,
+safeties, blocked kicks; fumbles recovered = the opponent's fumbles
+lost; points allowed = the opponent's final score). A defense's id is
+its team abbreviation, which Sleeper also uses, so no name resolution.
+Written each refresh cycle to `data/processed/unit_stats/`. The per-
+league join is `points_proxy.kicker_points_expr` /
+`defense_points_expr` / `unit_points_proxy` (Sleeper's fgm_* buckets
+incl. a league's single fgm_50p, fgmiss/xpm/xpmiss, sack/int/ff/fum_rec/
+def_td/def_st_td/safe/blk_kick and the pts_allow_* buckets or a per-
+point pts_allow). `SignalTables` merges them into the proxy, so
+`row_for("TB")` is a proxy-only row carrying `unit`, this week's
+opponent and the two implied totals as context -- **kept out of the
+fitted score on purpose**: the weights were never fitted for units, so a
+kicker or defense is ranked on points per game alone (blended with last
+season like everyone), and every note/prompt says so. Then:
+- Start/sit: the K and DEF slots are ranked like any position (a team
+  defense resolves without a Sleeper full_name; `get_my_roster` names it
+  "Buccaneers D/ST"). On bye -> SIT with the reason, same as a player.
+- Waivers: every unrostered team's defense and every kicker with a line
+  this season (the name index now includes K: `player_index.
+  INDEX_POSITIONS`), ranked within position and interleaved after QB.
+  The 10-play floor doesn't apply to units (a game is the unit).
+- Drops: kickers and defenses are left out with a note -- their ppg is
+  not comparable to a skill player's score, and they are streamed, not
+  dropped.
+- Chat: `src/rag/teams.py` resolves "Bucs defense", "Tampa Bay D/ST",
+  "the Jets", "KC" to the DEF unit (shared cities like New York alone
+  are not enough); `get_player_signals` returns the unit's ppg with a
+  `unit_note` and `has_signals` true when it has points; `rank_players`
+  ranks units (and flags a K-vs-DEF comparison as cross-position);
+  `get_waiver_targets` takes position "K"/"DEF". Prompt: a KICKERS AND
+  DEFENSES rule saying exactly what the number is and isn't.
+- UI: team logos already render for a non-numeric Sleeper id; the
+  matchup line shows "opp total" for a defense.
+Approximations, stated in the module: points allowed is the opponent's
+final score (Sleeper excludes points given up on returns), a blocked
+kick is a miss, yards-allowed keys are not computed.
+
+**Validated.** `tests/test_units_kicker_defense.py` (scoring math for
+both units against hand-computed lines, the fgm_50p bucket, the
+defense join, team-name resolution, the table join with the matchup as
+context only, start/sit + waivers + drops on a fixture league, the chat
+tools by team name, the prompt) and the sidelined/open-slot cases in
+`tests/test_depth_chart_and_points_horizon.py`. Suite green. Real data,
+Narcos (K + DEF slots), week 5: DEF section Texans START over Bengals
+and Bills; waiver list leads K with Spencer Shrader (13.3 ppg) and DEF
+with the Raiders (12.0); `get_player_signals("bucs defense")` -> 5.5
+ppg over 4 games, 6.2 last season, vs DAL (opp total 28.5);
+`rank_players` across two defenses and a kicker ranks them and flags
+the cross-position compare.
+
+**Not done / honest limits.**
+- [ ] The unit ranking is points per game, not a matchup model; the
+      opponent's implied total is shown, not scored. A fitted "streaming
+      defense" score (points allowed by the opponent's offense, sack
+      rate, implied total) is a Step-3-style candidate for the harness,
+      which would first need DEF/K ground truth.
+- [ ] Sleeper's K `depth_chart_order` is None for every kicker, so a
+      backup kicker isn't detectable the way a QB2 is.
+- [ ] First deploy needs the unit tables: the next refresh cycle writes
+      them; until it runs, K/DEF rows are empty (sections skipped).
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

@@ -116,7 +116,7 @@ import polars as pl
 
 from src.ingest import nflverse, ngs, sleeper
 from src.rag import embed
-from src.signals import availability, matchup_signals, player_stats
+from src.signals import availability, matchup_signals, player_stats, unit_stats
 
 LOGGER = logging.getLogger("askmadden.refresh")
 
@@ -283,6 +283,15 @@ def refresh_signals(
     for stats_season in (season, season - 1):
         player_stats.write_weekly_stats(stats_season, stats_dir=stats_dir)
         LOGGER.info("player stats %s written -> %s", stats_season, stats_dir)
+    # 2026-10-06: kickers' and team defenses' weekly lines, this season and
+    # last, scored per league at query time like the skill stat lines.
+    units_dir = Path(signals_dir).parent / "unit_stats"
+    for stats_season in (season, season - 1):
+        try:
+            unit_stats.write_unit_stats(stats_season, stats_dir=units_dir)
+            LOGGER.info("kicker/defense stats %s written -> %s", stats_season, units_dir)
+        except Exception as e:  # noqa: BLE001 -- never cost the cycle its signals
+            LOGGER.warning("kicker/defense stats %s not written: %s", stats_season, e)
     # 2026-09-27: this season's NFL injury reports (designation + practice
     # status), the source of every play probability. Small, rewritten
     # each cycle; a failure here must not cost the cycle its signals.
