@@ -33,3 +33,4 @@ data/processed/player_stats/*.parquet
 .env.*
 # written by every refresh cycle (src/signals/availability.py)
 data/processed/injuries/*.parquet
+data/processed/unit_stats/*.parquet

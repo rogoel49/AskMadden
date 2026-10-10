@@ -74,7 +74,7 @@ from dotenv import load_dotenv
 
 from src.ingest import sleeper
 from src.ingest import nflverse, sleeper
-from src.rag import lookup, player_index, retrieve
+from src.rag import lookup, teams, player_index, retrieve
 from src.rag.embed import CHROMA_DIR, RAW_DIR
 from src.reasoning import ranking
 from src.reasoning.league import LeagueConfig, load_league
@@ -652,6 +652,14 @@ def _build_system_prompt(
         "minimum bid rather than spending. Early in the season remind the user the budget has to last. In a "
         "non-FAAB league say bids don't apply and talk priority instead. Never invent a bid amount the tool didn't "
         "return.\n\n"
+        "KICKERS AND DEFENSES. Both are covered: a kicker resolves by name and a team defense by team "
+        "('Bucs defense', 'Tampa Bay D/ST', 'the Jets' -> the DEF unit, id = team abbreviation). Their only "
+        "signal is points per game under this league's scoring (get_player_signals returns it with a unit_note; "
+        "rank_players ranks them on it; get_waiver_targets with position 'K' or 'DEF' lists the unrostered ones, "
+        "ranked). Say that plainly -- 'TB D/ST: 9.5 pts/game over 4 games in this league's scoring' -- and use "
+        "the opponent and implied totals it returns as context (a defense facing a low team total is the easier "
+        "matchup), never as a computed edge. Kickers and defenses are streamed, not dropped: the drop report "
+        "leaves them out on purpose.\n\n"
         "State the confidence with every start/sit verdict, using rank_players' `confidence` and "
         "`confidence_label`: 'Start X -- lean, 61% to outscore Y this week', 'coin flip, 52%: the ranking "
         "barely separates them, X by a hair'. A coin flip is still the verdict (the Feed shows the same one); "
@@ -682,9 +690,10 @@ def _tool_get_my_roster(tool_input: dict, ctx: RecommendContext) -> dict:
         "players": [
             {
                 "player_id": p.get("player_id"),
-                "name": p.get("full_name"),
+                # A team defense has no full_name in Sleeper's data: name it by its team.
+                "name": p.get("full_name") or (teams.defense_display_name(p.get("team") or p.get("player_id")) if (p.get("position") or "").upper() == "DEF" else None),
                 "position": p.get("position"),
-                "team": p.get("team"),
+                "team": p.get("team") or (p.get("player_id") if (p.get("position") or "").upper() == "DEF" else None),
                 # Sleeper's own designation (Questionable / Doubtful / Out /
                 # IR / PUP / ...), or None when not on Sleeper's injury list.
                 "injury_status": p.get("injury_status"),
@@ -775,7 +784,10 @@ def _with_points_proxy(roster: dict, ctx: RecommendContext) -> dict:
     players = []
     for p in roster.get("players", []):
         proxy = {"ppg": None, "games_played": None, "season_points_so_far_proxy": None, "ppg_prior_season": None}
-        if p.get("name") and ctx.player_idx is not None:
+        if (p.get("position") or "").upper() == "DEF":
+            abbr = p.get("team") or p.get("player_id")
+            proxy = {k: v for k, v in tables.proxy_fields(abbr).items() if k not in ("prior_games_played", "unit", "unit_team")}
+        elif p.get("name") and ctx.player_idx is not None:
             result = player_index.resolve_player(p["name"], ctx.player_idx)
             if result.match_type == "exact":
                 proxy = {k: v for k, v in tables.proxy_fields(result.candidates[0].player_id).items() if k != "prior_games_played"}
@@ -814,6 +826,14 @@ def resolve_named_player(name: str, ctx: RecommendContext):
     an ambiguous name whose candidates include exactly one player whose
     full name appears in the user's own question resolves to that
     player. Never picks between candidates the user didn't name."""
+    abbr = teams.resolve_team(name)
+    if abbr:
+        # A team name ("Bucs defense", "Tampa Bay D/ST", "the Jets") is the
+        # team's DEF unit, keyed by its abbreviation (2026-10-06).
+        return player_index.ResolveResult(
+            match_type="exact",
+            candidates=[player_index.PlayerMatch(player_id=abbr, player_name=teams.defense_display_name(abbr), position="DEF", team=abbr)],
+        )
     result = player_index.resolve_player(name, ctx.player_idx)
     if result.match_type == "ambiguous" and ctx.question:
         question = ctx.question.lower()
@@ -875,6 +895,23 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
         "unavailable_this_week": sleeper_status in UNAVAILABLE_INJURY_STATUSES,
         "sleeper_data_as_of": lookup.sleeper_fetched_at(ctx.raw_dir),
     }
+    if chunk is None and match.position in ("K", "DEF"):
+        # A kicker or a defense has no usage signals by design: points per
+        # game under this league's scoring is the whole signal.
+        base["has_signals"] = base["ppg"] is not None or base["ppg_prior_season"] is not None
+        base["stale"] = base["ppg"] is None and base["ppg_prior_season"] is not None
+        if base["stale"]:
+            base["source_season"] = ctx.season - 1
+        base["unit_note"] = (
+            f"{'Kicker' if match.position == 'K' else 'Team defense'}: ranked on points per game under this league's "
+            "scoring alone; no usage or efficiency signals exist for this position. The matchup columns (opponent, "
+            "implied totals) are context, not part of the ranking."
+        )
+        row = ctx.signal_tables().row_for(match.player_id) or {}
+        base.update({k: row.get(k) for k in ("opponent", "team_implied_total", "opponent_implied_total") if k in row})
+        if not base["has_signals"]:
+            base["note"] = "Resolved, but no points on record for this season or last."
+        return base
     if chunk is None:
         # Identity resolved but genuinely nothing computed for them, ever
         # (not even a stale prior-season fallback -- e.g. a rookie with no

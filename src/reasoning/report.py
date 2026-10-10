@@ -152,6 +152,7 @@ from src.rag import lookup, player_index
 from src.rag.embed import CHROMA_DIR, RAW_DIR
 from src.reasoning import recommend
 from src.reasoning.league import load_league
+from src.rag import teams
 from src.reasoning.ranking import is_backup_qb as ranking_is_backup_qb
 from src.reasoning.ranking import on_bye as ranking_on_bye
 from src.reasoning.ranking import (
@@ -218,13 +219,24 @@ def _resolve_roster_with_signals(
     uncovered: list[str] = []
     for player in roster_result["players"]:
         name = player.get("name")
-        if not name:
+        position = (player.get("position") or "").upper()
+        if not name and position != "DEF":
             continue
-        if (player.get("position") or "").upper() not in player_index.SKILL_POSITIONS:
-            # A kicker or a team defense: no matchup signal exists for
-            # them (see the signals table), so there is nothing to resolve
-            # against. Reported as that, not as a resolution failure --
-            # "could not identity-resolve Jake Bates" read like a bug.
+        if position == "DEF":
+            # A team defense: its id IS the team (Sleeper and nflverse
+            # agree), so no name resolution; its row is points per game
+            # under this league's scoring (2026-10-06).
+            abbr = player.get("team") or player.get("player_id")
+            resolved.append({
+                "player_id": abbr, "name": teams.defense_display_name(abbr), "position": "DEF", "team": abbr,
+                "injury_status": None, "depth_chart_order": None, "years_exp": None, "sleeper_id": abbr,
+                "row": tables.row_for(abbr),
+            })
+            continue
+        if position not in player_index.INDEX_POSITIONS:
+            # An IDP or anything else the signals never cover: nothing to
+            # resolve against. Reported as that, not as a resolution
+            # failure.
             uncovered.append(f"{name} ({player.get('position') or '?'})")
             continue
         signal_result = recommend.dispatch_tool("get_player_signals", {"player_name": name}, ctx)
@@ -251,7 +263,7 @@ def _resolve_roster_with_signals(
 def _roster_notes(unresolved: list[str], uncovered: list[str]) -> list[str]:
     notes = []
     if uncovered:
-        notes.append(f"No matchup signals exist for kickers or defenses, so they aren't ranked: {', '.join(uncovered)}.")
+        notes.append(f"No signals exist for this position, so they aren't ranked: {', '.join(uncovered)}.")
     if unresolved:
         notes.append(f"Could not identity-resolve {len(unresolved)} rostered player(s): {', '.join(unresolved)}.")
     return notes
@@ -299,6 +311,8 @@ def _player_ref(ranked: dict, injury_status: str | None = None, sleeper_id: str 
         "team": ranked["team"],
         "position": ranked.get("position"),
         "injury_status": injury_status,
+        # Why this player is a SIT regardless of his numbers (on bye, listed Out/IR) -- None for a ranked alternative.
+        "sit_reason": ranked.get("sit_reason"),
         # Sleeper's depth chart and whether it makes him a backup QB -- see ranking.DEPTH_CHART_DESCRIPTION.
         "depth_chart_order": ranked.get("depth_chart_order"),
         "backup_qb": bool(ranked.get("backup_qb")),
@@ -327,20 +341,31 @@ def _start_sit_entry(
     injuries = injuries or {}
     sleeper_ids = sleeper_ids or {}
     where = slot if n_slots == 1 else f"{slot} ({n_slots} slots)"
-    if len(starters) == 1:
+    open_slots = max(0, n_slots - len(starters))
+    if not starters:
+        reasoning = f"No available player for {where} this week."
+    elif len(starters) == 1:
         reasoning = f"Start {starters[0]['name']} at {where}: {starters[0]['signals_summary']}."
     else:
         names = ", ".join(s["name"] for s in starters[:-1]) + f" and {starters[-1]['name']}"
         reasoning = f"Start {names} at {where}. " + " ".join(f"{s['name']}: {s['signals_summary']}." for s in starters)
     for alt in alternatives:
-        reasoning += f" By comparison, {alt['name']}: {alt['signals_summary']}."
+        if alt.get("sit_reason"):
+            reasoning += f" {alt['name']} sits: {alt['sit_reason']}."
+        else:
+            reasoning += f" By comparison, {alt['name']}: {alt['signals_summary']}."
+    if open_slots:
+        reasoning += (f" {open_slots} {slot} slot(s) have no available player this week -- pick one up or stream one "
+                      "(see Waiver targets).")
     # A designated starter: say the base rate, and who steps in if he sits
-    # (the best alternative not already starting here).
+    # (the best alternative not already starting here and not sidelined
+    # himself -- a player on bye or Out cannot step in).
     if_out = []
+    standby = [a for a in alternatives if not a.get("sit_reason")]
     for s in starters:
         if s.get("play_probability") is None:
             continue
-        replacement = alternatives[0] if alternatives else None
+        replacement = standby[0] if standby else None
         if_out.append({"starter": s["name"], "player_id": s["player_id"],
                        "replacement": replacement["name"] if replacement else None,
                        "replacement_player_id": replacement["player_id"] if replacement else None})
@@ -349,10 +374,16 @@ def _start_sit_entry(
         "position": slot,
         "slots": n_slots,
         # The top pick, kept under its long-standing name -- it is the
-        # verdict Chat's rank_players is held to (see ranking.py).
-        "recommended_starter": _player_ref(starters[0], injuries.get(starters[0]["player_id"]), sleeper_ids.get(starters[0]["player_id"])),
+        # verdict Chat's rank_players is held to (see ranking.py). None
+        # only when nobody at the position can play this week.
+        "recommended_starter": (
+            _player_ref(starters[0], injuries.get(starters[0]["player_id"]), sleeper_ids.get(starters[0]["player_id"]))
+            if starters else None
+        ),
         "recommended_starters": [_player_ref(s, injuries.get(s["player_id"]), sleeper_ids.get(s["player_id"])) for s in starters],
         "alternatives_considered": [_player_ref(a, injuries.get(a["player_id"]), sleeper_ids.get(a["player_id"])) for a in alternatives],
+        # Slots at this position with no available player this week (2026-10-06).
+        "open_slots": open_slots,
         "reasoning": reasoning,
         "if_out": if_out,
     }
@@ -378,25 +409,66 @@ def availability_sentence(entry: dict) -> str:
 
 
 
+def _sidelined_refs(benched: list[dict], reasons: dict[str, str]) -> list[dict]:
+    """Ranked-style entries for players who can't start this week, each
+    with its `sit_reason`, so the Feed shows them as SIT cards with the
+    reason instead of dropping them. Their numbers come from the same
+    ranking call; a player with no rankable row gets the reason as his
+    summary."""
+    ranked = {e["player_id"]: e for e in rank_candidates(benched)["ranked"]} if benched else {}
+    refs = []
+    for c in benched:
+        entry = ranked.get(c["player_id"]) or {
+            "player_id": c["player_id"], "name": c["name"], "team": c.get("team"), "position": c.get("position"),
+            "signals_summary": reasons[c["player_id"]], "key_stats": {}, "stale": False,
+            "source_season": None, "source_as_of_week": None,
+        }
+        refs.append({**entry, "sit_reason": reasons[c["player_id"]]})
+    return refs
+
+
 def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> dict:
     resolved, notes = _resolve_roster_with_signals(ctx, tables)
 
     entries = []
+    # Players who cannot be started this week stay VISIBLE: a SIT card with
+    # the reason, inside their position's section (2026-10-06, Victorious
+    # Secret: Mahomes on bye was dropped before ranking, Herbert alone was
+    # "nothing to decide", and the QB section vanished -- the one call the
+    # user needed, "bench Mahomes this week", was a line in the notes).
+    sidelined: dict[str, str] = {}
     unavailable = [c for c in resolved if c.get("injury_status") in UNAVAILABLE_STATUSES]
     if unavailable:
         notes.append(
             "Not available this week, left out of the lineup: "
             + ", ".join(f"{c['name']} ({c['injury_status']})" for c in unavailable) + "."
         )
-        resolved = [c for c in resolved if c.get("injury_status") not in UNAVAILABLE_STATUSES]
+        for c in unavailable:
+            sidelined[c["player_id"]] = f"listed {c['injury_status']} by Sleeper"
     byes = ctx.bye_weeks()
-    on_bye = [c for c in resolved if ranking_on_bye(c["row"], ctx.season, ctx.as_of_week, c.get("team"), byes)]
+    on_bye = [c for c in resolved if c["player_id"] not in sidelined
+              and ranking_on_bye(c["row"], ctx.season, ctx.as_of_week, c.get("team"), byes)]
     if on_bye:
         notes.append(
             f"On bye in week {ctx.as_of_week}, left out of the lineup: "
             + ", ".join(f"{c['name']} ({c.get('team') or '?'})" for c in on_bye) + "."
         )
-        resolved = [c for c in resolved if c not in on_bye]
+        for c in on_bye:
+            sidelined[c["player_id"]] = f"on bye in week {ctx.as_of_week}"
+    sidelined_by_position: dict[str, list[dict]] = {}
+    for c in resolved:
+        if c["player_id"] in sidelined:
+            sidelined_by_position.setdefault(c["position"], []).append(c)
+    resolved = [c for c in resolved if c["player_id"] not in sidelined]
+    # This week's table may not exist yet (Sleeper flips its week the moment
+    # Monday night ends; the table follows after the next refresh): say so,
+    # because the matchup columns are then last week's.
+    table_weeks = [r.get("as_of_week") for r in tables.signals_by_id.values() if r.get("season") == ctx.season and r.get("as_of_week")]
+    if table_weeks and max(table_weeks) < ctx.as_of_week:
+        notes.append(
+            f"Week {ctx.as_of_week}'s signals table has not been computed yet (latest is week {max(table_weeks)}); "
+            f"the matchup columns (opponent, team total) are week {max(table_weeks)}'s until the next refresh."
+        )
     injuries = {c["player_id"]: c.get("injury_status") for c in resolved}
     sleeper_ids = {c["player_id"]: c.get("sleeper_id") for c in resolved}
     backups = [c for c in resolved if ranking_is_backup_qb(c.get("position"), c.get("depth_chart_order"))]
@@ -449,8 +521,9 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
     by_id = {c["player_id"]: c for c in resolved}
     flex_pool: list[dict] = []  # candidates (not ranked refs) still available for a flex slot
 
-    for position in sorted(by_position):
-        candidates = by_position[position]
+    for position in sorted(set(by_position) | set(sidelined_by_position)):
+        candidates = by_position.get(position, [])
+        benched = sidelined_by_position.get(position, [])
         n_slots = slots.get(position, 0) if structure_known else 1
         if n_slots == 0:
             # No dedicated slot for this position in this league -- its
@@ -458,7 +531,7 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
             if position in flex_eligible_positions:
                 flex_pool.extend(candidates)
             continue
-        if len(candidates) <= n_slots:
+        if not benched and len(candidates) <= n_slots:
             continue  # nothing to decide: everyone with this position starts (or there is nobody to compare)
         # The verdict itself -- the same ranking.rank_candidates() call
         # Chat's rank_players tool makes, so the two surfaces can't
@@ -466,8 +539,8 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
         # behavior (ranked[] is a stable sort, so the first candidate in
         # roster order leads) rather than dropping the entry; Chat is
         # told to say "tied" instead. See ranking.py's docstring.
-        ranking = rank_candidates(candidates)
-        if len(ranking["ranked"]) < 2:
+        ranking = rank_candidates(candidates) if candidates else {"ranked": [], "unranked": []}
+        if not benched and len(ranking["ranked"]) < 2:
             notes.append(
                 f"{position}: {len(candidates)} rostered player(s) but fewer than 2 had computed signals "
                 f"for {ctx.season} week {ctx.as_of_week} -- skipped, nothing to ground a comparison in."
@@ -476,6 +549,7 @@ def _start_sit_report(ctx: recommend.RecommendContext, tables: SignalTables) -> 
         starters, alternatives = ranking["ranked"][:n_slots], ranking["ranked"][n_slots:]
         if position in flex_eligible_positions:
             flex_pool.extend(by_id[alt["player_id"]] for alt in alternatives)
+        alternatives = alternatives + _sidelined_refs(benched, sidelined)
         entries.append(_start_sit_entry(position, n_slots, starters, alternatives, None, injuries, sleeper_ids))
 
     for slot, n_slots in flex_slots:
@@ -515,6 +589,14 @@ def _drop_report(ctx: recommend.RecommendContext, tables: SignalTables, bottom_n
             )
             resolved = [c for c in resolved if c not in young]
 
+    # Kickers and defenses are ranked on points per game alone, which is
+    # not comparable to a skill player's score -- they would always be the
+    # "weakest". They are streamed, not dropped; the waiver list ranks them.
+    units = [c for c in resolved if c.get("position") in ("K", "DEF")]
+    if units:
+        notes.append("Kickers and defenses aren't drop candidates here (see Waiver targets to stream one): "
+                     + ", ".join(c["name"] for c in units) + ".")
+        resolved = [c for c in resolved if c not in units]
     scored = [(c, opportunity_score(c["row"])) for c in resolved]
     grounded = [(c, score) for c, score in scored if score is not None]
     ungrounded = [c for c, score in scored if score is None]
@@ -613,7 +695,7 @@ def _waiver_pickups_report(
         if season_has_data and row.get("stale"):
             last_season_only += 1
             continue
-        if season_has_data and (row.get("season_plays") or 0) < MIN_PICKUP_PLAYS:
+        if season_has_data and not row.get("unit") and (row.get("season_plays") or 0) < MIN_PICKUP_PLAYS:
             too_few_plays += 1  # a 2-play body with a big implied total led a real list (2026-10-05)
             continue
         info = sleeper_info.get((player["player_name"], player["position"]))
@@ -634,6 +716,22 @@ def _waiver_pickups_report(
             continue
         candidates.append({**player, "row": row, "injury_status": info.get("injury_status"),
                            "depth_chart_order": info.get("depth_chart_order")})
+
+    # Team defenses (2026-10-06): every team not rostered as a DEF in this
+    # league, ranked on points per game under its scoring.
+    rostered_defs = {p.get("team") or p["player_id"] for p in lookup.all_rostered_players(raw_dir)
+                     if (p.get("position") or "").upper() == "DEF"}
+    for abbr in teams.NFL_TEAMS:
+        if abbr in rostered_defs:
+            continue
+        row = tables.row_for(abbr)
+        if row is None:
+            continue
+        if season_has_data and row.get("stale"):
+            last_season_only += 1
+            continue
+        candidates.append({"player_id": abbr, "player_name": teams.defense_display_name(abbr), "position": "DEF",
+                           "team": abbr, "row": row, "injury_status": None, "depth_chart_order": None})
 
     scored = []
     for c in candidates:
@@ -656,8 +754,8 @@ def _waiver_pickups_report(
     by_position: dict[str, list[tuple[dict, float]]] = {}
     for c, score in sorted(scored, key=lambda pair: pair[1], reverse=True):
         by_position.setdefault(c["position"], []).append((c, score))
-    order = [pos for pos in ("RB", "WR", "TE", "QB") if pos in by_position] + sorted(
-        pos for pos in by_position if pos not in ("RB", "WR", "TE", "QB")
+    order = [pos for pos in ("RB", "WR", "TE", "QB", "K", "DEF") if pos in by_position] + sorted(
+        pos for pos in by_position if pos not in ("RB", "WR", "TE", "QB", "K", "DEF")
     )
     top: list[tuple[dict, float, int]] = []
     depth = 0
@@ -676,7 +774,7 @@ def _waiver_pickups_report(
     entries = [
         {
             "player_id": c["player_id"],
-            "sleeper_id": sleeper_by_name.get((c["player_name"], c["position"])),
+            "sleeper_id": sleeper_by_name.get((c["player_name"], c["position"])) or (c["team"] if c["position"] == "DEF" else None),
             "name": c["player_name"],
             "position": c["position"],
             "team": c["team"],
@@ -703,8 +801,9 @@ def _waiver_pickups_report(
     ]
 
     notes = [
-        "Ranked within each position (position_rank), then interleaved RB/WR/TE/QB -- the score is not "
-        "comparable across positions.",
+        "Ranked within each position (position_rank), then interleaved RB/WR/TE/QB/K/DEF -- the score is not "
+        "comparable across positions. Kickers and defenses are ranked on points per game under this league's "
+        "scoring alone (no usage signals exist for them); the matchup columns are shown for context only.",
         f"Considered {len(candidates)} unrostered player(s) with computed signals out of "
         f"{len(ctx.player_idx)} in the full skill-position player pool "
         f"({len(rostered_ids)} nflverse player_id(s) excluded as rostered somewhere in the league)."

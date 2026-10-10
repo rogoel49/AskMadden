@@ -33,6 +33,11 @@ import polars as pl
 from src.ingest import nflverse
 
 SKILL_POSITIONS = ("QB", "RB", "WR", "TE")
+# What the name index resolves: the skill positions plus kickers
+# (2026-10-06 -- a kicker's points per game is now computed, see
+# src/signals/unit_stats.py). Team defenses resolve by team name instead
+# (src/rag/teams.py), not through this index.
+INDEX_POSITIONS = SKILL_POSITIONS + ("K",)
 # Tuned against the real 2024 player list during development: 0.75 let
 # "McCaffrey" fuzzy-match an unrelated "Nate McCrary" (token ratio
 # exactly 0.75) alongside the two real McCaffreys. 0.8 excludes that
@@ -82,7 +87,7 @@ def build_player_index(season: int, players: pl.DataFrame | None = None) -> pl.D
         players = nflverse.fetch_players()
     return players.filter(
         pl.col("gsis_id").str.starts_with("00-")
-        & pl.col("position").is_in(SKILL_POSITIONS)
+        & pl.col("position").is_in(INDEX_POSITIONS)
         & pl.col("last_season").is_not_null()
         & (pl.col("last_season") >= season - 1)
     ).select(
