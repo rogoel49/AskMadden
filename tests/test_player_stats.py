@@ -43,8 +43,9 @@ def test_points_by_week_matches_the_row_by_row_scoring(stats):
 
 def test_season_points_proxy_only_sees_weeks_before_the_as_of_week(stats):
     proxy = pp.season_points_proxy(stats, HALF_PPR, as_of_week=3)
-    assert proxy["a"] == {"games_played": 2, "season_points_so_far_proxy": 22.0, "ppg": 11.0}
-    assert proxy["b"] == {"games_played": 1, "season_points_so_far_proxy": 19.0, "ppg": 19.0}
+    # `team` (the latest team in the counted weeks) rides along since 2026-10-14 -- see ranking.team_changed().
+    assert proxy["a"] == {"games_played": 2, "season_points_so_far_proxy": 22.0, "ppg": 11.0, "team": "PHI"}
+    assert proxy["b"] == {"games_played": 1, "season_points_so_far_proxy": 19.0, "ppg": 19.0, "team": "PHI"}
     whole = pp.season_points_proxy(stats, HALF_PPR)  # a finished season: everything counts
     assert whole["a"]["games_played"] == 3 and whole["a"]["season_points_so_far_proxy"] == 42.0
     assert pp.season_points_proxy(None, HALF_PPR, 3) == {}

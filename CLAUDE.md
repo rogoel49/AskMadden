@@ -448,6 +448,26 @@ or monetized, it needs to genuinely work for more than one league.
   sidelined player (bye, Out) stays on the Feed as a SIT card with the
   reason, and a section renders even with one or zero players left
   (`open_slots`). See TODO.md's "Kickers and defenses" entry.
+- Ferguson/Likely RCA and the first retrospective (2026-10-14, shipped
+  10-19): Chat started a Thursday Jake Ferguson over a Questionable Isaiah
+  Likely (3.4 vs 26.9 half-PPR). Root causes: the 4-game prior-season
+  blend judged Likely on his 2025 Baltimore TE2 role, the Questionable
+  discount used Sleeper's tag with no practice info although the NFL
+  report had him as a full participant, and nothing knew when the games
+  were. Fixes: `ranking.PPG_BLEND_GAMES_TEAM_CHANGE` (2 pseudo-games for a
+  player whose team changed, harness-tested, non-negative on both held-
+  out seasons), `availability_of` combines Sleeper's designation with
+  the report's practice status, and kickoff awareness end to end
+  (`gameday`/`gametime`/`weekday` on the signals table, `game_day` /
+  `kickoff` / `already_played` / `this_week_points` on every ranked
+  entry; an already-played player is scored at his actual points; a
+  `Timing:` sentence / `timing_note` / GAME TIMING prompt section
+  explain the Thursday-vs-Sunday lock-in). New fourth eval type:
+  `evals/retrospective_lineups.py` rebuilds every real roster's lineup
+  as-of each week and scores it with Sleeper's points -- weeks 1-5 of
+  2026: ours 125.4 pts/week vs the managers' 130.4 (optimal 149.9),
+  adjacent-pair accuracy 57%, confidence labels calibrated. See TODO.md's
+  "RCA: Ferguson over a Questionable Likely" entry.
 - Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
   after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
   this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit

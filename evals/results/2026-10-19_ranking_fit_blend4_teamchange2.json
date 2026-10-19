@@ -1,0 +1,396 @@
+{
+  "date": "2026-10-19",
+  "train_seasons": [
+    2023
+  ],
+  "test_seasons": [
+    2024,
+    2025
+  ],
+  "weeks": [
+    2,
+    18
+  ],
+  "features": [
+    "ppg",
+    "ppg_prior",
+    "target_share",
+    "red_zone_share",
+    "epa_trend",
+    "implied_total",
+    "cpoe",
+    "run_funnel_rate_vs_avg"
+  ],
+  "fit_scoring": {
+    "rec": 0.5,
+    "pass_td": 4,
+    "pass_yd": 0.04,
+    "pass_int": -1,
+    "pass_2pt": 2,
+    "rush_yd": 0.1,
+    "rush_td": 6,
+    "rush_2pt": 2,
+    "rec_yd": 0.1,
+    "rec_td": 6,
+    "rec_2pt": 2,
+    "fum_lost": -2
+  },
+  "min_points_both": 5.0,
+  "pairs_per_group": 300,
+  "blend_k": 4.0,
+  "no_prior_zero": false,
+  "no_prior_position_mean": false,
+  "team_change_k": 2.0,
+  "train_pairs": 19045,
+  "test_pairs": 38957,
+  "weights": {
+    "ppg": 0.0815,
+    "ppg_prior": 0.0,
+    "target_share": 0.29,
+    "red_zone_share": 0.5778,
+    "epa_trend": -0.0707,
+    "implied_total": 0.0145,
+    "cpoe": 0.0199,
+    "run_funnel_rate_vs_avg": -0.3985
+  },
+  "test": {
+    "fitted": {
+      "accuracy": 0.6096,
+      "scored": 38957,
+      "undecided": 0,
+      "by_position": {
+        "QB": {
+          "correct": 6112,
+          "scored": 10200,
+          "accuracy": 0.599
+        },
+        "RB": {
+          "correct": 6361,
+          "scored": 10200,
+          "accuracy": 0.624
+        },
+        "TE": {
+          "correct": 5040,
+          "scored": 8357,
+          "accuracy": 0.603
+        },
+        "WR": {
+          "correct": 6236,
+          "scored": 10200,
+          "accuracy": 0.611
+        }
+      },
+      "by_gap": {
+        "10+": {
+          "correct": 6907,
+          "scored": 9593,
+          "accuracy": 0.72
+        },
+        "<5": {
+          "correct": 10017,
+          "scored": 18577,
+          "accuracy": 0.539
+        },
+        "5-10": {
+          "correct": 6825,
+          "scored": 10787,
+          "accuracy": 0.633
+        }
+      },
+      "by_week": {
+        "weeks 11-18": {
+          "correct": 11252,
+          "scored": 18306,
+          "accuracy": 0.615
+        },
+        "weeks 2-5": {
+          "correct": 5291,
+          "scored": 9022,
+          "accuracy": 0.586
+        },
+        "weeks 6-10": {
+          "correct": 7206,
+          "scored": 11629,
+          "accuracy": 0.62
+        }
+      },
+      "by_season_and_team_change": {
+        "2024": {
+          "correct": 11955,
+          "scored": 19283,
+          "accuracy": 0.62
+        },
+        "2025": {
+          "correct": 11794,
+          "scored": 19674,
+          "accuracy": 0.599
+        },
+        "same team": {
+          "correct": 16206,
+          "scored": 26662,
+          "accuracy": 0.608
+        },
+        "team changed": {
+          "correct": 7543,
+          "scored": 12295,
+          "accuracy": 0.614
+        }
+      }
+    },
+    "hand_weights_pre_fit": {
+      "accuracy": 0.5761,
+      "scored": 38905,
+      "undecided": 52,
+      "by_position": {
+        "QB": {
+          "correct": 5902,
+          "scored": 10167,
+          "accuracy": 0.581
+        },
+        "RB": {
+          "correct": 6213,
+          "scored": 10192,
+          "accuracy": 0.61
+        },
+        "TE": {
+          "correct": 4579,
+          "scored": 8352,
+          "accuracy": 0.548
+        },
+        "WR": {
+          "correct": 5719,
+          "scored": 10194,
+          "accuracy": 0.561
+        }
+      },
+      "by_gap": {
+        "10+": {
+          "correct": 6305,
+          "scored": 9579,
+          "accuracy": 0.658
+        },
+        "<5": {
+          "correct": 9837,
+          "scored": 18549,
+          "accuracy": 0.53
+        },
+        "5-10": {
+          "correct": 6271,
+          "scored": 10777,
+          "accuracy": 0.582
+        }
+      },
+      "by_week": {
+        "weeks 11-18": {
+          "correct": 10441,
+          "scored": 18279,
+          "accuracy": 0.571
+        },
+        "weeks 2-5": {
+          "correct": 5180,
+          "scored": 9004,
+          "accuracy": 0.575
+        },
+        "weeks 6-10": {
+          "correct": 6792,
+          "scored": 11622,
+          "accuracy": 0.584
+        }
+      },
+      "by_season_and_team_change": {
+        "2024": {
+          "correct": 11094,
+          "scored": 19253,
+          "accuracy": 0.576
+        },
+        "2025": {
+          "correct": 11319,
+          "scored": 19652,
+          "accuracy": 0.576
+        },
+        "same team": {
+          "correct": 15307,
+          "scored": 26630,
+          "accuracy": 0.575
+        },
+        "team changed": {
+          "correct": 7106,
+          "scored": 12275,
+          "accuracy": 0.579
+        }
+      }
+    },
+    "ppg_only": {
+      "accuracy": 0.6049,
+      "scored": 38954,
+      "undecided": 3,
+      "by_position": {
+        "QB": {
+          "correct": 6035,
+          "scored": 10200,
+          "accuracy": 0.592
+        },
+        "RB": {
+          "correct": 6302,
+          "scored": 10200,
+          "accuracy": 0.618
+        },
+        "TE": {
+          "correct": 5007,
+          "scored": 8354,
+          "accuracy": 0.599
+        },
+        "WR": {
+          "correct": 6219,
+          "scored": 10200,
+          "accuracy": 0.61
+        }
+      },
+      "by_gap": {
+        "10+": {
+          "correct": 6826,
+          "scored": 9592,
+          "accuracy": 0.712
+        },
+        "<5": {
+          "correct": 9993,
+          "scored": 18576,
+          "accuracy": 0.538
+        },
+        "5-10": {
+          "correct": 6744,
+          "scored": 10786,
+          "accuracy": 0.625
+        }
+      },
+      "by_week": {
+        "weeks 11-18": {
+          "correct": 11181,
+          "scored": 18305,
+          "accuracy": 0.611
+        },
+        "weeks 2-5": {
+          "correct": 5215,
+          "scored": 9022,
+          "accuracy": 0.578
+        },
+        "weeks 6-10": {
+          "correct": 7167,
+          "scored": 11627,
+          "accuracy": 0.616
+        }
+      },
+      "by_season_and_team_change": {
+        "2024": {
+          "correct": 11846,
+          "scored": 19282,
+          "accuracy": 0.614
+        },
+        "2025": {
+          "correct": 11717,
+          "scored": 19672,
+          "accuracy": 0.596
+        },
+        "same team": {
+          "correct": 16087,
+          "scored": 26660,
+          "accuracy": 0.603
+        },
+        "team changed": {
+          "correct": 7476,
+          "scored": 12294,
+          "accuracy": 0.608
+        }
+      }
+    },
+    "prior_season_ppg_only": {
+      "accuracy": null,
+      "scored": 0,
+      "undecided": 38957,
+      "by_position": {},
+      "by_gap": {},
+      "by_week": {},
+      "by_season_and_team_change": {}
+    }
+  },
+  "train_fit": {
+    "fitted": {
+      "accuracy": 0.6228,
+      "scored": 19045,
+      "undecided": 0,
+      "by_position": {
+        "QB": {
+          "correct": 3271,
+          "scored": 5100,
+          "accuracy": 0.641
+        },
+        "RB": {
+          "correct": 3127,
+          "scored": 5100,
+          "accuracy": 0.613
+        },
+        "TE": {
+          "correct": 2232,
+          "scored": 3745,
+          "accuracy": 0.596
+        },
+        "WR": {
+          "correct": 3232,
+          "scored": 5100,
+          "accuracy": 0.634
+        }
+      },
+      "by_gap": {
+        "10+": {
+          "correct": 3466,
+          "scored": 4639,
+          "accuracy": 0.747
+        },
+        "<5": {
+          "correct": 5094,
+          "scored": 9265,
+          "accuracy": 0.55
+        },
+        "5-10": {
+          "correct": 3302,
+          "scored": 5141,
+          "accuracy": 0.642
+        }
+      },
+      "by_week": {
+        "weeks 11-18": {
+          "correct": 5700,
+          "scored": 9112,
+          "accuracy": 0.626
+        },
+        "weeks 2-5": {
+          "correct": 2785,
+          "scored": 4553,
+          "accuracy": 0.612
+        },
+        "weeks 6-10": {
+          "correct": 3377,
+          "scored": 5380,
+          "accuracy": 0.628
+        }
+      },
+      "by_season_and_team_change": {
+        "2023": {
+          "correct": 11862,
+          "scored": 19045,
+          "accuracy": 0.623
+        },
+        "same team": {
+          "correct": 8544,
+          "scored": 13775,
+          "accuracy": 0.62
+        },
+        "team changed": {
+          "correct": 3318,
+          "scored": 5270,
+          "accuracy": 0.63
+        }
+      }
+    }
+  }
+}

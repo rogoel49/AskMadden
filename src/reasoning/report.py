@@ -326,6 +326,11 @@ def _player_ref(ranked: dict, injury_status: str | None = None, sleeper_id: str 
         "played_output_factor": ranked.get("played_output_factor"),
         "expected_output": ranked.get("expected_output"),
         "key_stats": ranked.get("key_stats") or {},
+        # This week's game: when it is and whether it is already final (2026-10-14).
+        "game_day": ranked.get("game_day"),
+        "kickoff": ranked.get("kickoff"),
+        "already_played": bool(ranked.get("already_played")),
+        "this_week_points": ranked.get("this_week_points"),
         "signals_summary": ranked["signals_summary"],
         "stale": ranked["stale"],
         "source_season": ranked["source_season"],
@@ -370,6 +375,12 @@ def _start_sit_entry(
                        "replacement": replacement["name"] if replacement else None,
                        "replacement_player_id": replacement["player_id"] if replacement else None})
         reasoning += " " + availability_sentence(s) + (f" If he sits, {replacement['name']} steps in." if replacement else "")
+    # 2026-10-14: when a designated starter's game is later than a healthy
+    # alternative's, the decision has a clock on it -- say so (the
+    # Ferguson-on-Thursday vs. Questionable-Likely-on-Sunday question).
+    timing = timing_sentence(starters, standby)
+    if timing:
+        reasoning += " " + timing
     entry = {
         "position": slot,
         "slots": n_slots,
@@ -390,6 +401,30 @@ def _start_sit_entry(
     if eligible is not None:
         entry["eligible_positions"] = list(eligible)
     return entry
+
+
+def timing_sentence(starters: list[dict], alternatives: list[dict]) -> str | None:
+    """'X plays Thu 10/08 8:15pm ET, before Y (Sun 10/11 1:00pm ET,
+    Questionable) is settled: starting X locks the slot before Y's status
+    is known; waiting on Y means X is no longer an option if he is ruled
+    out. The call can be held until Thu 10/08 8:15pm ET.' None when no
+    designated starter has a healthy alternative with an earlier kickoff."""
+    out = []
+    for s in starters:
+        if s.get("play_probability") is None or not s.get("kickoff"):
+            continue
+        earlier = [a for a in alternatives if a.get("kickoff") and a["kickoff"] < s["kickoff"]
+                   and a.get("play_probability") is None and not a.get("already_played")]
+        if not earlier:
+            continue
+        a = earlier[0]
+        out.append(
+            f"Timing: {a['name']} plays {a['game_day']}, before {s['name']} ({s['game_day']}, "
+            f"{s.get('report_status') or s.get('injury_status') or 'designated'}) is settled -- starting {a['name']} "
+            f"locks the slot in before {s['name']}'s status is known; waiting on {s['name']} means {a['name']} is no "
+            f"longer an option if he is ruled out. The call can be held until {a['game_day']}."
+        )
+    return " ".join(out) or None
 
 
 def availability_sentence(entry: dict) -> str:

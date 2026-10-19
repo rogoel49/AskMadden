@@ -982,6 +982,14 @@
     const title = `${status}${practice}. Players in this spot took the field ${p}% of the time (2020-25 NFL injury reports)` + (entry.played_output_factor != null ? ` and scored ${Math.round(entry.played_output_factor * 100)}% of their usual when they did` : '') + (m != null ? `, so the ranking counts him at ${m}% of himself.` : '.') + ' A base rate, not a read on his injury.';
     return `<span class="chip ${status === 'Doubtful' ? 'scope' : 'stale'}" title="${esc(title)}">${esc(status)} · plays ${p}%${m != null ? ` · counted at ${m}%` : ''}${practice ? esc(practice) : ''}</span>`;
   }
+  // This week's game (2026-10-14): when it is, or -- once it is in the books -- what he actually scored.
+  function gameChip(entry){
+    if (!entry) return '';
+    if (entry.already_played && entry.this_week_points != null) {
+      return `<span class="chip scope" title="His game this week is final; the ranking counts these points, not a projection.">Played${entry.game_day ? ' ' + esc(String(entry.game_day).split(' ')[0]) : ''} · ${esc(Number(entry.this_week_points).toFixed(1))} pts</span>`;
+    }
+    return entry.game_day ? `<span class="chip pos" title="Kickoff (ET)">${esc(entry.game_day)}</span>` : '';
+  }
   function ifOutLine(entry){
     const rows = (entry.if_out || []).filter(r => r.replacement);
     return rows.length ? `<div class="pcard-line if-out">${rows.map(r => `If <b>${esc(r.starter)}</b> sits: <b>${esc(r.replacement)}</b> steps in`).join(' · ')}</div>` : '';
@@ -1035,7 +1043,7 @@
     const stale = !!(entry && entry.stale);
     const head = `<div class="pcard-head">${rank ? `<div class="rank">${esc(rank)}</div>` : ''}${avatar(name, pos, entry && (entry.sleeper_id || entry.player_id_sleeper), team)}<div class="who"><div class="pname">${esc(name)}</div><div class="ppos">${esc(pos)} · ${esc(team || '—')}</div></div>${verdict ? `<div class="verdict ${verdict}">${esc(verdictLabel || verdict.toUpperCase())}</div>` : ''}</div>`;
     const stats = statCells(ks, stale);
-    const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${availabilityChip(entry)}${depthChip(entry)}${sitReasonChip(entry)}</div>`;
+    const chips = `<div class="chip-row">${slotLabel ? `<span class="chip pos">${esc(slotLabel)}</span>` : ''}${scoreChip || ''}${confidenceChip(entry, verdict)}${staleChip(entry)}${availabilityChip(entry)}${gameChip(entry)}${depthChip(entry)}${sitReasonChip(entry)}</div>`;
     const title = esc((entry && (entry.signals_summary || entry.reasoning)) || '');
     return `<div class="pcard ${verdict || ''}${stale ? ' stale-card' : ''}" title="${title}">${head}${stats ? `<div class="pcard-stats">${stats}</div>` : `<div class="pcard-line">No usage numbers yet.</div>`}${matchupLine(ks)}${reason ? `<div class="pcard-reason">${esc(reason)}</div>` : ''}${chips}</div>`;
   }
