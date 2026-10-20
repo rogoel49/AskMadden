@@ -65,8 +65,13 @@ def _points_expr(scoring: dict) -> pl.Expr:
 
 
 def points_by_week(stats: pl.DataFrame, scoring: dict) -> pl.DataFrame:
-    """player_id, week, points -- every stat line scored under `scoring`."""
-    return stats.select("player_id", "week", _points_expr(scoring))
+    """player_id, week, team, points -- every stat line scored under
+    `scoring`. `team` (the player's team that week) rides along so the
+    rollup can report his latest team: a player whose team changed since
+    last season is a different player for the purposes of shrinking this
+    season's points toward last season's (2026-10-14, Isaiah Likely)."""
+    cols = ["player_id", "week"] + (["team"] if "team" in stats.columns else [])
+    return stats.select(*cols, _points_expr(scoring))
 
 
 def season_points_proxy(stats: pl.DataFrame | None, scoring: dict, as_of_week: int | None = None) -> dict[str, dict]:

@@ -230,10 +230,17 @@ def _opponent_map(schedules: pl.DataFrame, as_of_week: int) -> pl.DataFrame:
     a bye that week simply has no row here, so joins against this map
     correctly leave that team's opponent null rather than stale."""
     sched_week = schedules.filter(pl.col("week") == as_of_week)
+    # Kickoff facts ride along when the schedule has them (nflverse's
+    # gameday / gametime / weekday; test fixtures may not): which day a
+    # player's game is on is league-agnostic schedule data, and the
+    # ranking needs it to say that a Thursday player's week is already
+    # final, or that starting him locks in before a Sunday player's
+    # injury status is known (2026-10-14, the Ferguson-over-Likely RCA).
+    timing = [pl.col(c) for c in ("gameday", "gametime", "weekday") if c in sched_week.columns]
     return pl.concat(
         [
-            sched_week.select(pl.col("home_team").alias("team"), pl.col("away_team").alias("opponent")),
-            sched_week.select(pl.col("away_team").alias("team"), pl.col("home_team").alias("opponent")),
+            sched_week.select(pl.col("home_team").alias("team"), pl.col("away_team").alias("opponent"), *timing),
+            sched_week.select(pl.col("away_team").alias("team"), pl.col("home_team").alias("opponent"), *timing),
         ]
     )
 

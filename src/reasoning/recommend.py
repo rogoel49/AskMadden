@@ -660,6 +660,18 @@ def _build_system_prompt(
         "the opponent and implied totals it returns as context (a defense facing a low team total is the easier "
         "matchup), never as a computed edge. Kickers and defenses are streamed, not dropped: the drop report "
         "leaves them out on purpose.\n\n"
+        "GAME TIMING. Every rank_players entry (and get_player_signals) carries `game_day` (when this week's "
+        "game is, e.g. 'Thu 10/08 8:15pm ET'), `already_played` and `this_week_points`. When the players in a "
+        "comparison play on different days, say so. If one has already_played: true, his week is FINAL -- "
+        "`this_week_points` is what he scored, the ranking already counts it instead of his average, and you "
+        "compare that known number against the other player's expectation ('Ferguson already played Thursday: "
+        "3.4 pts; Likely, playing Sunday, averages 10.2'). Never project a player whose game is over. When a "
+        "Questionable/Doubtful player's game is LATER than a healthy alternative's, name the sequencing out "
+        "loud: starting the earlier player locks that slot in before the later player's status is known, while "
+        "waiting on the later player means the earlier one is no longer an option if he is ruled out -- so say "
+        "who the fallback at that slot would be (a player who plays at the same time or later), and that the "
+        "user can hold the decision until the earlier kickoff. A Thursday-vs-Sunday call is as much about that "
+        "sequence as about the numbers; give both.\n\n"
         "State the confidence with every start/sit verdict, using rank_players' `confidence` and "
         "`confidence_label`: 'Start X -- lean, 61% to outscore Y this week', 'coin flip, 52%: the ranking "
         "barely separates them, X by a hair'. A coin flip is still the verdict (the Feed shows the same one); "
@@ -889,6 +901,8 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
         # the player is not on the report, or before the week's report is
         # published) -- see ranking.AVAILABILITY_DESCRIPTION.
         **ctx.signal_tables().availability_fields(match.player_id),
+        # This week's game: when, and whether it is already final (2026-10-14).
+        **ctx.signal_tables().game_fields(match.player_id, match.team),
         "injury_status": sleeper_status,
         "injury_body_part": _sleeper_field_by_name(ctx, "injury_body_part").get(match.player_name),
         "depth_chart_order": _sleeper_field_by_name(ctx, "depth_chart_order").get(match.player_name),
@@ -937,6 +951,32 @@ def _tool_get_player_signals(tool_input: dict, ctx: RecommendContext) -> dict:
     else:
         base["signals"] = chunk["text"]
     return base
+
+
+def _timing_note(ranked: list[dict]) -> str | None:
+    """The lock-in sequence when a designated (Questionable/Doubtful)
+    player's game is later than a healthy player's in the same comparison
+    (2026-10-14: Ferguson on Thursday vs. a Questionable Likely on Sunday
+    -- the question was as much 'when do I have to decide' as 'who is
+    better', and nothing said so). None when every game is on the same
+    day or nobody is designated."""
+    designated = [e for e in ranked if e.get("play_probability") is not None and e.get("kickoff")]
+    healthy = [e for e in ranked if e.get("play_probability") is None and e.get("kickoff") and not e.get("already_played")]
+    notes = []
+    for d in designated:
+        earlier = [h for h in healthy if h["kickoff"] < d["kickoff"]]
+        if not earlier:
+            continue
+        later = [h for h in healthy if h["kickoff"] >= d["kickoff"] and h is not d]
+        fallback = f"; {later[0]['name']} ({later[0]['game_day']}) would still be available as the fallback" if later else \
+            "; nobody else in this comparison plays late enough to be a fallback"
+        notes.append(
+            f"{earlier[0]['name']} plays {earlier[0]['game_day']}, before {d['name']} ({d['game_day']}, "
+            f"{d.get('report_status') or 'designated'}) is settled: starting {earlier[0]['name']} locks the slot in "
+            f"before {d['name']}'s status is known, and waiting on {d['name']} means {earlier[0]['name']} is no longer an "
+            f"option if he is ruled out{fallback}. The decision can be held until {earlier[0]['game_day']}."
+        )
+    return " ".join(notes) or None
 
 
 def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
@@ -1031,9 +1071,16 @@ def _tool_rank_players(tool_input: dict, ctx: RecommendContext) -> dict:
         "designated": [
             {"name": e["name"], "report_status": e.get("report_status"), "practice_status": e.get("practice_status"),
              "play_probability": e["play_probability"], "played_output_factor": e.get("played_output_factor"),
-             "expected_output": e.get("expected_output")}
+             "expected_output": e.get("expected_output"), "game_day": e.get("game_day")}
             for e in designated
         ],
+        # 2026-10-14: the week's games that are already final, and the sequencing when a designated player plays
+        # later than a healthy one -- see the GAME TIMING section of the system prompt.
+        "already_played": [
+            {"name": e["name"], "game_day": e.get("game_day"), "this_week_points": e.get("this_week_points")}
+            for e in ranked["ranked"] if e.get("already_played")
+        ],
+        "timing_note": _timing_note(ranked["ranked"]),
         "availability_description": ranked["availability_description"],
         "score_description": ranked["score_description"],
         "note": (

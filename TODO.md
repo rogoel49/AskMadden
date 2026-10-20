@@ -2368,6 +2368,130 @@ the cross-position compare.
 - [ ] First deploy needs the unit tables: the next refresh cycle writes
       them; until it runs, K/DEF rows are empty (sections skipped).
 
+## RCA: Ferguson over a Questionable Likely, and the first season-to-date retrospective (2026-10-14, shipped 10-19)
+
+A friend asked Chat in week 5 whether to start Jake Ferguson (DAL, playing
+Thursday) or Isaiah Likely (NYG, tagged Questionable, playing Sunday) at
+TE. Chat said Ferguson. Ferguson: 3 catches, 19 yards (3.4 half-PPR, 5.9
+with a TE premium). Likely: 11 catches, 94 yards, 2 TDs (26.9 half-PPR,
+32.4 full, 36.4 with a TE premium). The exact chat turn could not be
+pulled in this session (the production SQLite fetch was blocked by the
+session's permission classifier, and neither of the three locally
+ingested leagues had a roster holding both players -- it is one of the
+two production-only leagues), so the RCA reconstructs the verdict from
+the ranking itself. It reproduces: `rank_candidates` picks Ferguson,
+"clear, 68%", under every ingested league's scoring.
+
+**Why (in order of weight).**
+1. **The ranking preferred Ferguson before any injury discount** (raw
+   score 1.173 vs 1.143, half-PPR). Likely's usage edge was large -- 32%
+   vs 10% target share, 18% vs 9% red-zone share, +0.16 of score -- but
+   two terms cancelled it: (a) the points term. Likely's 2026 was 10.5
+   ppg over 4 games, Ferguson's 7.6; but the 4-pseudo-game blend toward
+   last season used Likely's **2025 as Baltimore's TE2 (4.0 ppg)** and
+   Ferguson's 8.7, so blended ppg came out Ferguson 8.1 vs Likely 7.3
+   (+0.07 Ferguson); (b) the team implied total, 28.5 vs 20.25, +0.12
+   Ferguson. A player who changed teams was being judged on last year's
+   role.
+2. **The availability discount then made it "clear."** Sleeper tagged
+   Likely Questionable. nflverse's week-5 NFL report listed him with
+   **Full Participation (knee) and no game designation**. `availability_of`
+   only used the report row when it carried a `play_probability` (i.e. a
+   designation), so it fell to Sleeper's tag with "no practice
+   information" -- the pooled 68% x 0.86 = 58% -- instead of Questionable
+   + full practice (77% x 0.91 = 70%). That took 0.25 off Likely's
+   standing, ten times the raw gap.
+3. **Nothing knew when the games were.** The question's real crux --
+   Ferguson's Thursday slot locks before Likely's Sunday status is known;
+   waiting on Likely means Ferguson is gone as an option -- was invisible
+   to the ranking, the report and the prompt (no code in `src/reasoning`
+   read a kickoff). And had the question come after Thursday night,
+   Ferguson's 3.4 points were already in nflverse and the product would
+   still have "projected" him.
+
+**Shipped.**
+- `ranking.PPG_BLEND_GAMES_TEAM_CHANGE = 2`: a player whose team this
+  season differs from his team at the end of last season (both from the
+  stat lines; `points_proxy.points_by_week` now carries `team`, so the
+  proxy rollup reports it as `team_this_season` / `team_prior_season`) is
+  shrunk toward last season with 2 pseudo-games instead of 4. Tested
+  first with `evals/fit_ranking_weights.py --team-change-k` on 38,957
+  held-out 2024+2025 pairs: 2 games 60.96%, 1 game 60.91%, 0 games
+  60.82%, unchanged blend 60.83%. On the 12,295 pairs that involve a team
+  changer: 61.0% -> 61.4%; 2024 61.8% -> 62.0%, 2025 flat at 59.9%; the
+  same-team pairs unchanged (60.7% -> 60.8%). Small, non-negative on both
+  seasons, adopted at the best tested value. The signals summary says
+  "with BAL -- a different team, so last season counts as only 2 game(s)
+  of evidence here." Results: `evals/results/2026-10-19_ranking_fit_blend4*.json`.
+- `ranking.availability_of`: Sleeper's designation + the report's practice
+  status (and injury) when the report lists the player without a game
+  designation. Likely would have been counted at 70%, not 58%.
+- Kickoff awareness, league-agnostic by construction: `matchup_signals.
+  _opponent_map` carries nflverse's `gameday` / `gametime` / `weekday`
+  onto every signals row (older tables without the columns still load;
+  the current week's table is recomputed every refresh cycle, so
+  production has them within one cycle of deploy). `SignalTables` joins
+  them as `game_day` ("Thu 10/08 8:15pm ET"), `kickoff`, and -- when the
+  live horizon counts this week's finished games -- `already_played` /
+  `this_week_points` (a team with a stat line in the as-of week has
+  played; a player on it with no line scored 0). **An already-played
+  player is scored at his actual points** (`opportunity_score` uses
+  `this_week_points` in place of the blended ppg) and carries no
+  availability discount; his summary leads with "ALREADY PLAYED this
+  week (Thu 10/08 8:15pm ET): 3.4 pts ... his week is final." Every
+  `rank_players` / start_sit / `get_player_signals` entry carries the
+  four fields; `rank_players` adds `already_played` and a `timing_note`;
+  the start_sit entry gets a `Timing:` sentence when a designated starter
+  has a healthy alternative with an earlier kickoff ("starting X locks the
+  slot in before Y's status is known; waiting on Y means X is no longer an
+  option if he is ruled out. The call can be held until Thu 10/08 8:15pm
+  ET."); the prompt has a GAME TIMING section (never project a player
+  whose game is over; name the sequence and the fallback). The Feed shows
+  a kickoff chip, or "Played Thu · 3.4 pts" once the game is in.
+- `evals/retrospective_lineups.py` -- the fourth eval type (see below).
+- Tests: `tests/test_game_timing_and_team_change.py` (8).
+
+**Retrospective: are we good?** `evals/retrospective_lineups.py` rebuilds
+the start_sit lineup for every roster in the three ingested leagues,
+weeks 1-5 of 2026, with only that week's data (that week's signals table,
+ppg strictly before it, that week's NFL report), and scores it with
+Sleeper's own final `players_points` against the manager's locked lineup
+and the hindsight-optimal one. Results in `evals/results/2026-10-14_
+retrospective_lineups_*.json`. 180 roster-weeks, 6,861 start/sit pairs:
+- Manager 130.4 pts/week, **ours 125.4**, optimal 149.9. Ours beat the
+  manager 49 times, tied 20, lost 111. Week 1 (everyone on 2025 numbers)
+  is the worst (-9.8); weeks 2 and 4 are near even (-1.8, -0.4); weeks 3
+  and 5 are -8.0 and -5.2.
+- Pairwise decision accuracy 72.5% over all pairs, **57.0% on adjacent
+  pairs** (the close calls) -- consistent with the offline harness.
+- **Confidence is calibrated:** coin flip 52.6% right (stated 51.5%),
+  lean 60.1% (58.9%), clear 73.0% (69.5%), strong 83.3% (80.2%, n=12).
+- When the manager made the opposite call (493 pairs), the manager was
+  right 62% of the time. Managers know things the ranking does not
+  (news, Sleeper's live designations, their own waiver moves), but it
+  is the honest headline: **the lineup the Feed sets is not yet better
+  than what people set themselves.** The ranking benched a designated
+  player 539 times; 121 of them (22%) outscored the starter it chose.
+- With the team-change rule only (the other two fixes cannot show in a
+  strict as-of backtest): ours 125.8 (+0.4/week), pairwise 72.7%,
+  adjacent 57.6%, beat the manager 50 times. Directionally right, small.
+Limits: Sleeper's historical injury designations and depth charts are
+not recoverable (the ingest overwrites them), so Out/IR players absent
+from the NFL report are candidates and the backup-QB rule cannot fire;
+the lineup filling mirrors `_start_sit_report` rather than calling it
+(that function reads the current roster through `get_my_roster`).
+- [ ] Pull the production events table (`fly ssh sftp get
+      /app/data/askmadden.sqlite3`) and run the chat questions through
+      the same as-of ranking: the events carry each question's text and
+      tools but not the answer, so the deterministic verdict stands in
+      for it (the agent followed `rank_players` 400/400 in the live eval).
+- [ ] Re-run the retrospective after each ranking change; it is free.
+- [ ] The implied-total term rewards a player on a high-total team
+      regardless of his share of it (+0.12 for Ferguson here). A
+      share-scaled version is a candidate for the harness.
+- [ ] Real-model check of the GAME TIMING prompt on the hosted app with
+      a Thursday-vs-Sunday pair.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

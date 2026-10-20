@@ -83,11 +83,18 @@ NO_PRIOR_ZERO = False
 # --no-prior-position-mean: the same, but toward the position's average prior-season ppg (set per build_pairs season).
 NO_PRIOR_POSITION_MEAN = False
 POSITION_PRIOR_MEAN: dict[str, float] = {}
+# --team-change-k K2 (2026-10-14): a player whose team this season differs from his team at the end of last season
+# is shrunk toward last season with K2 pseudo-games instead of K. The Ferguson-over-Likely RCA: Likely's 4.0 ppg as
+# Baltimore's TE2 in 2025 outweighed four 2026 games as the Giants' TE1 (10.5 ppg, 31% target share) under K=4.
+TEAM_CHANGE_K: float | None = None
 
 
 def blended_ppg(proxy: dict | None, prior: dict | None, k: float, position: str | None = None) -> float | None:
     ppg, games = (proxy or {}).get("ppg"), (proxy or {}).get("games_played") or 0
     prior_ppg = (prior or {}).get("ppg")
+    if TEAM_CHANGE_K is not None and (proxy or {}).get("team") and (prior or {}).get("team") \
+            and proxy["team"] != prior["team"] and ppg is not None and games:
+        k = TEAM_CHANGE_K
     if ppg is None and prior_ppg is None:
         return None
     if prior_ppg is None:
@@ -220,9 +227,11 @@ def build_pairs(season: int, weeks: range, seed: int = 0) -> list[dict]:
             for a, b in all_pairs[:PAIRS_PER_GROUP]:
                 fa = features_for(rows.get(a), proxy.get(a), prior.get(a), extra_for(a), positions.get(a))
                 fb = features_for(rows.get(b), proxy.get(b), prior.get(b), extra_for(b), positions.get(b))
+                changed = any((proxy.get(p) or {}).get("team") and (prior.get(p) or {}).get("team")
+                              and proxy[p]["team"] != prior[p]["team"] for p in (a, b))
                 pairs.append({"season": season, "week": week, "position": pos, "x": [p - q for p, q in zip(fa, fb)],
                               "y": 1 if actual[a] > actual[b] else 0, "gap": abs(actual[a] - actual[b]),
-                              "fa": fa, "fb": fb})
+                              "fa": fa, "fb": fb, "team_change": changed})
     return pairs
 
 
@@ -247,6 +256,7 @@ def accuracy(pairs: list[dict], score) -> dict:
     by_pos: dict[str, list[int]] = {}
     by_gap: dict[str, list[int]] = {}
     by_week: dict[str, list[int]] = {}
+    by_season: dict[str, list[int]] = {}
     for p in pairs:
         sa, sb = score(p["fa"]), score(p["fb"])
         if sa == sb:
@@ -258,10 +268,15 @@ def accuracy(pairs: list[dict], score) -> dict:
         by_gap.setdefault(bucket, [0, 0]); by_gap[bucket][0] += ok; by_gap[bucket][1] += 1
         wb = "weeks 2-5" if p["week"] <= 5 else "weeks 6-10" if p["week"] <= 10 else "weeks 11-18"
         by_week.setdefault(wb, [0, 0]); by_week[wb][0] += ok; by_week[wb][1] += 1
+        # 2026-10-14: pairs where at least one player changed teams since last season (where --team-change-k bites)
+        tc = "team changed" if p.get("team_change") else "same team"
+        by_season.setdefault(tc, [0, 0]); by_season[tc][0] += ok; by_season[tc][1] += 1
+        by_season.setdefault(str(p["season"]), [0, 0]); by_season[str(p["season"])][0] += ok; by_season[str(p["season"])][1] += 1
     return {"accuracy": round(correct / total, 4) if total else None, "scored": total, "undecided": len(pairs) - total,
             "by_position": {k: {"correct": v[0], "scored": v[1], "accuracy": round(v[0] / v[1], 3)} for k, v in sorted(by_pos.items())},
             "by_gap": {k: {"correct": v[0], "scored": v[1], "accuracy": round(v[0] / v[1], 3)} for k, v in by_gap.items()},
-            "by_week": {k: {"correct": v[0], "scored": v[1], "accuracy": round(v[0] / v[1], 3)} for k, v in sorted(by_week.items())}}
+            "by_week": {k: {"correct": v[0], "scored": v[1], "accuracy": round(v[0] / v[1], 3)} for k, v in sorted(by_week.items())},
+            "by_season_and_team_change": {k: {"correct": v[0], "scored": v[1], "accuracy": round(v[0] / v[1], 3)} for k, v in sorted(by_season.items())}}
 
 
 # The hand-set weights ranking.py used until 2026-09-21 ("simple, documented, not fitted"), frozen here so the
@@ -286,9 +301,11 @@ def main() -> None:
     parser.add_argument("--per-position", action="store_true", help="fit one weight vector per position instead of one shared")
     parser.add_argument("--no-prior-zero", action="store_true", help="with --blend: shrink a player with no prior-season line toward 0 (see NO_PRIOR_ZERO)")
     parser.add_argument("--no-prior-position-mean", action="store_true", help="with --blend: shrink a player with no prior-season line toward his position's mean prior ppg")
+    parser.add_argument("--team-change-k", type=float, default=None, help="with --blend: pseudo-games for a player whose team changed since last season (see TEAM_CHANGE_K)")
     args = parser.parse_args()
-    global BLEND_K, FEATURES, NO_PRIOR_ZERO, NO_PRIOR_POSITION_MEAN
+    global BLEND_K, FEATURES, NO_PRIOR_ZERO, NO_PRIOR_POSITION_MEAN, TEAM_CHANGE_K
     BLEND_K = args.blend
+    TEAM_CHANGE_K = args.team_change_k
     NO_PRIOR_ZERO = args.no_prior_zero
     NO_PRIOR_POSITION_MEAN = args.no_prior_position_mean
     FEATURES = list(BASE_FEATURES) + list(args.extra)
@@ -341,13 +358,15 @@ def main() -> None:
         "date": date.today().isoformat(), "train_seasons": args.train, "test_seasons": args.test,
         "weeks": [args.weeks[0], args.weeks[1]], "features": FEATURES, "fit_scoring": FIT_SCORING,
         "min_points_both": MIN_POINTS_BOTH, "pairs_per_group": PAIRS_PER_GROUP, "blend_k": BLEND_K, "no_prior_zero": NO_PRIOR_ZERO, "no_prior_position_mean": NO_PRIOR_POSITION_MEAN,
+        "team_change_k": TEAM_CHANGE_K,
         "train_pairs": len(train), "test_pairs": len(test), "weights": weights,
         "test": {"fitted": accuracy(test, fitted), "hand_weights_pre_fit": accuracy(test, hand_weight_score),
                  "ppg_only": accuracy(test, ppg_only), "prior_season_ppg_only": accuracy(test, prior_only)},
         "train_fit": {"fitted": accuracy(train, fitted)},
     }
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    tag = ('' if BLEND_K is None else f'_blend{BLEND_K:g}') + ('_noprior0' if NO_PRIOR_ZERO else '') + ('_nopriorposmean' if NO_PRIOR_POSITION_MEAN else '') + (('_with_' + '_'.join(args.extra)) if args.extra else '')
+    tag = ('' if BLEND_K is None else f'_blend{BLEND_K:g}') + ('_noprior0' if NO_PRIOR_ZERO else '') + ('_nopriorposmean' if NO_PRIOR_POSITION_MEAN else '') \
+        + ('' if TEAM_CHANGE_K is None else f'_teamchange{TEAM_CHANGE_K:g}') + (('_with_' + '_'.join(args.extra)) if args.extra else '')
     out = RESULTS_DIR / f"{report['date']}_ranking_fit{tag}.json"
     out.write_text(json.dumps(report, indent=2))
     print(json.dumps({k: v for k, v in report.items() if k != "features"}, indent=2))

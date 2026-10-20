@@ -96,6 +96,17 @@ __all__ = [
 # ..._ranking_fit.json the unshrunk one).
 PPG_WEIGHT = 0.0812               # shrunk points per game under THIS league's scoring -- see blended_ppg()
 PPG_BLEND_GAMES = 4.0             # last season counts as this many games' worth of evidence
+# 2026-10-14: when the player's team changed since last season, last season
+# counts as this many games instead. The Ferguson-over-Likely RCA: Isaiah
+# Likely's 4.0 ppg as Baltimore's TE2 in 2025 outweighed four 2026 games as
+# the Giants' TE1 (10.5 ppg, 31% target share) under the 4-game blend, and
+# the ranking started a 10%-target-share Ferguson over him (Likely 36.4 pts,
+# Ferguson 5.9). Tested with evals/fit_ranking_weights.py --team-change-k on
+# 38,957 held-out 2024+2025 pairs: 2 games 60.96%, 1 game 60.91%, 0 games
+# 60.82%, against 60.83% for the unchanged 4-game blend -- a small, non-
+# negative move (few pairs involve a team changer; see TODO.md's entry for
+# the team-changer subset), adopted at the best tested value.
+PPG_BLEND_GAMES_TEAM_CHANGE = 2.0
 TARGET_SHARE_WEIGHT = 0.2942
 RED_ZONE_SHARE_WEIGHT = 0.6056
 EPA_TREND_WEIGHT = -0.0736        # slightly negative on held-out data: a hot trailing window does not predict next week
@@ -231,7 +242,18 @@ def blended_ppg(row: dict) -> float | None:
         return float(ppg)
     if ppg is None:
         return float(prior)
-    return (games * float(ppg) + PPG_BLEND_GAMES * float(prior)) / (games + PPG_BLEND_GAMES)
+    k = PPG_BLEND_GAMES_TEAM_CHANGE if team_changed(row) else PPG_BLEND_GAMES
+    return (games * float(ppg) + k * float(prior)) / (games + k)
+
+
+def team_changed(row: dict) -> bool:
+    """Whether the player's team this season differs from his team at the
+    end of last season (both from the stat lines; False when either is
+    unknown). A stale prior-season row carries last season's team, so it
+    never reads as a change."""
+    now = row.get("team_this_season") or row.get("team")
+    prior = row.get("team_prior_season")
+    return bool(now and prior and now != prior)
 
 
 # A quarterback listed this deep or deeper on Sleeper's depth chart is a
@@ -362,6 +384,13 @@ class SignalTables:
     # are known and nothing about them is "future" (a stat line exists
     # only for a game that has been played, so no unplayed game can leak).
     points_through_week: int | None = None
+    # 2026-10-14: this week's games that are already in the books, when the
+    # horizon includes this week (points_through_week > as_of_week): the
+    # teams with a stat line in as_of_week and each player's / unit's
+    # points in it. A Thursday player's week is final by Friday; the
+    # ranking then counts his actual points, not a projection of them.
+    this_week_points: dict[str, float] = field(default_factory=dict)
+    teams_played_this_week: set = field(default_factory=set)
     _team_matchups: dict | None = field(default=None, repr=False)
 
     @classmethod
@@ -379,6 +408,8 @@ class SignalTables:
         fallback_season, fallback_rows = load_prior_season_fallback_table(signals_dir, season)
         proxy: dict[str, dict] = {}
         proxy_prior: dict[str, dict] = {}
+        this_week: dict[str, float] = {}
+        teams_played: set = set()
         # Default: next to the signals tables (data/processed/player_stats in
         # production). Deriving it from signals_dir rather than a module
         # constant is what keeps a test's temp signals dir from reading the
@@ -388,8 +419,9 @@ class SignalTables:
             from src.reasoning import points_proxy
             from src.signals import player_stats as ps  # local: keeps ranking importable without nflreadpy loaded eagerly
 
+            stats = ps.load_weekly_stats(season, stats_dir)
             proxy = points_proxy.season_points_proxy(
-                ps.load_weekly_stats(season, stats_dir), scoring_settings,
+                stats, scoring_settings,
                 points_through_week if points_through_week is not None else as_of_week,
             )
             proxy_prior = points_proxy.season_points_proxy(ps.load_weekly_stats(season - 1, stats_dir), scoring_settings)
@@ -398,19 +430,44 @@ class SignalTables:
             from src.signals import unit_stats as us
 
             units_dir = Path(signals_dir).parent / "unit_stats"
+            kickers, defenses = us.load_kicker_stats(season, units_dir), us.load_defense_stats(season, units_dir)
             proxy.update(points_proxy.unit_points_proxy(
-                us.load_kicker_stats(season, units_dir), us.load_defense_stats(season, units_dir), scoring_settings,
+                kickers, defenses, scoring_settings,
                 points_through_week if points_through_week is not None else as_of_week,
             ))
             proxy_prior.update(points_proxy.unit_points_proxy(
                 us.load_kicker_stats(season - 1, units_dir), us.load_defense_stats(season - 1, units_dir), scoring_settings,
             ))
+            if points_through_week is not None and points_through_week > as_of_week:
+                this_week, teams_played = _this_weeks_results(stats, kickers, defenses, scoring_settings, as_of_week)
         from src.signals import availability as av
 
         injuries_dir = injuries_dir or (Path(signals_dir).parent / "injuries")
         availability = av.availability_for(av.load_injury_reports(season, injuries_dir), as_of_week)
         return cls(season, as_of_week, signals_by_id, fallback_season, fallback_rows, proxy, proxy_prior, availability,
-                   points_through_week)
+                   points_through_week, this_week, teams_played)
+
+    def game_fields(self, player_id: str, team: str | None = None) -> dict:
+        """This week's game for a player: `game_day` (e.g. 'Thu 10/08
+        8:15pm ET'), `kickoff` ('2026-10-08 20:15 ET'), `already_played`
+        (his team's game that week is in the stat tables) and
+        `this_week_points` (his points in it under this league's scoring;
+        0.0 when his team played and he has no line). All None when the
+        team or the schedule is unknown; already_played is False, not
+        None, whenever the team is known, so a reader never mistakes
+        'unknown' for 'played'."""
+        team = team or (self.proxy.get(player_id) or {}).get("team") or (self.signals_by_id.get(player_id) or {}).get("team")
+        out = {"game_day": None, "kickoff": None, "already_played": None, "this_week_points": None}
+        if not team:
+            return out
+        m = self.team_matchups().get(team) or {}
+        out["game_day"] = format_game_day(m.get("gameday"), m.get("gametime"), m.get("weekday"))
+        out["kickoff"] = f"{m['gameday']} {m.get('gametime') or ''} ET".strip() if m.get("gameday") else None
+        played = team in self.teams_played_this_week
+        out["already_played"] = played
+        if played:
+            out["this_week_points"] = float(self.this_week_points.get(player_id, 0.0))
+        return out
 
     def availability_fields(self, player_id: str) -> dict:
         """This week's injury-report availability for one player; every
@@ -433,6 +490,9 @@ class SignalTables:
             "season_points_so_far_proxy": now.get("season_points_so_far_proxy"),
             "ppg_prior_season": prior.get("ppg"),
             "prior_games_played": prior.get("games_played"),
+            # The team each set of points was scored for -- see team_changed().
+            "team_this_season": now.get("team"),
+            "team_prior_season": prior.get("team"),
         }
         unit = now.get("unit") or prior.get("unit")
         if unit:
@@ -448,7 +508,10 @@ class SignalTables:
             m: dict[str, dict] = {}
             for row in self.signals_by_id.values():
                 if row.get("season") == self.season and row.get("as_of_week") == self.as_of_week and row.get("team"):
-                    m.setdefault(row["team"], {"opponent": row.get("opponent"), "implied_total": row.get("implied_total")})
+                    m.setdefault(row["team"], {"opponent": row.get("opponent"), "implied_total": row.get("implied_total"),
+                                               # kickoff facts (2026-10-14); None on a table computed before they existed
+                                               "gameday": row.get("gameday"), "gametime": row.get("gametime"),
+                                               "weekday": row.get("weekday")})
             self._team_matchups = m
         return self._team_matchups
 
@@ -487,7 +550,62 @@ class SignalTables:
                    "source_season": (self.season - 1) if stale else self.season, "source_as_of_week": None}
             if proxy.get("unit"):
                 row.update(self.unit_fields(proxy))
-        return {**row, **proxy, **self.availability_fields(player_id)}
+        merged = {**row, **proxy, **self.availability_fields(player_id)}
+        # A stale fallback row carries LAST season's team; the stat lines'
+        # current team wins for this week's game (2026-10-14).
+        team = proxy.get("team_this_season") or (row.get("team") if not row.get("stale") else None) or proxy.get("unit_team") or row.get("team")
+        return {**merged, **self.game_fields(player_id, team)}
+
+
+def _this_weeks_results(stats, kickers, defenses, scoring: dict, week: int) -> tuple[dict[str, float], set]:
+    """({player_or_unit_id: points in `week`}, {teams with a stat line in
+    `week`}) -- the games of this week that are already final. nflverse
+    emits a stat line only for a game that has been played, so a team with
+    one has played; a player on such a team with no line scored nothing."""
+    from src.reasoning import points_proxy
+
+    points: dict[str, float] = {}
+    teams: set = set()
+    if stats is not None and not stats.is_empty():
+        wk = stats.filter(pl.col("week") == week)
+        for r in points_proxy.points_by_week(wk, scoring).to_dicts():
+            points[r["player_id"]] = round(float(r["points"]), 2)
+        teams.update(t for t in wk.get_column("team").unique().to_list() if t)
+        if "opponent_team" in wk.columns:
+            teams.update(t for t in wk.get_column("opponent_team").unique().to_list() if t)
+    for frame, expr in ((kickers, points_proxy.kicker_points_expr), (defenses, points_proxy.defense_points_expr)):
+        if frame is not None and not frame.is_empty():
+            wk = frame.filter(pl.col("week") == week)
+            for r in wk.select("player_id", expr(scoring)).to_dicts():
+                points[r["player_id"]] = round(float(r["points"]), 2)
+    return points, teams
+
+
+_WEEKDAY_ABBR = {"Thursday": "Thu", "Friday": "Fri", "Saturday": "Sat", "Sunday": "Sun", "Monday": "Mon",
+                 "Tuesday": "Tue", "Wednesday": "Wed"}
+
+
+def format_game_day(gameday: str | None, gametime: str | None, weekday: str | None) -> str | None:
+    """'Thu 10/08 8:15pm ET' from nflverse's schedule columns; None
+    without a date."""
+    if not gameday:
+        return None
+    try:
+        from datetime import datetime
+
+        d = datetime.strptime(str(gameday), "%Y-%m-%d")
+        day = f"{_WEEKDAY_ABBR.get(weekday or '', weekday or d.strftime('%a'))} {d.month:02d}/{d.day:02d}"
+    except ValueError:
+        day = str(gameday)
+    if gametime:
+        try:
+            from datetime import datetime
+
+            t = datetime.strptime(str(gametime), "%H:%M")
+            day += " " + t.strftime("%I:%M%p").lstrip("0").lower() + " ET"
+        except ValueError:
+            day += f" {gametime} ET"
+    return day
 
 
 def signal_row(
@@ -534,8 +652,15 @@ def opportunity_score(row: dict | None) -> float | None:
     silently treating missing data as zero."""
     if row is None:
         return None
+    # A player whose game this week is already final (2026-10-14) is counted
+    # at the points he actually scored, not a shrunk average of past weeks:
+    # there is nothing left to project. The usage/matchup terms stay, so
+    # his standing against a player who hasn't played is still on one
+    # scale (they are small next to the points term: a 10-point edge is
+    # 0.81, the target-share edge between a 30% and a 10% player is 0.06).
+    points = row.get("this_week_points") if row.get("already_played") and row.get("this_week_points") is not None else blended_ppg(row)
     terms = [
-        (PPG_WEIGHT, blended_ppg(row)),
+        (PPG_WEIGHT, points),
         (TARGET_SHARE_WEIGHT, target_share(row)),
         (RED_ZONE_SHARE_WEIGHT, row.get("red_zone_share")),
         (IMPLIED_TOTAL_WEIGHT, row.get("implied_total")),
@@ -552,7 +677,8 @@ def opportunity_score(row: dict | None) -> float | None:
 KEY_STAT_FIELDS = ("ppg", "games_played", "ppg_prior_season", "red_zone_share", "opponent", "implied_total",
                    "run_funnel_rate_vs_avg", "cpoe", "stale", "source_season",
                    "play_probability", "practice_status", "expected_output",
-                   "unit", "team_implied_total", "opponent_implied_total")
+                   "unit", "team_implied_total", "opponent_implied_total",
+                   "game_day", "already_played", "this_week_points", "team_prior_season")
 
 
 def key_stats(row: dict | None) -> dict:
@@ -613,10 +739,20 @@ def fmt_signal_row(row: dict | None) -> str:
             f"showing {row.get('source_season')} season-end reference instead] "
         )
     parts = []
+    if row.get("already_played") and row.get("this_week_points") is not None:
+        when = f" ({row['game_day']})" if row.get("game_day") else ""
+        parts.append(f"ALREADY PLAYED this week{when}: {row['this_week_points']:.1f} pts in this league's scoring -- "
+                     "his week is final, the ranking counts those points, not a projection")
+    elif row.get("game_day"):
+        parts.append(f"plays {row['game_day']}")
     if row.get("ppg") is not None:
         parts.append(f"{row['ppg']:.1f} pts/game over {row['games_played']} game(s) this season in this league's scoring")
     if row.get("ppg_prior_season") is not None:
-        parts.append(f"{row['ppg_prior_season']:.1f} pts/game last season")
+        prior = f"{row['ppg_prior_season']:.1f} pts/game last season"
+        if team_changed(row):
+            prior += (f" with {row['team_prior_season']} -- a different team, so last season counts as only "
+                      f"{PPG_BLEND_GAMES_TEAM_CHANGE:g} game(s) of evidence here")
+        parts.append(prior)
     if row.get("proxy_only"):
         parts.append("no usage/matchup signals computed yet")
     if row.get("epa_trend") is not None and not trend_is_trustworthy(row):
@@ -682,10 +818,18 @@ def availability_of(row: dict | None, injury_status: str | None, position: str |
     from src.signals import availability as av
 
     row = row or {}
+    if row.get("already_played"):
+        # He played (or his team did and he didn't): nothing left to be
+        # uncertain about (2026-10-14).
+        return {k: None for k in av.AVAILABILITY_FIELDS}
     if row.get("play_probability") is not None:
         return {k: row.get(k) for k in av.AVAILABILITY_FIELDS}
     if injury_status in av.PROBABILISTIC_STATUSES:
-        return av.fields_for(injury_status, None, position)
+        # Sleeper's designation with the NFL report's practice status when
+        # the report lists him without a game designation (2026-10-14:
+        # Likely was Questionable on Sleeper and a full participant on the
+        # report, and got the no-practice-information pooled rate).
+        return av.fields_for(injury_status, row.get("practice_status"), position, row.get("injury"))
     return {k: None for k in av.AVAILABILITY_FIELDS}
 
 
@@ -750,6 +894,11 @@ def rank_candidates(candidates: list[dict]) -> dict:
                 "key_stats": {**key_stats(row), "play_probability": avail["play_probability"],
                               "practice_status": avail["practice_status"], "expected_output": avail["expected_output"],
                               "depth_chart_order": depth},
+                # This week's game (2026-10-14): when it is, and whether it is already in the books.
+                "game_day": (row or {}).get("game_day"),
+                "kickoff": (row or {}).get("kickoff"),
+                "already_played": bool((row or {}).get("already_played")),
+                "this_week_points": (row or {}).get("this_week_points"),
                 **stale_fields(row),
                 **avail,
                 "_score": score,
