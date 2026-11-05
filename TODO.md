@@ -2492,6 +2492,60 @@ the lineup filling mirrors `_start_sit_report` rather than calling it
 - [ ] Real-model check of the GAME TIMING prompt on the hosted app with
       a Thursday-vs-Sunday pair.
 
+## Fixed: the Moves tab listed another league's free agents as pickups (2026-10-20)
+
+**Symptom.** Rohan's Dynasty of Chips Moves -> Waivers listed Tre Tucker, Mike
+Gesicki, Jacoby Brissett (his own starting QB), Kenny Gainwell, Keenan Allen and
+Pat Freiermuth as "this week's priority" pickups. All six are rostered in
+Dynasty, and have been since before week 1 (Sleeper's transaction log for weeks
+1-7 shows no move on any of them).
+
+**RCA.**
+- Server side ruled out. The waiver pool excluded 281 rostered nflverse ids on
+  the local Oct 5 copy of the league and 282 on production today; all six names
+  resolve exactly through `player_index.resolve_player`; production's own
+  report for the same session, fetched during the RCA, lists none of them.
+  There is no in-process caching of league config or reports, and the 2025
+  predecessor league has the same six on the same rosters.
+- All nine names in the screenshot are free agents in Victorious Secret 3.0,
+  Rohan's remembered league. `restoreSession()` opens the remembered league on
+  page load and fires its three report requests and the roster request. The
+  waiver report takes tens of seconds in production (over two minutes while a
+  refresh cycle holds the CPU). Picking Dynasty in the league picker reset
+  `state.reports = {}` and fired Dynasty's requests, but Victorious Secret's
+  responses landed later and `fetchReport` wrote them into `state.reports`
+  and into the Feed and Moves cards unconditionally: whichever league answered
+  last won, under the new league's header. `/api/roster` (`state.roster`) and
+  `/api/chat` had the same race.
+- Reproduced in a real headless Chrome (Python Playwright, `channel="chrome"`,
+  see the 5.4 follow-up entry for why) against the real page served by a local
+  uvicorn with `/api/*` mocked in the browser: league A's reports and roster
+  delayed 3 s, league B's immediate, remembered league A, switch to B through
+  the picker. Before the fix: header "League B", Moves list, Feed, roster and
+  `state.reports.waiver_pickups.league_id` all league A.
+
+**Fix (`design/askmadden-ui-mockup.html`).** `assertSameSession(sid, data)`:
+every report, roster and chat call captures the session id before the request
+and discards the response (a `StaleSessionError`: never cached, never rendered,
+no error card) if the open session changed meanwhile, or if a report's own
+`league_id` differs from the session's. `enterSession()` is the single reset on
+select, restore and logout, and also clears the chat transcripts. `loadFeed`
+resets the Feed and Moves sections to a loading card before fetching, so the
+previous league's cards no longer linger until the new ones arrive. The same
+browser script passes after the fix; `tests/test_api_static.py::
+test_responses_for_a_league_that_is_no_longer_open_are_discarded` pins the
+shape in the page.
+
+**Not changed, noted.** The report endpoints' latency is what makes the race
+easy to hit, and what makes the first open of a league feel broken. The waiver
+report reads the league's 20 MB `players.json` and builds the nflverse player
+index on every call.
+
+- [ ] Profile `/api/reports/waiver_pickups` in production and cache each
+      report per league per refresh cycle (invalidate on the cycle's stamp).
+- [ ] Keep the browser race check (session scratchpad, described above; not
+      committed) and rerun it after the next change to the page's loading code.
+
 ## Phase 4: Stretch (optional — not a blocker for Phase 5)
 - [ ] Derived coverage classification (Big Data Bowl tracking data)
 - [ ] Discord bot wrapper

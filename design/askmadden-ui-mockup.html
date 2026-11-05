@@ -701,6 +701,38 @@
     return data;
   }
 
+  /* ---------------- one league on screen at a time (2026-10-20) ----------------
+     A response is usable only if the session it was requested for is still the
+     active one. Switching leagues resets `state`, but a request already in
+     flight for the previous league lands afterwards and, unchecked, writes the
+     previous league's data into the cache and the cards under the new league's
+     header. The waiver report takes tens of seconds in production (minutes
+     during a refresh cycle), so this was easy to hit: the remembered league's
+     reports start on page load, the user picks another league, and the first
+     league's answers arrive last. Dynasty of Chips' Moves tab listed Victorious
+     Secret 3.0's free agents -- six of them rostered in Dynasty -- as pickups.
+     Every report, roster and chat response now passes through assertSameSession,
+     and a report's own league_id is checked against the session's as well. */
+  class StaleSessionError extends Error { constructor(){ super('response for a league that is no longer open'); this.stale = true; } }
+  const sessionToken = () => state.session && state.session.session_id;
+  function assertSameSession(sid, data){
+    if (!sid || sessionToken() !== sid) throw new StaleSessionError();
+    if (data && data.league_id != null && state.session.league_id != null && String(data.league_id) !== String(state.session.league_id)) throw new StaleSessionError();
+    return data;
+  }
+  // Make `session` the open league (null on logout) and drop everything the
+  // previous league left behind: cached reports, roster, chat threads, and
+  // whatever was on screen, so nothing of the old league shows while the new
+  // one loads (the Feed and Moves lists are reset by loadFeed itself).
+  function enterSession(session){
+    state.session = session; state.roster = null; state.reports = {}; state.messages = null; state.tradeMessages = null;
+    const chat = document.getElementById('chat-scroll');
+    Array.from(chat.children).slice(1).forEach(el => el.remove());  // the first bubble is the fixed welcome message
+    document.getElementById('trades-scroll').innerHTML = '';
+    document.getElementById('chat-status').textContent = '';
+    document.getElementById('roster-meta').textContent = 'Loading roster…';
+  }
+
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0,2).map(w => w[0].toUpperCase()).join('') || '?';
   const posClass = (pos) => ({RB:'rb', WR:'wr', QB:'qb'}[(pos || '').toUpperCase()] || '');
@@ -755,7 +787,7 @@
     const label = document.getElementById('picker-hi'); const prev = label.textContent; label.textContent = 'Loading league data… (the first time a league is opened it is pulled from Sleeper and indexed, which takes about a minute; after that it is instant)';
     try {
       const session = await api('/api/sessions', { method:'POST', body:{ username: state.username, league_id: leagueId } });
-      state.session = session; state.roster = null; state.reports = {}; state.messages = null; state.tradeMessages = null;
+      enterSession(session);
       remember(state.username, leagueId);
       applyHeader();
       hideModal();
@@ -807,7 +839,7 @@
   function forget(){ try { localStorage.removeItem(REMEMBER_KEY); } catch (e) {} }
   function logout(){
     forget();
-    state.username = null; state.user = null; state.leagues = []; state.session = null; state.roster = null; state.reports = {}; state.messages = null; state.tradeMessages = null;
+    state.username = null; state.user = null; state.leagues = []; enterSession(null);
     hideModal(); goView('landing');
   }
   async function restoreSession(){
@@ -820,7 +852,7 @@
       document.getElementById('picker-hi').textContent = `Hey, @${state.username}`;
       renderLeagueList('league-list', false);
       const session = await api('/api/sessions', { method:'POST', body:{ username: state.username, league_id: saved.league_id } });
-      state.session = session; state.roster = null; state.reports = {}; state.messages = null; state.tradeMessages = null;
+      enterSession(session);
       applyHeader(); goView('app'); setTab('feed'); loadFeed(); loadRoster();
       return true;
     } catch (e) { forget(); return false; }
@@ -831,8 +863,9 @@
     if (!state.session) return;
     if (state.roster && !force) return renderRoster();
     document.getElementById('roster-meta').textContent = 'Loading roster…';
-    try { state.roster = await api(`/api/roster?session_id=${encodeURIComponent(state.session.session_id)}`); renderRoster(); }
-    catch (e) { document.getElementById('roster-meta').textContent = `Couldn't load roster: ${e.detail}`; }
+    const sid = sessionToken();
+    try { state.roster = assertSameSession(sid, await api(`/api/roster?session_id=${encodeURIComponent(sid)}`)); renderRoster(); }
+    catch (e) { if (!e.stale) document.getElementById('roster-meta').textContent = `Couldn't load roster: ${e.detail}`; }
   }
   function renderRoster(){
     const r = state.roster;
@@ -874,7 +907,8 @@
   /* ---------------- reports (feed + moves) ---------------- */
   async function fetchReport(type, force){
     if (state.reports[type] && !force) return state.reports[type];
-    const data = await api(`/api/reports/${type}?session_id=${encodeURIComponent(state.session.session_id)}`);
+    const sid = sessionToken();
+    const data = assertSameSession(sid, await api(`/api/reports/${type}?session_id=${encodeURIComponent(sid)}`));
     state.reports[type] = data;
     return data;
   }
@@ -885,6 +919,9 @@
   async function loadFeed(force){
     if (!state.session) return;
     const ss = document.getElementById('feed-start-sit'), dr = document.getElementById('feed-drop'), wv = document.getElementById('feed-waivers');
+    const mv = document.getElementById('moves-waiver-list');
+    const loading = what => `<div class="state-card"><p>Loading ${what}…</p></div>`;
+    ss.innerHTML = loading('start/sit'); dr.innerHTML = loading('drop candidates'); wv.innerHTML = loading('waiver targets'); mv.innerHTML = loading('waiver targets');
     fetchReport('start_sit', force).then(rep => {
       const cards = [];
       // A player who starts in one slot (e.g. a TE filling FLEX) must not also
@@ -936,14 +973,14 @@
       ss.innerHTML = sections.length ? sections.join('') : `<div class="state-card"><div class="tag-mini">NO START/SIT CALLS YET</div><p>${esc((rep.notes || []).join(' ') || 'No position on your roster has two or more players with computed signals for this week.')}</p></div>`;
       if (sections.length && rep.notes && rep.notes.length) ss.insertAdjacentHTML('beforeend', notesCard(rep));
       renderPosFilter(rep.entries.map(e => e.position));
-    }).catch(e => ss.innerHTML = errorCard(e, 'start/sit'));
+    }).catch(e => { if (!e.stale) ss.innerHTML = errorCard(e, 'start/sit'); });
     fetchReport('drop', force).then(rep => {
       dr.innerHTML = (rep.entries.length ? rep.entries.map(dropRow).join('') : `<div class="state-card"><p>No drop candidates could be ranked.</p></div>`) + notesCard(rep);
-    }).catch(e => dr.innerHTML = errorCard(e, 'drop candidates'));
+    }).catch(e => { if (!e.stale) dr.innerHTML = errorCard(e, 'drop candidates'); });
     fetchReport('waiver_pickups', force).then(rep => {
       wv.innerHTML = renderWaivers(rep, 5);
-      document.getElementById('moves-waiver-list').innerHTML = renderWaivers(rep, 25);
-    }).catch(e => { wv.innerHTML = errorCard(e, 'waiver targets'); document.getElementById('moves-waiver-list').innerHTML = errorCard(e, 'waiver targets'); });
+      mv.innerHTML = renderWaivers(rep, 25);
+    }).catch(e => { if (e.stale) return; wv.innerHTML = errorCard(e, 'waiver targets'); mv.innerHTML = errorCard(e, 'waiver targets'); });
   }
   // Step 1 of the accuracy plan: every START verdict shows the fitted model's
   // probability of outscoring the next-ranked player, with its calibration label.
@@ -1120,13 +1157,15 @@
     if (!state.session) { bubble(container, 'assistant', 'Pick a league first.', 'error'); return null; }
     bubble(container, 'user', esc(question));
     const pending = bubble(container, 'assistant', 'Thinking…');
+    const sid = sessionToken();
     try {
-      const body = await api('/api/chat', { method:'POST', body:{ session_id: state.session.session_id, question, messages: state[historyKey] } });
+      const body = assertSameSession(sid, await api('/api/chat', { method:'POST', body:{ session_id: sid, question, messages: state[historyKey] } }));
       state[historyKey] = body.messages;   // threaded back into the next turn
       pending.querySelector('.bubble').innerHTML = answerHtml(body);
       document.getElementById('chat-status').textContent = `${body.queries_used_today} of ${body.daily_query_cap} chat queries used today.`;
       return body;
     } catch (e) {
+      if (e.stale) { pending.remove(); return null; }  // the league changed while this answer was being written
       pending.classList.add('error');
       pending.querySelector('.bubble').innerHTML = esc(e.status === 429 ? `Daily chat limit reached: ${e.detail}` : e.detail);
       return null;

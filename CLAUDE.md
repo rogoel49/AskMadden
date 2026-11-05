@@ -468,6 +468,15 @@ or monetized, it needs to genuinely work for more than one league.
   2026: ours 125.4 pts/week vs the managers' 130.4 (optimal 149.9),
   adjacent-pair accuracy 57%, confidence labels calibrated. See TODO.md's
   "RCA: Ferguson over a Questionable Likely" entry.
+- Moves tab showed another league's free agents (2026-10-20): switching
+  leagues left the previous league's slow report/roster/chat responses free
+  to land afterwards and overwrite the new league's cache and cards (Dynasty
+  of Chips listed Victorious Secret 3.0's free agents as pickups, six of them
+  rostered in Dynasty). The page's `assertSameSession` now discards any
+  response whose session is no longer the open one or whose `league_id`
+  differs from the session's, and `enterSession()` is the single reset.
+  Reproduced and verified in a real headless Chrome. See TODO.md's "Fixed:
+  the Moves tab listed another league's free agents" entry.
 - Phase 7 (coaching-scheme fit signal): not started, backlog. Sequenced
   after Phase 6 — a real signal (Tier 1: a "new offensive coordinator
   this season" fact; Tier 2: an eval-gated, explicitly-labeled scheme-fit

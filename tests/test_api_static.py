@@ -205,3 +205,28 @@ def test_redirect_keeps_the_method_for_api_posts(monkeypatch):
     monkeypatch.setattr(main, "CANONICAL_HOST", "askmadden.com")
     r = TestClient(main.app).post("/api/sessions", json={"username": "x", "league_id": "1"}, headers={"host": "askmadden.fly.dev"}, follow_redirects=False)
     assert r.status_code == 308 and r.headers["location"] == "https://askmadden.com/api/sessions"
+
+
+def test_responses_for_a_league_that_is_no_longer_open_are_discarded(client):
+    """2026-10-20: Dynasty of Chips' Moves tab listed Victorious Secret
+    3.0's free agents as pickups (six of them rostered in Dynasty). The
+    remembered league's slow report requests were still in flight when
+    the user switched leagues; their responses landed last and overwrote
+    the new league's cache and cards. Every report, roster and chat
+    response must pass through the session guard, and the guard must
+    check both the session id captured at request time and the report's
+    own league_id. Reproduced and verified in a real browser (mocked,
+    delayed API); this pins the shape of the fix in the page."""
+    html = client.get("/ui/").text
+    assert "function assertSameSession(sid, data)" in html
+    assert "sessionToken() !== sid) throw new StaleSessionError()" in html
+    assert "String(data.league_id) !== String(state.session.league_id)) throw new StaleSessionError()" in html
+    # Each API call whose answer is rendered goes through the guard with the
+    # session id captured before the request, never read back from state after.
+    assert html.count("assertSameSession(sid, await api(") == 3
+    for call in ("/api/reports/", "/api/roster?", "'/api/chat'"):
+        assert call in html
+    assert "session_id=${encodeURIComponent(state.session.session_id)}" not in html
+    # Switching leagues goes through one reset that drops the old league's state.
+    assert html.count("enterSession(session);") == 2 and "enterSession(null)" in html
+    assert "state.reports[type] = data" in html and html.count("state.reports = {}") == 1
